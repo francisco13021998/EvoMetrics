@@ -1,14 +1,19 @@
+import { normalizeAthleteLevel } from '@/constants/athlete-level';
+import { getPerimeterFormulaCodeForSex, getSkinfoldFormulaCodeForAthleteLevel } from '@/constants/body-fat-formulas';
 import { supabase } from '@/lib/supabase';
+import { bodyFatFormulasService } from '@/services/body-fat-formulas';
 import { CLIENTS_TABLE } from '@/services/clients';
 import { Revision } from '@/types/domain';
+import { isSupportedActivityFactor } from '@/utils/activity';
 import {
+    buildCompositionMetrics,
     calculateBmi,
     calculateFatMassDiffKg,
-    calculateFatMassKg,
     calculateLeanMassDiffKg,
-    calculateLeanMassKg,
+    calculateMaintenanceCalories,
     calculateWeightDiffKg,
 } from '@/utils/calculations';
+import { serializeRevisionPhase } from '@/utils/revisions';
 
 export const REVISIONS_TABLE = 'revisions';
 
@@ -27,6 +32,7 @@ type DbRevisionRow = {
   pelvis_cm: number | null;
   glute_cm: number | null;
   thigh_cm: number | null;
+  bicep_fold_mm: number | null;
   tricep_fold_mm: number | null;
   subscapular_fold_mm: number | null;
   abdominal_fold_mm: number | null;
@@ -34,12 +40,19 @@ type DbRevisionRow = {
   front_thigh_fold_mm: number | null;
   calf_fold_mm: number | null;
   body_fat_visual_pct: number | null;
+  activity_factor: number | null;
   fat_mass_kg: number | null;
   fat_mass_diff_kg: number | null;
   lean_mass_kg: number | null;
   lean_mass_diff_kg: number | null;
+  muscle_mass_kg?: number | null;
+  non_muscle_non_fat_mass_kg?: number | null;
+  muscle_formula_code?: string | null;
   maintenance_kcal: number | null;
+  maintenance_kcal_estimated: number | null;
   target_kcal: number | null;
+  perimeter_formula_id: string | null;
+  skinfold_formula_id: string | null;
   notes: string | null;
   reviewed_at: string;
   created_at: string;
@@ -47,6 +60,9 @@ type DbRevisionRow = {
 
 type ClientMetricsRow = {
   height_cm: number | null;
+  age: number | null;
+  sex: string | null;
+  athlete_level: string | null;
 };
 
 export type CreateRevisionInput = {
@@ -62,6 +78,7 @@ export type CreateRevisionInput = {
   pelvisCm?: number | null;
   gluteCm?: number | null;
   thighCm?: number | null;
+  bicepFoldMm?: number | null;
   tricepFoldMm?: number | null;
   subscapularFoldMm?: number | null;
   abdominalFoldMm?: number | null;
@@ -69,12 +86,37 @@ export type CreateRevisionInput = {
   frontThighFoldMm?: number | null;
   calfFoldMm?: number | null;
   bodyFatVisualPct?: number | null;
+  activityFactor?: number | null;
+  muscleMassKg?: number | null;
+  nonMuscleNonFatMassKg?: number | null;
+  muscleFormulaCode?: string | null;
   maintenanceKcal?: number | null;
+  maintenanceKcalEstimated?: number | null;
   targetKcal?: number | null;
+  perimeterFormulaId?: string | null;
+  skinfoldFormulaId?: string | null;
   notes?: string | null;
 };
 
 export type UpdateRevisionInput = Partial<Omit<CreateRevisionInput, 'clientId'>>;
+
+function normalizeClientSex(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const normalizedValue = value.trim().toLowerCase();
+
+  if (normalizedValue === 'female' || normalizedValue === 'mujer') {
+    return 'female' as const;
+  }
+
+  if (normalizedValue === 'male' || normalizedValue === 'hombre') {
+    return 'male' as const;
+  }
+
+  return null;
+}
 
 function mapDbRevision(row: DbRevisionRow): Revision {
   return {
@@ -91,6 +133,7 @@ function mapDbRevision(row: DbRevisionRow): Revision {
     pelvisCm: row.pelvis_cm,
     gluteCm: row.glute_cm,
     thighCm: row.thigh_cm,
+    bicepFoldMm: row.bicep_fold_mm,
     tricepFoldMm: row.tricep_fold_mm,
     subscapularFoldMm: row.subscapular_fold_mm,
     abdominalFoldMm: row.abdominal_fold_mm,
@@ -98,12 +141,19 @@ function mapDbRevision(row: DbRevisionRow): Revision {
     frontThighFoldMm: row.front_thigh_fold_mm,
     calfFoldMm: row.calf_fold_mm,
     bodyFatVisualPct: row.body_fat_visual_pct,
+    activityFactor: row.activity_factor,
     fatMassKg: row.fat_mass_kg,
     fatMassDiffKg: row.fat_mass_diff_kg,
     leanMassKg: row.lean_mass_kg,
     leanMassDiffKg: row.lean_mass_diff_kg,
+    muscleMassKg: row.muscle_mass_kg ?? null,
+    nonMuscleNonFatMassKg: row.non_muscle_non_fat_mass_kg ?? null,
+    muscleFormulaCode: row.muscle_formula_code ?? null,
     maintenanceKcal: row.maintenance_kcal,
+    maintenanceKcalEstimated: row.maintenance_kcal_estimated,
     targetKcal: row.target_kcal,
+    perimeterFormulaId: row.perimeter_formula_id,
+    skinfoldFormulaId: row.skinfold_formula_id,
     notes: row.notes,
     reviewedAt: row.reviewed_at,
     createdAt: row.created_at,
@@ -117,12 +167,26 @@ type RevisionComputedMetrics = {
   fatMassDiffKg: number | null;
   leanMassKg: number | null;
   leanMassDiffKg: number | null;
+  muscleMassKg: number | null;
+  nonMuscleNonFatMassKg: number | null;
+  muscleFormulaCode: string | null;
+  maintenanceKcalEstimated: number | null;
+  perimeterFormulaId: string | null;
+  skinfoldFormulaId: string | null;
 };
 
-async function getClientHeightCm(clientId: string) {
+type OptionalRevisionColumnSupport = {
+  muscleMassKg: boolean;
+  nonMuscleNonFatMassKg: boolean;
+  muscleFormulaCode: boolean;
+};
+
+let optionalRevisionColumnSupportPromise: Promise<OptionalRevisionColumnSupport> | null = null;
+
+async function getClientMetrics(clientId: string) {
   const { data, error } = await supabase
     .from(CLIENTS_TABLE)
-    .select('height_cm')
+    .select('height_cm, age, sex, athlete_level')
     .eq('id', clientId)
     .maybeSingle();
 
@@ -130,7 +194,14 @@ async function getClientHeightCm(clientId: string) {
     throw new Error(error.message);
   }
 
-  return (data as ClientMetricsRow | null)?.height_cm ?? null;
+  const clientMetrics = data as ClientMetricsRow | null;
+
+  return {
+    heightCm: clientMetrics?.height_cm ?? null,
+    age: clientMetrics?.age ?? null,
+    sex: normalizeClientSex(clientMetrics?.sex ?? null),
+    athleteLevel: normalizeAthleteLevel(clientMetrics?.athlete_level),
+  };
 }
 
 async function getPreviousRevisionSnapshot(clientId: string, excludeRevisionId?: string) {
@@ -161,18 +232,79 @@ async function getPreviousRevisionSnapshot(clientId: string, excludeRevisionId?:
     : null;
 }
 
+async function hasRevisionColumn(columnName: string) {
+  const { error } = await supabase
+    .from(REVISIONS_TABLE)
+    .select(columnName)
+    .limit(1);
+
+  return !error;
+}
+
+async function getOptionalRevisionColumnSupport() {
+  if (!optionalRevisionColumnSupportPromise) {
+    optionalRevisionColumnSupportPromise = Promise.all([
+      hasRevisionColumn('muscle_mass_kg'),
+      hasRevisionColumn('non_muscle_non_fat_mass_kg'),
+      hasRevisionColumn('muscle_formula_code'),
+    ]).then(([muscleMassKg, nonMuscleNonFatMassKg, muscleFormulaCode]) => ({
+      muscleMassKg,
+      nonMuscleNonFatMassKg,
+      muscleFormulaCode,
+    }));
+  }
+
+  return optionalRevisionColumnSupportPromise;
+}
+
+async function buildOptionalCompositionColumnPayload(metrics: RevisionComputedMetrics) {
+  const support = await getOptionalRevisionColumnSupport();
+
+  return {
+    ...(support.muscleMassKg ? { muscle_mass_kg: metrics.muscleMassKg } : {}),
+    ...(support.nonMuscleNonFatMassKg ? { non_muscle_non_fat_mass_kg: metrics.nonMuscleNonFatMassKg } : {}),
+    ...(support.muscleFormulaCode ? { muscle_formula_code: metrics.muscleFormulaCode } : {}),
+  };
+}
+
 async function buildComputedMetrics(payload: CreateRevisionInput, excludeRevisionId?: string): Promise<RevisionComputedMetrics> {
-  const [heightCm, previousRevision] = await Promise.all([
-    getClientHeightCm(payload.clientId),
+  const [clientMetrics, previousRevision] = await Promise.all([
+    getClientMetrics(payload.clientId),
     getPreviousRevisionSnapshot(payload.clientId, excludeRevisionId),
   ]);
 
-  const bmi = calculateBmi(payload.weightKg ?? null, heightCm);
+  const [perimeterFormula, skinfoldFormula] = await Promise.all([
+    payload.perimeterFormulaId === undefined
+      ? bodyFatFormulasService.getByCode(getPerimeterFormulaCodeForSex(clientMetrics.sex))
+      : Promise.resolve(null),
+    payload.skinfoldFormulaId === undefined
+      ? bodyFatFormulasService.getByCode(getSkinfoldFormulaCodeForAthleteLevel(clientMetrics.athleteLevel))
+      : Promise.resolve(null),
+  ]);
+
+  const normalizedActivityFactor = isSupportedActivityFactor(payload.activityFactor ?? null)
+    ? Number((payload.activityFactor ?? 0).toFixed(2))
+    : null;
+  const compositionMetrics = buildCompositionMetrics({
+    weightKg: payload.weightKg ?? null,
+    bodyFatPct: payload.bodyFatVisualPct ?? null,
+    heightCm: clientMetrics.heightCm,
+    sex: clientMetrics.sex,
+    age: clientMetrics.age,
+  });
+  const bmi = calculateBmi(payload.weightKg ?? null, clientMetrics.heightCm);
   const weightDiffKg = calculateWeightDiffKg(payload.weightKg ?? null, previousRevision);
-  const fatMassKg = calculateFatMassKg(payload.weightKg ?? null, payload.bodyFatVisualPct ?? null);
-  const leanMassKg = calculateLeanMassKg(payload.weightKg ?? null, fatMassKg);
+  const fatMassKg = compositionMetrics?.fatMassKg ?? null;
+  const leanMassKg = compositionMetrics?.leanMassKg ?? null;
   const fatMassDiffKg = calculateFatMassDiffKg(fatMassKg, previousRevision);
   const leanMassDiffKg = calculateLeanMassDiffKg(leanMassKg, previousRevision);
+  const maintenanceKcalEstimated = calculateMaintenanceCalories({
+    sex: clientMetrics.sex,
+    weightKg: payload.weightKg ?? null,
+    heightCm: clientMetrics.heightCm,
+    age: clientMetrics.age,
+    activityFactor: normalizedActivityFactor,
+  });
 
   return {
     bmi,
@@ -181,14 +313,22 @@ async function buildComputedMetrics(payload: CreateRevisionInput, excludeRevisio
     fatMassDiffKg,
     leanMassKg,
     leanMassDiffKg,
+    muscleMassKg: compositionMetrics?.muscleMassKg ?? null,
+    nonMuscleNonFatMassKg: compositionMetrics?.nonMuscleNonFatMassKg ?? null,
+    muscleFormulaCode: compositionMetrics?.muscleFormulaCode ?? null,
+    maintenanceKcalEstimated,
+    perimeterFormulaId: payload.perimeterFormulaId === undefined ? perimeterFormula?.id ?? null : payload.perimeterFormulaId ?? null,
+    skinfoldFormulaId: payload.skinfoldFormulaId === undefined ? skinfoldFormula?.id ?? null : payload.skinfoldFormulaId ?? null,
   };
 }
 
 function mapCreatePayload(payload: CreateRevisionInput, metrics: RevisionComputedMetrics) {
+  const now = new Date().toISOString();
+
   return {
     owner_id: payload.ownerId,
     client_id: payload.clientId,
-    phase: payload.phase ?? null,
+    phase: serializeRevisionPhase(payload.phase),
     bmi: metrics.bmi,
     weight_kg: payload.weightKg ?? null,
     weight_diff_kg: metrics.weightDiffKg,
@@ -199,6 +339,7 @@ function mapCreatePayload(payload: CreateRevisionInput, metrics: RevisionCompute
     pelvis_cm: payload.pelvisCm ?? null,
     glute_cm: payload.gluteCm ?? null,
     thigh_cm: payload.thighCm ?? null,
+    bicep_fold_mm: payload.bicepFoldMm ?? null,
     tricep_fold_mm: payload.tricepFoldMm ?? null,
     subscapular_fold_mm: payload.subscapularFoldMm ?? null,
     abdominal_fold_mm: payload.abdominalFoldMm ?? null,
@@ -206,21 +347,28 @@ function mapCreatePayload(payload: CreateRevisionInput, metrics: RevisionCompute
     front_thigh_fold_mm: payload.frontThighFoldMm ?? null,
     calf_fold_mm: payload.calfFoldMm ?? null,
     body_fat_visual_pct: payload.bodyFatVisualPct ?? null,
+    activity_factor: isSupportedActivityFactor(payload.activityFactor ?? null)
+      ? Number((payload.activityFactor ?? 0).toFixed(2))
+      : null,
     fat_mass_kg: metrics.fatMassKg,
     fat_mass_diff_kg: metrics.fatMassDiffKg,
     lean_mass_kg: metrics.leanMassKg,
     lean_mass_diff_kg: metrics.leanMassDiffKg,
     maintenance_kcal: payload.maintenanceKcal ?? null,
+    maintenance_kcal_estimated: metrics.maintenanceKcalEstimated,
     target_kcal: payload.targetKcal ?? null,
+    perimeter_formula_id: metrics.perimeterFormulaId,
+    skinfold_formula_id: metrics.skinfoldFormulaId,
     notes: payload.notes ?? null,
     reviewed_at: payload.reviewedAt ?? new Date().toISOString(),
+    created_at: now,
   };
 }
 
 function mapUpdatePayload(payload: CreateRevisionInput, metrics: RevisionComputedMetrics) {
   return {
     ...(payload.ownerId ? { owner_id: payload.ownerId } : {}),
-    ...(payload.phase !== undefined ? { phase: payload.phase } : {}),
+    ...(payload.phase !== undefined ? { phase: serializeRevisionPhase(payload.phase) } : {}),
     bmi: metrics.bmi,
     ...(payload.weightKg !== undefined ? { weight_kg: payload.weightKg } : {}),
     weight_diff_kg: metrics.weightDiffKg,
@@ -231,6 +379,7 @@ function mapUpdatePayload(payload: CreateRevisionInput, metrics: RevisionCompute
     ...(payload.pelvisCm !== undefined ? { pelvis_cm: payload.pelvisCm } : {}),
     ...(payload.gluteCm !== undefined ? { glute_cm: payload.gluteCm } : {}),
     ...(payload.thighCm !== undefined ? { thigh_cm: payload.thighCm } : {}),
+    ...(payload.bicepFoldMm !== undefined ? { bicep_fold_mm: payload.bicepFoldMm } : {}),
     ...(payload.tricepFoldMm !== undefined ? { tricep_fold_mm: payload.tricepFoldMm } : {}),
     ...(payload.subscapularFoldMm !== undefined ? { subscapular_fold_mm: payload.subscapularFoldMm } : {}),
     ...(payload.abdominalFoldMm !== undefined ? { abdominal_fold_mm: payload.abdominalFoldMm } : {}),
@@ -238,12 +387,22 @@ function mapUpdatePayload(payload: CreateRevisionInput, metrics: RevisionCompute
     ...(payload.frontThighFoldMm !== undefined ? { front_thigh_fold_mm: payload.frontThighFoldMm } : {}),
     ...(payload.calfFoldMm !== undefined ? { calf_fold_mm: payload.calfFoldMm } : {}),
     ...(payload.bodyFatVisualPct !== undefined ? { body_fat_visual_pct: payload.bodyFatVisualPct } : {}),
+    ...(payload.activityFactor !== undefined
+      ? {
+          activity_factor: isSupportedActivityFactor(payload.activityFactor)
+            ? Number(payload.activityFactor.toFixed(2))
+            : null,
+        }
+      : {}),
     fat_mass_kg: metrics.fatMassKg,
     fat_mass_diff_kg: metrics.fatMassDiffKg,
     lean_mass_kg: metrics.leanMassKg,
     lean_mass_diff_kg: metrics.leanMassDiffKg,
     ...(payload.maintenanceKcal !== undefined ? { maintenance_kcal: payload.maintenanceKcal } : {}),
+    maintenance_kcal_estimated: metrics.maintenanceKcalEstimated,
     ...(payload.targetKcal !== undefined ? { target_kcal: payload.targetKcal } : {}),
+    perimeter_formula_id: metrics.perimeterFormulaId,
+    skinfold_formula_id: metrics.skinfoldFormulaId,
     ...(payload.notes !== undefined ? { notes: payload.notes } : {}),
     ...(payload.reviewedAt !== undefined ? { reviewed_at: payload.reviewedAt } : {}),
   };
@@ -280,9 +439,13 @@ export const revisionsService = {
 
   async create(payload: CreateRevisionInput) {
     const computedMetrics = await buildComputedMetrics(payload);
+    const optionalCompositionPayload = await buildOptionalCompositionColumnPayload(computedMetrics);
     const { data, error } = await supabase
       .from(REVISIONS_TABLE)
-      .insert(mapCreatePayload(payload, computedMetrics))
+      .insert({
+        ...mapCreatePayload(payload, computedMetrics),
+        ...optionalCompositionPayload,
+      })
       .select('*')
       .single();
 
@@ -304,6 +467,7 @@ export const revisionsService = {
       ownerId: payload.ownerId ?? (currentRevision as unknown as { ownerId?: string }).ownerId ?? '',
       clientId: currentRevision.clientId,
       phase: payload.phase ?? currentRevision.phase,
+      reviewedAt: payload.reviewedAt ?? currentRevision.reviewedAt,
       weightKg: payload.weightKg ?? currentRevision.weightKg,
       neckCm: payload.neckCm ?? currentRevision.neckCm,
       armCm: payload.armCm ?? currentRevision.armCm,
@@ -312,6 +476,7 @@ export const revisionsService = {
       pelvisCm: payload.pelvisCm ?? currentRevision.pelvisCm,
       gluteCm: payload.gluteCm ?? currentRevision.gluteCm,
       thighCm: payload.thighCm ?? currentRevision.thighCm,
+      bicepFoldMm: payload.bicepFoldMm ?? currentRevision.bicepFoldMm,
       tricepFoldMm: payload.tricepFoldMm ?? currentRevision.tricepFoldMm,
       subscapularFoldMm: payload.subscapularFoldMm ?? currentRevision.subscapularFoldMm,
       abdominalFoldMm: payload.abdominalFoldMm ?? currentRevision.abdominalFoldMm,
@@ -319,15 +484,21 @@ export const revisionsService = {
       frontThighFoldMm: payload.frontThighFoldMm ?? currentRevision.frontThighFoldMm,
       calfFoldMm: payload.calfFoldMm ?? currentRevision.calfFoldMm,
       bodyFatVisualPct: payload.bodyFatVisualPct ?? currentRevision.bodyFatVisualPct,
+      activityFactor: payload.activityFactor ?? currentRevision.activityFactor,
       maintenanceKcal: payload.maintenanceKcal ?? currentRevision.maintenanceKcal,
+      maintenanceKcalEstimated: payload.maintenanceKcalEstimated ?? currentRevision.maintenanceKcalEstimated,
       targetKcal: payload.targetKcal ?? currentRevision.targetKcal,
       notes: payload.notes ?? currentRevision.notes,
     };
 
     const computedMetrics = await buildComputedMetrics(mergedPayload, revisionId);
+    const optionalCompositionPayload = await buildOptionalCompositionColumnPayload(computedMetrics);
     const { data, error } = await supabase
       .from(REVISIONS_TABLE)
-      .update(mapUpdatePayload(mergedPayload, computedMetrics))
+      .update({
+        ...mapUpdatePayload(mergedPayload, computedMetrics),
+        ...optionalCompositionPayload,
+      })
       .eq('id', revisionId)
       .eq('owner_id', mergedPayload.ownerId)
       .select('*')

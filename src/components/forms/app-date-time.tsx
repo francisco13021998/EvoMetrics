@@ -1,6 +1,6 @@
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import React, { useMemo, useState } from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Modal, Platform, Pressable, StyleProp, StyleSheet, TextStyle, View, ViewStyle } from 'react-native';
 
 import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -13,12 +13,60 @@ type AppDateTimeInputProps = {
   mode?: 'date' | 'time' | 'datetime';
   helper?: string;
   onChange: (value: Date) => void;
+  shellStyle?: StyleProp<ViewStyle>;
+  valueStyle?: StyleProp<TextStyle>;
 };
 
-export function AppDateTimeInput({ label, value, mode = 'datetime', helper, onChange }: AppDateTimeInputProps) {
+export function AppDateTimeInput({
+  label,
+  value,
+  mode = 'datetime',
+  helper,
+  onChange,
+  shellStyle,
+  valueStyle,
+}: AppDateTimeInputProps) {
   const theme = useTheme();
   const [showPicker, setShowPicker] = useState(false);
   const [internalMode, setInternalMode] = useState<'date' | 'time'>('date');
+  const [draftDate, setDraftDate] = useState<Date>(value ?? new Date());
+
+  const calendarMonthLabel = useMemo(
+    () =>
+      new Intl.DateTimeFormat('es-ES', {
+        month: 'long',
+        year: 'numeric',
+      })
+        .format(draftDate)
+        .replace(/^(.)/, (match) => match.toUpperCase()),
+    [draftDate]
+  );
+
+  const weekdayLabels = useMemo(
+    () => ['D', 'L', 'M', 'X', 'J', 'V', 'S'],
+    []
+  );
+
+  const calendarGrid = useMemo(() => {
+    const year = draftDate.getFullYear();
+    const month = draftDate.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const offset = firstDay.getDay();
+    const cells: (number | null)[] = Array.from({ length: offset }, () => null);
+
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      cells.push(day);
+    }
+
+    while (cells.length % 7 !== 0) {
+      cells.push(null);
+    }
+
+    return cells;
+  }, [draftDate]);
+
+  const isAndroidCalendarVisible = Platform.OS === 'android' && showPicker && internalMode === 'date';
 
   const displayValue = useMemo(() => {
     if (!value) {
@@ -39,6 +87,7 @@ export function AppDateTimeInput({ label, value, mode = 'datetime', helper, onCh
   function handlePress() {
     if (mode === 'date') {
       setInternalMode('date');
+      setDraftDate(value ?? new Date());
       setShowPicker(true);
       return;
     }
@@ -50,12 +99,67 @@ export function AppDateTimeInput({ label, value, mode = 'datetime', helper, onCh
     }
 
     setInternalMode('date');
+    setDraftDate(value ?? new Date());
     setShowPicker(true);
+  }
+
+  function closePicker() {
+    setShowPicker(false);
+    setInternalMode('date');
+  }
+
+  function shiftCalendarMonth(offset: number) {
+    setDraftDate((currentDate) => new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1));
+  }
+
+  function applyCalendarDate() {
+    if (mode === 'datetime') {
+      const merged = new Date(draftDate);
+      const base = value ?? new Date();
+      merged.setHours(base.getHours(), base.getMinutes(), 0, 0);
+      onChange(merged);
+      setInternalMode('time');
+      return;
+    }
+
+    onChange(draftDate);
+    closePicker();
+  }
+
+  function renderCalendarDay(day: number | null, index: number) {
+    const isSelected = day !== null && draftDate.getDate() === day;
+
+    if (day === null) {
+      return <View key={`empty-${index}`} style={styles.calendarDaySpacer} />;
+    }
+
+    return (
+      <Pressable
+        key={`day-${day}`}
+        onPress={() => setDraftDate(new Date(draftDate.getFullYear(), draftDate.getMonth(), day))}
+        style={({ pressed }) => [
+          styles.calendarDay,
+          {
+            backgroundColor: isSelected ? Accent.primary : '#FFFFFF',
+            borderColor: isSelected ? Accent.primary : theme.backgroundSelected,
+            opacity: pressed ? 0.88 : 1,
+          },
+        ]}>
+        <ThemedText
+          type="smallBold"
+          style={{
+            color: isSelected ? '#FFFFFF' : theme.text,
+            lineHeight: 16,
+          }}>
+          {day}
+        </ThemedText>
+      </Pressable>
+    );
   }
 
   function handlePickerChange(event: DateTimePickerEvent, selected?: Date) {
     if (event.type === 'dismissed') {
-      setShowPicker(false);
+      closePicker();
       return;
     }
 
@@ -71,7 +175,7 @@ export function AppDateTimeInput({ label, value, mode = 'datetime', helper, onCh
     }
 
     onChange(nextDate);
-    setShowPicker(false);
+    closePicker();
   }
 
   return (
@@ -92,21 +196,70 @@ export function AppDateTimeInput({ label, value, mode = 'datetime', helper, onCh
           styles.shell,
           {
             borderColor: theme.backgroundSelected,
-            backgroundColor: theme.background,
+            backgroundColor: '#FFFFFF',
           },
+          shellStyle,
         ]}>
-        <ThemedText type="smallBold" style={styles.value}>
+        <ThemedText type="smallBold" style={[styles.value, valueStyle]}>
           {displayValue}
         </ThemedText>
         <View style={[styles.dot, { backgroundColor: Accent.primary }]} />
       </Pressable>
+      {isAndroidCalendarVisible ? (
+        <Modal transparent visible animationType="fade" onRequestClose={closePicker}>
+          <Pressable style={styles.androidBackdrop} onPress={closePicker}>
+            <Pressable style={[styles.androidPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
+              <View style={styles.androidHeader}>
+                <Pressable onPress={() => shiftCalendarMonth(-1)} style={styles.androidNavButton} accessibilityLabel="Mes anterior">
+                  <ThemedText type="headline" style={styles.androidNavIcon}>‹</ThemedText>
+                </Pressable>
+                <ThemedText type="smallBold" style={styles.androidMonthLabel}>{calendarMonthLabel}</ThemedText>
+                <Pressable onPress={() => shiftCalendarMonth(1)} style={styles.androidNavButton} accessibilityLabel="Mes siguiente">
+                  <ThemedText type="headline" style={styles.androidNavIcon}>›</ThemedText>
+                </Pressable>
+              </View>
+
+              <View style={styles.calendarWeekRow}>
+                {weekdayLabels.map((label) => (
+                  <ThemedText key={label} type="small" themeColor="textSecondary" style={styles.calendarWeekLabel}>
+                    {label}
+                  </ThemedText>
+                ))}
+              </View>
+
+              <View style={styles.calendarGrid}>
+                {calendarGrid.map((day, index) => renderCalendarDay(day, index))}
+              </View>
+
+              <View style={styles.androidActions}>
+                <Pressable onPress={closePicker} style={styles.androidActionButton}>
+                  <ThemedText type="smallBold" style={styles.androidActionText}>Cancelar</ThemedText>
+                </Pressable>
+                <Pressable onPress={applyCalendarDate} style={[styles.androidActionButton, styles.androidPrimaryAction]}>
+                  <ThemedText type="smallBold" style={[styles.androidActionText, styles.androidPrimaryActionText]}>Aceptar</ThemedText>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      ) : null}
       {showPicker ? (
-        <DateTimePicker
-          value={value ?? new Date()}
-          mode={internalMode}
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={handlePickerChange}
-        />
+        Platform.OS === 'android' && internalMode === 'time' ? (
+          <DateTimePicker
+            value={value ?? new Date()}
+            mode="time"
+            display="default"
+            onChange={handlePickerChange}
+          />
+        ) : Platform.OS === 'ios' ? (
+          <DateTimePicker
+            value={value ?? new Date()}
+            mode={internalMode}
+            display="spinner"
+            locale="es-ES"
+            onChange={handlePickerChange}
+          />
+        ) : null
       ) : null}
     </View>
   );
@@ -145,5 +298,93 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
+  },
+  androidBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(16, 32, 59, 0.24)',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.three,
+  },
+  androidPanel: {
+    borderWidth: 1,
+    borderRadius: Radius.large,
+    backgroundColor: '#FFFFFF',
+    padding: Spacing.three,
+    gap: Spacing.three,
+    maxWidth: 360,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  androidHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  androidNavButton: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FBFF',
+  },
+  androidNavIcon: {
+    color: Accent.primary,
+    lineHeight: 24,
+  },
+  androidMonthLabel: {
+    color: Accent.ink,
+    textTransform: 'capitalize',
+  },
+  calendarWeekRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  calendarWeekLabel: {
+    width: 36,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    justifyContent: 'flex-start',
+  },
+  calendarDaySpacer: {
+    width: 36,
+    height: 36,
+  },
+  calendarDay: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  androidActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: Spacing.two,
+  },
+  androidActionButton: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: Radius.small,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FBFF',
+  },
+  androidPrimaryAction: {
+    backgroundColor: Accent.primary,
+  },
+  androidActionText: {
+    color: Accent.primary,
+  },
+  androidPrimaryActionText: {
+    color: '#FFFFFF',
   },
 });

@@ -2,18 +2,13 @@ import { router } from 'expo-router';
 import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import { AuthShell } from '@/components/auth/auth-shell';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
 import { AppInput } from '@/components/forms/app-input';
-import { ScreenContainer } from '@/components/layout/screen-container';
-import { Accent, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
-import { useTheme } from '@/hooks/use-theme';
-
-import { ThemedText } from '@/components/themed-text';
 
 export function RegisterScreen() {
-  const theme = useTheme();
   const { signUp } = useAuth();
   const [fullName, setFullName] = useState('');
   const [clinicName, setClinicName] = useState('');
@@ -64,27 +59,31 @@ export function RegisterScreen() {
   }
 
   return (
-    <ScreenContainer scrollable contentStyle={styles.content}>
-      <View style={[styles.topRule, { backgroundColor: Accent.primary }]} />
-      <View style={styles.brand}>
-        <ThemedText type="label" style={[styles.brandLabel, { color: Accent.primary }]}>
-          EvoMetrics
-        </ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          Registro profesional
-        </ThemedText>
-      </View>
-
-      <View style={styles.intro}>
-        <ThemedText type="headline">Crea tu espacio.</ThemedText>
-        <ThemedText type="default" themeColor="textSecondary">
-          Configura tu perfil profesional para empezar a gestionar clientes.
-        </ThemedText>
-      </View>
-
-      <View style={styles.form}>
-        <AppInput label="Nombre completo" placeholder="Valentina Rojas" value={fullName} onChangeText={setFullName} />
-        <AppInput label="Centro o marca (opcional)" placeholder="EvoMetrics Studio" value={clinicName} onChangeText={setClinicName} />
+    <AuthShell
+      brandSubtitle="Onboarding rápido para profesionales de salud y fitness"
+      eyebrow="Alta de cuenta"
+      title="Crea tu cuenta"
+      description="Configura tu perfil y empieza a trabajar en minutos."
+      footerPrefix="¿Ya tienes cuenta?"
+      footerAction="Iniciar sesión"
+      footerSuffix=""
+      onFooterPress={() => router.back()}
+      footerDisabled={isSubmitting}>
+      <View style={styles.fieldsBlock}>
+        <AppInput
+          label="Nombre completo"
+          placeholder="Valentina Rojas"
+          value={fullName}
+          onChangeText={setFullName}
+          variant="auth"
+        />
+        <AppInput
+          label="Centro o marca (opcional)"
+          placeholder="EvoMetrics Studio"
+          value={clinicName}
+          onChangeText={setClinicName}
+          variant="auth"
+        />
         <AppInput
           label="Correo"
           placeholder="coach@evometrics.app"
@@ -93,54 +92,35 @@ export function RegisterScreen() {
           keyboardType="email-address"
           value={email}
           onChangeText={setEmail}
+          variant="auth"
         />
-        <AppInput label="Contrasena" placeholder="Minimo 6 caracteres" secureTextEntry value={password} onChangeText={setPassword} />
+        <AppInput
+          label="Contraseña"
+          placeholder="Mínimo 6 caracteres"
+          secureTextEntry
+          value={password}
+          onChangeText={setPassword}
+          variant="auth"
+        />
+      </View>
 
+      <View style={styles.actionsBlock}>
         {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
         {successMessage ? <StatusBanner tone="success" message={successMessage} /> : null}
         {isSubmitting ? <StatusBanner tone="info" loading message="Creando tu cuenta..." /> : null}
 
-        <View style={styles.actions}>
-          <AppButton label="Crear cuenta" onPress={handleRegister} loading={isSubmitting} />
-          <View style={[styles.divider, { borderTopColor: theme.backgroundSelected }]} />
-          <AppButton label="Ya tengo cuenta" variant="ghost" onPress={() => router.back()} disabled={isSubmitting} />
-        </View>
+        <AppButton label="Crear cuenta" onPress={handleRegister} loading={isSubmitting} />
       </View>
-    </ScreenContainer>
+    </AuthShell>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
-    justifyContent: 'center',
-    maxWidth: 480,
-    gap: Spacing.four,
-    paddingTop: Spacing.six,
+  fieldsBlock: {
+    gap: 12,
   },
-  topRule: {
-    height: 3,
-    width: 64,
-    borderRadius: 2,
-  },
-  brand: {
-    gap: Spacing.half,
-  },
-  brandLabel: {
-    letterSpacing: 1,
-  },
-  intro: {
-    gap: Spacing.two,
-  },
-  form: {
-    gap: Spacing.three,
-    marginTop: Spacing.two,
-  },
-  actions: {
-    gap: Spacing.two,
-    marginTop: Spacing.two,
-  },
-  divider: {
-    borderTopWidth: 1,
-    marginVertical: Spacing.one,
+  actionsBlock: {
+    gap: 12,
+    marginTop: 8,
   },
 });

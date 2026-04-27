@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { Accent, Spacing } from '@/constants/theme';
+import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { formatRevisionPhase } from '@/utils/revisions';
 
@@ -23,19 +23,20 @@ export function RevisionRow({ phase, date, weight, onPress, last = false }: Revi
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
-        !last && { borderBottomColor: theme.backgroundSelected, borderBottomWidth: 1 },
-        { opacity: pressed ? 0.7 : 1 },
+        !last && { marginBottom: Spacing.one },
+        { borderColor: theme.backgroundSelected, opacity: pressed ? 0.92 : 1 },
       ]}>
-      <View style={[styles.dot, { backgroundColor: Accent.primary }]} />
       <View style={styles.info}>
         <ThemedText type="smallBold">{formatRevisionPhase(phase)}</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
+        <ThemedText type="small" themeColor="textSecondary" style={styles.dateText}>
           {date}
         </ThemedText>
       </View>
-      <ThemedText type="smallBold" style={{ color: Accent.primary }}>
-        {weight}
-      </ThemedText>
+      <View style={[styles.weightPill, { borderColor: theme.backgroundSelected, backgroundColor: '#F7FAFF' }]}>
+        <ThemedText type="smallBold" style={styles.weightText}>
+          {weight}
+        </ThemedText>
+      </View>
       <ThemedText type="small" themeColor="textSecondary" style={styles.arrow}>
         →
       </ThemedText>
@@ -47,20 +48,36 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: Spacing.three,
-    gap: Spacing.three,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    flexShrink: 0,
+    borderWidth: 1,
+    borderRadius: Radius.medium,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    gap: Spacing.two,
   },
   info: {
     flex: 1,
     gap: 2,
+    minWidth: 0,
+  },
+  dateText: {
+    lineHeight: 18,
+  },
+  weightPill: {
+    minWidth: 68,
+    borderWidth: 1,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  weightText: {
+    color: Accent.primary,
   },
   arrow: {
     flexShrink: 0,
+    color: Accent.primary,
+    opacity: 0.7,
   },
 });

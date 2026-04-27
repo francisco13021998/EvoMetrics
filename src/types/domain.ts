@@ -8,13 +8,16 @@ export type Profile = {
   updatedAt: string;
 };
 
-export type ClientSex = 'female' | 'male' | 'other';
+export type ClientSex = 'female' | 'male';
+
+export type AthleteLevel = 'beginner' | 'intermediate' | 'advanced';
 
 export type Client = {
   id: string;
   ownerId: string;
   name: string;
   sex: ClientSex | null;
+  athleteLevel: AthleteLevel;
   heightCm: number | null;
   age: number | null;
   createdAt: string;
@@ -34,6 +37,7 @@ export type Revision = {
   pelvisCm: number | null;
   gluteCm: number | null;
   thighCm: number | null;
+  bicepFoldMm: number | null;
   tricepFoldMm: number | null;
   subscapularFoldMm: number | null;
   abdominalFoldMm: number | null;
@@ -41,12 +45,19 @@ export type Revision = {
   frontThighFoldMm: number | null;
   calfFoldMm: number | null;
   bodyFatVisualPct: number | null;
+  activityFactor: number | null;
   fatMassKg: number | null;
   fatMassDiffKg: number | null;
   leanMassKg: number | null;
   leanMassDiffKg: number | null;
+  muscleMassKg: number | null;
+  nonMuscleNonFatMassKg: number | null;
+  muscleFormulaCode: string | null;
   maintenanceKcal: number | null;
+  maintenanceKcalEstimated: number | null;
   targetKcal: number | null;
+  perimeterFormulaId: string | null;
+  skinfoldFormulaId: string | null;
   notes: string | null;
   reviewedAt: string;
   createdAt: string;

@@ -6,11 +6,10 @@ import { StyleSheet, View } from 'react-native';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
-import { PageHeader } from '@/components/layout/page-header';
-import { PageSection } from '@/components/layout/page-section';
 import { ScreenContainer } from '@/components/layout/screen-container';
 import { ClientRow } from '@/components/surface/client-row';
-import { Accent, Spacing } from '@/constants/theme';
+import { DashboardMetricCard } from '@/components/surface/dashboard-metric-card';
+import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
 import { clientsService } from '@/services/clients';
@@ -21,7 +20,6 @@ import { ThemedText } from '@/components/themed-text';
 function formatSex(sex: Client['sex']) {
   if (sex === 'female') return 'Mujer';
   if (sex === 'male') return 'Hombre';
-  if (sex === 'other') return 'Otro';
   return '-';
 }
 
@@ -35,6 +33,8 @@ export function ClientsScreen() {
 
   const hasClients = clients.length > 0;
   const showInitialLoading = isLoadingClients && !hasClients && !clientsError;
+  const userName = (user?.user_metadata?.fullName as string | undefined)?.trim() || user?.email?.split('@')[0] || 'Usuario';
+  const clinicName = (user?.user_metadata?.clinicName as string | undefined)?.trim() || null;
 
   async function loadClients() {
     if (!user?.id) {
@@ -80,46 +80,47 @@ export function ClientsScreen() {
 
   return (
     <ScreenContainer>
-      <PageHeader
-        eyebrow="Panel"
-        title="Clientes"
-        subtitle={user?.email ?? undefined}
-        rightSlot={
+      <View style={styles.heroPanel}>
+        <View style={styles.heroTopRow}>
+          <View style={styles.heroIdentity}>
+            <ThemedText type="label" style={styles.heroEyebrow}>Panel</ThemedText>
+            <ThemedText style={styles.heroTitle}>{userName}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.heroSubtitle}>
+              {clinicName || 'Centro o marca pendiente'}
+            </ThemedText>
+          </View>
           <AppButton
-            label="Cerrar sesion"
+            label="Salir"
             variant="ghost"
             size="compact"
             onPress={handleLogout}
             loading={isSigningOut}
             fullWidth={false}
           />
-        }
-      />
-
-      <PageSection first>
-        <View style={[styles.statsStrip, { borderBottomColor: theme.backgroundSelected }]}>
-          <View style={styles.statBlock}>
-            <ThemedText type="label" themeColor="textSecondary">Clientes</ThemedText>
-            <ThemedText type="headline" style={styles.statValuePrimary}>{clients.length}</ThemedText>
-          </View>
-          <View style={[styles.statDivider, { backgroundColor: theme.backgroundSelected }]} />
-          <View style={styles.statBlock}>
-            <ThemedText type="label" themeColor="textSecondary">Altura media</ThemedText>
-            <ThemedText type="headline">
-              {clients.filter((c) => c.heightCm !== null).length
-                ? `${Math.round(
-                    clients.filter((c) => c.heightCm !== null).reduce((t, c) => t + (c.heightCm ?? 0), 0) /
-                    clients.filter((c) => c.heightCm !== null).length
-                  )} cm`
-                : '-'}
-            </ThemedText>
-          </View>
         </View>
-      </PageSection>
 
-      <PageSection label="Clientes" rightSlot={
-        <AppButton label="Nuevo cliente" size="compact" fullWidth={false} onPress={() => router.push('/clients/new')} />
-      }>
+        <View style={styles.heroMetricsRow}>
+          <DashboardMetricCard
+            label="Clientes"
+            value={String(clients.length)}
+            tone="primary"
+          />
+          <DashboardMetricCard
+            label="Facturación media mensual"
+            value="-"
+          />
+        </View>
+
+        <View style={styles.primaryActionRow}>
+          <AppButton label="Nuevo cliente" onPress={() => router.push('/clients/new')} />
+        </View>
+      </View>
+
+      <View style={styles.clientsSection}>
+        <View style={styles.clientsHeader}>
+          <ThemedText type="label" style={styles.clientsEyebrow}>Clientes</ThemedText>
+        </View>
+
         {showInitialLoading ? (
           <StatusBanner tone="info" loading message="Cargando clientes..." />
         ) : clientsError ? (
@@ -128,15 +129,17 @@ export function ClientsScreen() {
             <AppButton label="Reintentar" onPress={() => void loadClients()} variant="secondary" />
           </>
         ) : clients.length === 0 ? (
-          <EmptyState
-            title="Sin clientes todavia"
-            description="Crea el primer perfil para comenzar el seguimiento."
-            actionLabel="Crear cliente"
-            actionVariant="primary"
-            onAction={() => router.push('/clients/new')}
-          />
+          <View style={[styles.emptyWrap, { borderColor: theme.backgroundSelected }]}>
+            <EmptyState
+              title="Sin clientes todavía"
+              description="Crea el primer perfil para empezar el seguimiento profesional."
+              actionLabel="Crear cliente"
+              actionVariant="primary"
+              onAction={() => router.push('/clients/new')}
+            />
+          </View>
         ) : (
-          <View>
+          <View style={styles.clientsList}>
             {clients.map((client, index) => (
               <ClientRow
                 key={client.id}
@@ -148,29 +151,69 @@ export function ClientsScreen() {
             ))}
           </View>
         )}
-      </PageSection>
+      </View>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  statsStrip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.one,
-    gap: Spacing.three,
+  heroPanel: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: Radius.large,
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.three,
+    paddingBottom: Spacing.two,
+    gap: Spacing.two,
   },
-  statBlock: {
+  heroTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  heroIdentity: {
     flex: 1,
     gap: Spacing.one,
   },
-  statDivider: {
-    width: 1,
-    height: '100%',
-  },
-  statValuePrimary: {
+  heroEyebrow: {
     color: Accent.primary,
+  },
+  heroTitle: {
+    color: '#10203B',
+    fontSize: 28,
+    lineHeight: 32,
+    fontWeight: 700,
+  },
+  heroSubtitle: {
+    maxWidth: 260,
+    lineHeight: 19,
+  },
+  heroMetricsRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  primaryActionRow: {
+    paddingTop: Spacing.one,
+  },
+  clientsSection: {
+    gap: Spacing.two,
+    paddingTop: Spacing.three,
+  },
+  clientsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  clientsEyebrow: {
+    color: Accent.primary,
+  },
+  clientsList: {
+    gap: 0,
+  },
+  emptyWrap: {
+    borderWidth: 1,
+    borderRadius: Radius.large,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: Spacing.three,
+    paddingBottom: Spacing.one,
   },
 });

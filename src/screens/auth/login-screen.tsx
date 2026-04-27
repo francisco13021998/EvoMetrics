@@ -2,19 +2,14 @@ import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
+import { AuthShell } from '@/components/auth/auth-shell';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
 import { AppInput } from '@/components/forms/app-input';
-import { ScreenContainer } from '@/components/layout/screen-container';
-import { Accent, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
-import { useTheme } from '@/hooks/use-theme';
 import { resolveSignInCredentials } from '@/services/auth';
 
-import { ThemedText } from '@/components/themed-text';
-
 export function LoginScreen() {
-  const theme = useTheme();
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -60,25 +55,17 @@ export function LoginScreen() {
   }
 
   return (
-    <ScreenContainer scrollable={false} contentStyle={styles.content}>
-      <View style={[styles.topRule, { backgroundColor: Accent.primary }]} />
-      <View style={styles.brand}>
-        <ThemedText type="label" style={[styles.brandLabel, { color: Accent.primary }]}>
-          EvoMetrics
-        </ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          Panel profesional
-        </ThemedText>
-      </View>
-
-      <View style={styles.intro}>
-        <ThemedText type="headline">Bienvenido de nuevo.</ThemedText>
-        <ThemedText type="default" themeColor="textSecondary">
-          Accede a tu panel de clientes y revisiones.
-        </ThemedText>
-      </View>
-
-      <View style={styles.form}>
+    <AuthShell
+      brandSubtitle="Gestión profesional para nutrición y entrenamiento"
+      eyebrow="Acceso profesional"
+      title="Accede a tu panel"
+      description="Gestiona clientes, revisiones y seguimiento desde una interfaz clara y rápida."
+      footerPrefix="¿No tienes cuenta?"
+      footerAction="Crear cuenta"
+      footerSuffix=""
+      onFooterPress={() => router.push('/register')}
+      footerDisabled={isSubmitting}>
+      <View style={styles.fieldsBlock}>
         <AppInput
           label="Correo"
           placeholder="coach@evometrics.app"
@@ -87,64 +74,34 @@ export function LoginScreen() {
           autoCorrect={false}
           value={email}
           onChangeText={setEmail}
+          variant="auth"
         />
         <AppInput
-          label="Contrasena"
-          placeholder="••••••••"
+          label="Contraseña"
+          placeholder="Introduce tu contraseña"
           secureTextEntry
           value={password}
           onChangeText={setPassword}
+          variant="auth"
         />
+      </View>
 
+      <View style={styles.actionsBlock}>
         {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
         {isSubmitting ? <StatusBanner tone="info" loading message="Validando acceso..." /> : null}
 
-        <View style={styles.actions}>
-          <AppButton label="Iniciar sesion" onPress={handleLogin} loading={isSubmitting} />
-          <View style={[styles.divider, { borderTopColor: theme.backgroundSelected }]} />
-          <AppButton
-            label="Crear cuenta"
-            variant="ghost"
-            onPress={() => router.push('/register')}
-            disabled={isSubmitting}
-          />
-        </View>
+        <AppButton label="Iniciar sesión" onPress={handleLogin} loading={isSubmitting} />
       </View>
-    </ScreenContainer>
+    </AuthShell>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-    maxWidth: 480,
-    gap: Spacing.four,
+  fieldsBlock: {
+    gap: 12,
   },
-  topRule: {
-    height: 3,
-    width: 64,
-    borderRadius: 2,
-  },
-  brand: {
-    gap: Spacing.half,
-  },
-  brandLabel: {
-    letterSpacing: 1,
-  },
-  intro: {
-    gap: Spacing.two,
-  },
-  form: {
-    gap: Spacing.three,
-    marginTop: Spacing.two,
-  },
-  actions: {
-    gap: Spacing.two,
-    marginTop: Spacing.two,
-  },
-  divider: {
-    borderTopWidth: 1,
-    marginVertical: Spacing.one,
+  actionsBlock: {
+    gap: 12,
+    marginTop: 8,
   },
 });

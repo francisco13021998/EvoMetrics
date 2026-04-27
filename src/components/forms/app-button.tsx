@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { Accent, Radius, Spacing } from '@/constants/theme';
@@ -7,13 +7,15 @@ import { useTheme } from '@/hooks/use-theme';
 import { ThemedText } from '@/components/themed-text';
 
 type AppButtonProps = {
-  label: string;
+  label?: string;
   onPress?: () => void;
-  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+  variant?: 'primary' | 'secondary' | 'surface' | 'ghost' | 'danger';
   fullWidth?: boolean;
   disabled?: boolean;
   loading?: boolean;
   size?: 'default' | 'compact';
+  leadingIcon?: ReactNode;
+  accessibilityLabel?: string;
 };
 
 export function AppButton({
@@ -24,6 +26,8 @@ export function AppButton({
   disabled = false,
   loading = false,
   size = 'default',
+  leadingIcon,
+  accessibilityLabel,
 }: AppButtonProps) {
   const theme = useTheme();
 
@@ -36,6 +40,11 @@ export function AppButton({
     secondary: {
       backgroundColor: theme.backgroundElement,
       borderColor: Accent.border,
+      textColor: theme.text,
+    },
+    surface: {
+      backgroundColor: '#FFFFFF',
+      borderColor: theme.backgroundSelected,
       textColor: theme.text,
     },
     ghost: {
@@ -56,6 +65,7 @@ export function AppButton({
     <Pressable
       onPress={onPress}
       disabled={disabled || loading}
+      accessibilityLabel={accessibilityLabel ?? label}
       style={({ pressed }) => [
         styles.button,
         isCompact && styles.buttonCompact,
@@ -70,8 +80,12 @@ export function AppButton({
       <View style={styles.inner}>
         {loading ? (
           <ActivityIndicator color={buttonStyles.textColor} size="small" style={styles.loader} />
+        ) : leadingIcon ? (
+          <View style={styles.icon}>{leadingIcon}</View>
         ) : null}
-        <ThemedText style={[styles.label, isCompact && styles.labelCompact, { color: buttonStyles.textColor }]}>{label}</ThemedText>
+        {label ? (
+          <ThemedText style={[styles.label, isCompact && styles.labelCompact, { color: buttonStyles.textColor }]}>{label}</ThemedText>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -86,28 +100,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
   },
   buttonCompact: {
-    minHeight: 40,
-    paddingHorizontal: Spacing.three,
+    minHeight: 36,
+    paddingHorizontal: 12,
   },
   fullWidth: {
     alignSelf: 'stretch',
   },
   inner: {
+    position: 'relative',
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
-    gap: Spacing.two,
+    justifyContent: 'center',
+    minHeight: 20,
   },
   loader: {
-    marginRight: 0,
+    position: 'absolute',
+    left: 0,
+  },
+  icon: {
+    position: 'absolute',
+    left: 0,
+    width: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   label: {
     fontSize: 15,
     lineHeight: 20,
     fontWeight: 600,
     letterSpacing: 0.1,
+    textAlign: 'center',
   },
   labelCompact: {
-    fontSize: 14,
+    fontSize: 13,
+    lineHeight: 17,
   },
 });

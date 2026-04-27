@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { Accent, Spacing } from '@/constants/theme';
+import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 import { ThemedText } from '@/components/themed-text';
@@ -21,8 +21,9 @@ export function ClientRow({ name, meta, onPress, last = false }: ClientRowProps)
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
-        !last && { borderBottomColor: theme.backgroundSelected, borderBottomWidth: 1 },
-        { opacity: pressed ? 0.7 : 1 },
+        { backgroundColor: '#FFFFFF', borderColor: theme.backgroundSelected },
+        !last && styles.rowSpacing,
+        { opacity: pressed ? 0.84 : 1, transform: [{ scale: pressed ? 0.995 : 1 }] },
       ]}>
       <View style={[styles.avatar, { backgroundColor: Accent.primaryMuted }]}>
         <ThemedText type="smallBold" style={{ color: Accent.primary }}>
@@ -30,8 +31,8 @@ export function ClientRow({ name, meta, onPress, last = false }: ClientRowProps)
         </ThemedText>
       </View>
       <View style={styles.info}>
-        <ThemedText type="smallBold">{name}</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
+        <ThemedText type="smallBold" style={styles.nameText}>{name}</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
           {meta}
         </ThemedText>
       </View>
@@ -46,8 +47,14 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: Spacing.three,
-    gap: Spacing.three,
+    borderWidth: 1,
+    borderRadius: Radius.medium,
+    paddingVertical: 10,
+    paddingHorizontal: Spacing.three,
+    gap: Spacing.two,
+  },
+  rowSpacing: {
+    marginBottom: Spacing.two,
   },
   avatar: {
     width: 40,
@@ -59,9 +66,14 @@ const styles = StyleSheet.create({
   },
   info: {
     flex: 1,
-    gap: 2,
+    gap: 1,
+    minWidth: 0,
+  },
+  nameText: {
+    flex: 1,
   },
   arrow: {
     flexShrink: 0,
+    color: Accent.primary,
   },
 });

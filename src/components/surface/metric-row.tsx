@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -10,13 +10,21 @@ type MetricRowProps = {
   label: string;
   value: string;
   last?: boolean;
+  card?: boolean;
+  style?: StyleProp<ViewStyle>;
 };
 
-export function MetricRow({ label, value, last = false }: MetricRowProps) {
+export function MetricRow({ label, value, last = false, card = false, style }: MetricRowProps) {
   const theme = useTheme();
 
   return (
-    <View style={[styles.row, !last && { borderBottomColor: theme.backgroundSelected, borderBottomWidth: 1 }]}>
+    <View
+      style={[
+        styles.row,
+        card && [styles.card, { backgroundColor: '#F7FAFF', borderColor: theme.backgroundSelected }],
+        !card && !last && { borderBottomColor: theme.backgroundSelected, borderBottomWidth: 1 },
+        style,
+      ]}>
       <ThemedText type="small" themeColor="textSecondary" style={styles.label}>
         {label}
       </ThemedText>
@@ -34,6 +42,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: Spacing.three,
     gap: Spacing.three,
+  },
+  card: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: Spacing.three,
   },
   label: {
     flex: 1,

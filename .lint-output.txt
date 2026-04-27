@@ -1,0 +1,18 @@
+
+> evometrics@1.0.0 lint
+> expo lint
+
+env: load .env
+env: export EXPO_PUBLIC_DEV_LOGIN_ALIAS EXPO_PUBLIC_DEV_LOGIN_EMAIL EXPO_PUBLIC_DEV_LOGIN_PASSWORD EXPO_PUBLIC_SUPABASE_ANON_KEY EXPO_PUBLIC_SUPABASE_URL
+
+C:\Users\Paco\Desktop\Proyectos\evometrics\src\screens\clients\client-photos-screen.tsx
+   72:6   warning  React Hook useEffect has a missing dependency: 'loadContent'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  252:20  warning  Array type using 'Array<T>' is forbidden. Use 'T[]' instead                                                     @typescript-eslint/array-type
+
+C:\Users\Paco\Desktop\Proyectos\evometrics\src\screens\clients\clients-screen.tsx
+  62:6  warning  React Hook useEffect has a missing dependency: 'loadClients'. Either include it or remove the dependency array          react-hooks/exhaustive-deps
+  67:8  warning  React Hook React.useCallback has a missing dependency: 'loadClients'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+Ô£û 4 problems (0 errors, 4 warnings)
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+

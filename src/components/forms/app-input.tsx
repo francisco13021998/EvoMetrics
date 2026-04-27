@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, TextInput, TextInputProps, View } from 'react-native';
+import { StyleProp, StyleSheet, TextInput, TextInputProps, TextStyle, View, ViewStyle } from 'react-native';
 
 import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -11,16 +11,31 @@ type AppInputProps = TextInputProps & {
   hint?: string;
   unit?: string;
   prefix?: string;
+  containerStyle?: StyleProp<ViewStyle>;
+  affixTextStyle?: StyleProp<TextStyle>;
+  variant?: 'default' | 'auth';
 };
 
-export function AppInput({ label, hint, unit, prefix, style, ...props }: AppInputProps) {
+export function AppInput({
+  label,
+  hint,
+  unit,
+  prefix,
+  containerStyle,
+  affixTextStyle,
+  style,
+  variant = 'default',
+  ...props
+}: AppInputProps) {
   const theme = useTheme();
   const [isFocused, setIsFocused] = useState(false);
+  const isAuth = variant === 'auth';
+  const isDisabled = Boolean(props.editable === false);
 
   return (
     <View style={styles.wrapper}>
       <View style={styles.header}>
-        <ThemedText type="small" themeColor="textSecondary">{label}</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary" style={isAuth && styles.authLabel}>{label}</ThemedText>
         {hint ? (
           <ThemedText type="small" themeColor="textSecondary" style={styles.hint}>
             {hint}
@@ -31,15 +46,18 @@ export function AppInput({ label, hint, unit, prefix, style, ...props }: AppInpu
       <View
         style={[
           styles.inputShell,
+          isAuth && styles.authInputShell,
           {
-            backgroundColor: isFocused ? theme.backgroundElement : theme.background,
+            backgroundColor: '#FFFFFF',
             borderColor: isFocused ? Accent.primary : theme.backgroundSelected,
+            opacity: isDisabled ? 0.65 : 1,
           },
+          containerStyle,
           props.multiline && styles.textAreaShell,
         ]}>
         {prefix ? (
           <View style={styles.affix}>
-            <ThemedText type="small" themeColor="textSecondary">
+            <ThemedText type="small" themeColor="textSecondary" style={affixTextStyle}>
               {prefix}
             </ThemedText>
           </View>
@@ -56,6 +74,8 @@ export function AppInput({ label, hint, unit, prefix, style, ...props }: AppInpu
           }}
           style={[
             styles.input,
+            styles.inputBackground,
+            isAuth && styles.authInput,
             { color: theme.text },
             props.multiline && styles.textArea,
             style,
@@ -64,7 +84,7 @@ export function AppInput({ label, hint, unit, prefix, style, ...props }: AppInpu
         />
         {unit ? (
           <View style={styles.affix}>
-            <ThemedText type="small" themeColor="textSecondary">
+            <ThemedText type="small" themeColor="textSecondary" style={affixTextStyle}>
               {unit}
             </ThemedText>
           </View>
@@ -100,12 +120,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.two,
   },
+  authInputShell: {
+    minHeight: 60,
+    borderRadius: Radius.medium,
+    borderWidth: 1.5,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
   input: {
     flex: 1,
     minHeight: 44,
     fontSize: 15,
     lineHeight: 22,
     paddingVertical: Spacing.one,
+  },
+  authInput: {
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  inputBackground: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: Radius.small,
+  },
+  authLabel: {
+    letterSpacing: 0.2,
   },
   affix: {
     paddingHorizontal: Spacing.one,

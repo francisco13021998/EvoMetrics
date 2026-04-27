@@ -1,8 +1,8 @@
 import { Picker } from '@react-native-picker/picker';
 import React from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { Platform, StyleProp, StyleSheet, TextStyle, View, ViewStyle } from 'react-native';
 
-import { Radius, Spacing } from '@/constants/theme';
+import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 import { ThemedText } from '@/components/themed-text';
@@ -10,6 +10,7 @@ import { ThemedText } from '@/components/themed-text';
 type AppSelectOption = {
   label: string;
   value: string;
+  disabled?: boolean;
 };
 
 type AppSelectProps = {
@@ -19,9 +20,20 @@ type AppSelectProps = {
   placeholder?: string;
   onChange: (value: string) => void;
   helper?: string;
+  containerStyle?: StyleProp<ViewStyle>;
+  pickerTextStyle?: StyleProp<TextStyle>;
 };
 
-export function AppSelect({ label, value, options, placeholder, onChange, helper }: AppSelectProps) {
+export function AppSelect({
+  label,
+  value,
+  options,
+  placeholder,
+  onChange,
+  helper,
+  containerStyle,
+  pickerTextStyle,
+}: AppSelectProps) {
   const theme = useTheme();
 
   return (
@@ -36,16 +48,16 @@ export function AppSelect({ label, value, options, placeholder, onChange, helper
           </ThemedText>
         ) : null}
       </View>
-      <View style={[styles.shell, { borderColor: theme.backgroundSelected, backgroundColor: theme.background }]}> 
+      <View style={[styles.shell, { borderColor: theme.backgroundSelected, backgroundColor: '#FFFFFF' }, containerStyle]}>
         <Picker
           selectedValue={value ?? ''}
           onValueChange={(nextValue) => onChange(String(nextValue))}
-          style={[styles.picker, { color: theme.text }]}
-          dropdownIconColor={theme.textSecondary}
+          style={[styles.picker, { color: theme.text, backgroundColor: '#FFFFFF' }, pickerTextStyle]}
+          dropdownIconColor={Accent.primary}
           mode="dropdown">
           {placeholder ? <Picker.Item label={placeholder} value="" /> : null}
           {options.map((option) => (
-            <Picker.Item key={option.value} label={option.label} value={option.value} />
+            <Picker.Item key={option.value} label={option.label} value={option.value} enabled={!option.disabled} />
           ))}
         </Picker>
       </View>
@@ -70,13 +82,14 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   shell: {
-    minHeight: 52,
-    borderRadius: Radius.small,
+    minHeight: 56,
+    borderRadius: Radius.medium,
     borderWidth: 1,
     justifyContent: 'center',
-    paddingHorizontal: Platform.OS === 'android' ? 0 : Spacing.two,
+    paddingHorizontal: Platform.OS === 'android' ? Spacing.one : Spacing.two,
   },
   picker: {
-    minHeight: 52,
+    minHeight: 56,
+    marginHorizontal: Platform.OS === 'android' ? -4 : 0,
   },
 });

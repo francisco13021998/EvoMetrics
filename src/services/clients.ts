@@ -1,15 +1,17 @@
+import { DEFAULT_ATHLETE_LEVEL, normalizeAthleteLevel } from '@/constants/athlete-level';
 import { supabase } from '@/lib/supabase';
-import { Client, ClientSex } from '@/types/domain';
+import { AthleteLevel, Client, ClientSex } from '@/types/domain';
 
 export const CLIENTS_TABLE = 'clients';
 
-type DbClientSex = ClientSex | 'mujer' | 'hombre' | 'otro';
+type DbClientSex = string;
 
 type DbClientRow = {
   id: string;
   owner_id: string;
   name: string;
   sex: DbClientSex | null;
+  athlete_level: string | null;
   height_cm: number | null;
   age: number | null;
   created_at: string;
@@ -19,6 +21,7 @@ export type CreateClientInput = {
   ownerId: string;
   name: string;
   sex?: ClientSex | null;
+  athleteLevel?: AthleteLevel;
   heightCm?: number | null;
   age?: number | null;
 };
@@ -26,6 +29,7 @@ export type CreateClientInput = {
 export type UpdateClientInput = {
   name?: string;
   sex?: ClientSex | null;
+  athleteLevel?: AthleteLevel;
   heightCm?: number | null;
   age?: number | null;
 };
@@ -43,10 +47,6 @@ function normalizeClientSex(value: DbClientSex | null): ClientSex | null {
 
   if (normalizedValue === 'male' || normalizedValue === 'hombre') {
     return 'male';
-  }
-
-  if (normalizedValue === 'other' || normalizedValue === 'otro') {
-    return 'other';
   }
 
   return null;
@@ -69,7 +69,7 @@ function toDbClientSex(value: ClientSex | null, preferSpanish: boolean) {
     return 'hombre';
   }
 
-  return 'otro';
+  return null;
 }
 
 function isSexConstraintError(error: unknown) {
@@ -89,6 +89,7 @@ function mapDbClient(row: DbClientRow): Client {
     ownerId: row.owner_id,
     name: row.name,
     sex: normalizeClientSex(row.sex),
+    athleteLevel: normalizeAthleteLevel(row.athlete_level),
     heightCm: row.height_cm,
     age: row.age,
     createdAt: row.created_at,
@@ -100,6 +101,7 @@ function mapCreatePayload(payload: CreateClientInput, preferSpanishSex = false) 
     owner_id: payload.ownerId,
     name: payload.name,
     sex: toDbClientSex(payload.sex ?? null, preferSpanishSex),
+    athlete_level: payload.athleteLevel ?? DEFAULT_ATHLETE_LEVEL,
     height_cm: payload.heightCm ?? null,
     age: payload.age ?? null,
   };
@@ -109,6 +111,7 @@ function mapUpdatePayload(payload: UpdateClientInput, preferSpanishSex = false) 
   return {
     ...(payload.name !== undefined ? { name: payload.name } : {}),
     ...(payload.sex !== undefined ? { sex: toDbClientSex(payload.sex, preferSpanishSex) } : {}),
+    ...(payload.athleteLevel !== undefined ? { athlete_level: payload.athleteLevel } : {}),
     ...(payload.heightCm !== undefined ? { height_cm: payload.heightCm } : {}),
     ...(payload.age !== undefined ? { age: payload.age } : {}),
   };
