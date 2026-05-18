@@ -45,9 +45,6 @@ type DbRevisionRow = {
   fat_mass_diff_kg: number | null;
   lean_mass_kg: number | null;
   lean_mass_diff_kg: number | null;
-  muscle_mass_kg?: number | null;
-  non_muscle_non_fat_mass_kg?: number | null;
-  muscle_formula_code?: string | null;
   maintenance_kcal: number | null;
   maintenance_kcal_estimated: number | null;
   target_kcal: number | null;
@@ -87,9 +84,6 @@ export type CreateRevisionInput = {
   calfFoldMm?: number | null;
   bodyFatVisualPct?: number | null;
   activityFactor?: number | null;
-  muscleMassKg?: number | null;
-  nonMuscleNonFatMassKg?: number | null;
-  muscleFormulaCode?: string | null;
   maintenanceKcal?: number | null;
   maintenanceKcalEstimated?: number | null;
   targetKcal?: number | null;
@@ -146,9 +140,6 @@ function mapDbRevision(row: DbRevisionRow): Revision {
     fatMassDiffKg: row.fat_mass_diff_kg,
     leanMassKg: row.lean_mass_kg,
     leanMassDiffKg: row.lean_mass_diff_kg,
-    muscleMassKg: row.muscle_mass_kg ?? null,
-    nonMuscleNonFatMassKg: row.non_muscle_non_fat_mass_kg ?? null,
-    muscleFormulaCode: row.muscle_formula_code ?? null,
     maintenanceKcal: row.maintenance_kcal,
     maintenanceKcalEstimated: row.maintenance_kcal_estimated,
     targetKcal: row.target_kcal,
@@ -167,21 +158,10 @@ type RevisionComputedMetrics = {
   fatMassDiffKg: number | null;
   leanMassKg: number | null;
   leanMassDiffKg: number | null;
-  muscleMassKg: number | null;
-  nonMuscleNonFatMassKg: number | null;
-  muscleFormulaCode: string | null;
   maintenanceKcalEstimated: number | null;
   perimeterFormulaId: string | null;
   skinfoldFormulaId: string | null;
 };
-
-type OptionalRevisionColumnSupport = {
-  muscleMassKg: boolean;
-  nonMuscleNonFatMassKg: boolean;
-  muscleFormulaCode: boolean;
-};
-
-let optionalRevisionColumnSupportPromise: Promise<OptionalRevisionColumnSupport> | null = null;
 
 async function getClientMetrics(clientId: string) {
   const { data, error } = await supabase
@@ -232,41 +212,6 @@ async function getPreviousRevisionSnapshot(clientId: string, excludeRevisionId?:
     : null;
 }
 
-async function hasRevisionColumn(columnName: string) {
-  const { error } = await supabase
-    .from(REVISIONS_TABLE)
-    .select(columnName)
-    .limit(1);
-
-  return !error;
-}
-
-async function getOptionalRevisionColumnSupport() {
-  if (!optionalRevisionColumnSupportPromise) {
-    optionalRevisionColumnSupportPromise = Promise.all([
-      hasRevisionColumn('muscle_mass_kg'),
-      hasRevisionColumn('non_muscle_non_fat_mass_kg'),
-      hasRevisionColumn('muscle_formula_code'),
-    ]).then(([muscleMassKg, nonMuscleNonFatMassKg, muscleFormulaCode]) => ({
-      muscleMassKg,
-      nonMuscleNonFatMassKg,
-      muscleFormulaCode,
-    }));
-  }
-
-  return optionalRevisionColumnSupportPromise;
-}
-
-async function buildOptionalCompositionColumnPayload(metrics: RevisionComputedMetrics) {
-  const support = await getOptionalRevisionColumnSupport();
-
-  return {
-    ...(support.muscleMassKg ? { muscle_mass_kg: metrics.muscleMassKg } : {}),
-    ...(support.nonMuscleNonFatMassKg ? { non_muscle_non_fat_mass_kg: metrics.nonMuscleNonFatMassKg } : {}),
-    ...(support.muscleFormulaCode ? { muscle_formula_code: metrics.muscleFormulaCode } : {}),
-  };
-}
-
 async function buildComputedMetrics(payload: CreateRevisionInput, excludeRevisionId?: string): Promise<RevisionComputedMetrics> {
   const [clientMetrics, previousRevision] = await Promise.all([
     getClientMetrics(payload.clientId),
@@ -288,9 +233,6 @@ async function buildComputedMetrics(payload: CreateRevisionInput, excludeRevisio
   const compositionMetrics = buildCompositionMetrics({
     weightKg: payload.weightKg ?? null,
     bodyFatPct: payload.bodyFatVisualPct ?? null,
-    heightCm: clientMetrics.heightCm,
-    sex: clientMetrics.sex,
-    age: clientMetrics.age,
   });
   const bmi = calculateBmi(payload.weightKg ?? null, clientMetrics.heightCm);
   const weightDiffKg = calculateWeightDiffKg(payload.weightKg ?? null, previousRevision);
@@ -313,9 +255,6 @@ async function buildComputedMetrics(payload: CreateRevisionInput, excludeRevisio
     fatMassDiffKg,
     leanMassKg,
     leanMassDiffKg,
-    muscleMassKg: compositionMetrics?.muscleMassKg ?? null,
-    nonMuscleNonFatMassKg: compositionMetrics?.nonMuscleNonFatMassKg ?? null,
-    muscleFormulaCode: compositionMetrics?.muscleFormulaCode ?? null,
     maintenanceKcalEstimated,
     perimeterFormulaId: payload.perimeterFormulaId === undefined ? perimeterFormula?.id ?? null : payload.perimeterFormulaId ?? null,
     skinfoldFormulaId: payload.skinfoldFormulaId === undefined ? skinfoldFormula?.id ?? null : payload.skinfoldFormulaId ?? null,
@@ -324,6 +263,7 @@ async function buildComputedMetrics(payload: CreateRevisionInput, excludeRevisio
 
 function mapCreatePayload(payload: CreateRevisionInput, metrics: RevisionComputedMetrics) {
   const now = new Date().toISOString();
+  const reviewedAt = payload.reviewedAt ? toDateOnlyIso(payload.reviewedAt) : toDateOnlyIso(new Date().toISOString());
 
   return {
     owner_id: payload.ownerId,
@@ -360,7 +300,7 @@ function mapCreatePayload(payload: CreateRevisionInput, metrics: RevisionCompute
     perimeter_formula_id: metrics.perimeterFormulaId,
     skinfold_formula_id: metrics.skinfoldFormulaId,
     notes: payload.notes ?? null,
-    reviewed_at: payload.reviewedAt ?? new Date().toISOString(),
+    reviewed_at: reviewedAt,
     created_at: now,
   };
 }
@@ -404,8 +344,19 @@ function mapUpdatePayload(payload: CreateRevisionInput, metrics: RevisionCompute
     perimeter_formula_id: metrics.perimeterFormulaId,
     skinfold_formula_id: metrics.skinfoldFormulaId,
     ...(payload.notes !== undefined ? { notes: payload.notes } : {}),
-    ...(payload.reviewedAt !== undefined ? { reviewed_at: payload.reviewedAt } : {}),
+    ...(payload.reviewedAt !== undefined ? { reviewed_at: payload.reviewedAt ? toDateOnlyIso(payload.reviewedAt) : null } : {}),
   };
+}
+
+function toDateOnlyIso(value: string) {
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    const now = new Date();
+    return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)).toISOString();
+  }
+
+  return new Date(Date.UTC(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate(), 0, 0, 0, 0)).toISOString();
 }
 
 export const revisionsService = {
@@ -438,13 +389,15 @@ export const revisionsService = {
   },
 
   async create(payload: CreateRevisionInput) {
+    if (payload.weightKg === null || payload.weightKg === undefined) {
+      throw new Error('Indica un peso para crear la revision.');
+    }
+
     const computedMetrics = await buildComputedMetrics(payload);
-    const optionalCompositionPayload = await buildOptionalCompositionColumnPayload(computedMetrics);
     const { data, error } = await supabase
       .from(REVISIONS_TABLE)
       .insert({
         ...mapCreatePayload(payload, computedMetrics),
-        ...optionalCompositionPayload,
       })
       .select('*')
       .single();
@@ -464,7 +417,7 @@ export const revisionsService = {
     }
 
     const mergedPayload: CreateRevisionInput = {
-      ownerId: payload.ownerId ?? (currentRevision as unknown as { ownerId?: string }).ownerId ?? '',
+      ownerId: payload.ownerId ?? '',
       clientId: currentRevision.clientId,
       phase: payload.phase ?? currentRevision.phase,
       reviewedAt: payload.reviewedAt ?? currentRevision.reviewedAt,
@@ -492,15 +445,12 @@ export const revisionsService = {
     };
 
     const computedMetrics = await buildComputedMetrics(mergedPayload, revisionId);
-    const optionalCompositionPayload = await buildOptionalCompositionColumnPayload(computedMetrics);
     const { data, error } = await supabase
       .from(REVISIONS_TABLE)
       .update({
         ...mapUpdatePayload(mergedPayload, computedMetrics),
-        ...optionalCompositionPayload,
       })
       .eq('id', revisionId)
-      .eq('owner_id', mergedPayload.ownerId)
       .select('*')
       .single();
 

@@ -9,6 +9,7 @@ type DbClientSex = string;
 type DbClientRow = {
   id: string;
   owner_id: string;
+  athlete_user_id: string | null;
   name: string;
   sex: DbClientSex | null;
   athlete_level: string | null;
@@ -87,6 +88,7 @@ function mapDbClient(row: DbClientRow): Client {
   return {
     id: row.id,
     ownerId: row.owner_id,
+    athleteUserId: row.athlete_user_id ?? null,
     name: row.name,
     sex: normalizeClientSex(row.sex),
     athleteLevel: normalizeAthleteLevel(row.athlete_level),
@@ -138,6 +140,21 @@ export const clientsService = {
       .select('*')
       .eq('id', clientId)
       .eq('owner_id', ownerId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return data ? mapDbClient(data as DbClientRow) : null;
+  },
+
+  /** Queries only by id — relies on RLS for access control (athletes + trainers). */
+  async getByIdForViewer(clientId: string) {
+    const { data, error } = await supabase
+      .from(CLIENTS_TABLE)
+      .select('*')
+      .eq('id', clientId)
       .maybeSingle();
 
     if (error) {
@@ -205,6 +222,20 @@ export const clientsService = {
     }
 
     throw new Error(firstAttempt.error.message);
+  },
+
+  async getByAthleteUserId(athleteUserId: string) {
+    const { data, error } = await supabase
+      .from(CLIENTS_TABLE)
+      .select('*')
+      .eq('athlete_user_id', athleteUserId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return data ? mapDbClient(data as DbClientRow) : null;
   },
 
   async remove(clientId: string, ownerId: string) {

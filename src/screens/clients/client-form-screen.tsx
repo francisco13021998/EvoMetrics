@@ -157,11 +157,12 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
         {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
 
         <View style={[styles.formCard, { borderColor: theme.backgroundSelected }]}>
+          <View style={styles.formCardTopAccent} />
           <View style={styles.formIntro}>
-            <View style={[styles.formAccent, { backgroundColor: Accent.primary }]} />
             <View style={styles.formIntroCopy}>
+              <ThemedText type="label" style={styles.formEyebrow}>Ficha principal</ThemedText>
               <ThemedText type="smallBold" style={styles.formTitle}>Datos del cliente</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">Información básica para empezar.</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.formDescription}>Información básica para empezar y automatizar su seguimiento.</ThemedText>
             </View>
           </View>
 
@@ -229,7 +230,7 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
           </View>
         </View>
 
-        <View style={styles.actions}>
+        <View style={[styles.actions, { borderColor: theme.backgroundSelected }]}>
           <ThemedText type="small" themeColor="textSecondary" style={styles.actionsCopy}>Puedes editar estos datos más adelante.</ThemedText>
           <AppButton label={mode === 'create' ? 'Crear cliente' : 'Guardar cambios'} onPress={handleSubmit} loading={isSubmitting} />
           {mode === 'edit' ? (
@@ -243,7 +244,7 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
 
 const styles = StyleSheet.create({
   screenContent: {
-    gap: 2,
+    gap: 8,
   },
   backIcon: {
     color: Accent.primary,
@@ -258,49 +259,70 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   formSection: {
-    paddingTop: Spacing.three,
+    paddingTop: 12,
   },
   formCard: {
     borderWidth: 1,
     borderRadius: Radius.large,
     backgroundColor: '#FFFFFF',
-    padding: Spacing.three,
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.two,
+    paddingBottom: Spacing.three,
     gap: Spacing.two,
+    overflow: 'hidden',
+    shadowColor: '#12336E',
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+  formCardTopAccent: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 4,
+    backgroundColor: '#2D66E0',
   },
   formIntro: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.two,
-  },
-  formAccent: {
-    width: 8,
-    height: 8,
-    borderRadius: Radius.pill,
-    marginTop: 8,
+    paddingTop: 4,
   },
   formIntroCopy: {
     flex: 1,
-    gap: 2,
+    gap: 3,
+  },
+  formEyebrow: {
+    color: Accent.primary,
   },
   formTitle: {
     color: '#10203B',
+    fontSize: 18,
+    lineHeight: 24,
+  },
+  formDescription: {
+    lineHeight: 19,
   },
   formField: {
-    minHeight: 54,
+    minHeight: 56,
     borderRadius: Radius.medium,
   },
   formRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
   },
   formCell: {
     flex: 1,
   },
   actions: {
-    gap: Spacing.two,
-    paddingTop: Spacing.three,
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: Radius.large,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.two,
+    paddingBottom: Spacing.three,
   },
   actionsCopy: {
-    lineHeight: 18,
+    lineHeight: 19,
   },
 });

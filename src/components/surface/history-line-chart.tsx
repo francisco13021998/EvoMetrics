@@ -185,7 +185,7 @@ export function HistoryLineChart({
 
             return (
               <SvgText
-                key={`label-${point.label}`}
+                key={`label-${index}-${point.label}`}
                 x={point.x}
                 y={chartHeight - 8}
                 fill={theme.textSecondary}

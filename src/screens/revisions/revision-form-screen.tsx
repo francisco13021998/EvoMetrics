@@ -1,6 +1,7 @@
+import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Modal, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
@@ -28,6 +29,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
 import { bodyFatFormulasService, type BodyFatFormulaReference } from '@/services/body-fat-formulas';
 import { clientsService } from '@/services/clients';
+import { photosService } from '@/services/photos';
 import { revisionsService } from '@/services/revisions';
 import { Client, Revision } from '@/types/domain';
 import { isSupportedActivityFactor } from '@/utils/activity';
@@ -50,6 +52,7 @@ import {
 type RevisionFormScreenProps = {
   mode: 'create' | 'edit';
   clientId?: string;
+  revisionId?: string;
 };
 
 type RevisionFormState = {
@@ -194,20 +197,17 @@ function parseNullableNumber(value: string) {
   return parsedValue;
 }
 
-function formatDateTimeForInput(value: Date) {
+function formatDateForInput(value: Date) {
   const year = value.getFullYear();
   const month = String(value.getMonth() + 1).padStart(2, '0');
   const day = String(value.getDate()).padStart(2, '0');
-  const hours = String(value.getHours()).padStart(2, '0');
-  const minutes = String(value.getMinutes()).padStart(2, '0');
 
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
+  return `${year}-${month}-${day}`;
 }
 
-function formatDateTimeForDisplay(value: Date) {
-  return value.toLocaleString('es-ES', {
+function formatDateForDisplay(value: Date) {
+  return value.toLocaleDateString('es-ES', {
     dateStyle: 'short',
-    timeStyle: 'short',
   });
 }
 
@@ -219,27 +219,47 @@ function truncateText(value: string, length = 80) {
   return `${value.slice(0, length - 1)}…`;
 }
 
-function parseDateTimeInputToIso(value: string) {
+function parseDateInputToIso(value: string) {
   const trimmedValue = value.trim();
 
   if (!trimmedValue) {
     return null;
   }
 
-  const normalizedValue = trimmedValue.includes('T') ? trimmedValue : trimmedValue.replace(' ', 'T');
-  const dateValue = new Date(normalizedValue);
+  const [yearStr, monthStr, dayStr] = trimmedValue.split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
 
-  if (Number.isNaN(dateValue.getTime())) {
-    throw new Error('La fecha y hora de la revision no son validas. Usa un formato tipo 2026-04-21T07:23.');
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    throw new Error('La fecha de la revision no es valida. Usa un formato tipo 2026-04-21.');
   }
 
-  return dateValue.toISOString();
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0)).toISOString();
+}
+
+function toDateOnlyIso(value: Date) {
+  return new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0)).toISOString();
+}
+
+function parseDateOrNow(value: string | null | undefined) {
+  if (!value) {
+    return new Date();
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return new Date();
+  }
+
+  return parsedDate;
 }
 
 function mapRevisionToForm(revision: Revision): RevisionFormState {
   return {
     phase: normalizeRevisionPhase(revision.phase),
-    reviewedAt: revision.reviewedAt ? formatDateTimeForInput(new Date(revision.reviewedAt)) : '',
+    reviewedAt: revision.reviewedAt ? formatDateForInput(new Date(revision.reviewedAt)) : '',
     weightKg: toInputValue(revision.weightKg),
     neckCm: toInputValue(revision.neckCm),
     armCm: toInputValue(revision.armCm),
@@ -375,6 +395,11 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   const [skinfoldFormulaInfo, setSkinfoldFormulaInfo] = useState<BodyFatFormulaReference | null>(null);
   const [selectedPerimeterProtocolId, setSelectedPerimeterProtocolId] = useState<string>('');
   const [selectedSkinfoldProtocolId, setSelectedSkinfoldProtocolId] = useState<string>('');
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [uploadCapturedAt, setUploadCapturedAt] = useState<Date | null>(new Date());
+  const [uploadTypeSelection, setUploadTypeSelection] = useState<'front' | 'back' | 'side' | 'other'>('front');
+  const [uploadCustomType, setUploadCustomType] = useState('');
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   useEffect(() => {
     async function loadContext() {
@@ -418,7 +443,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
               currentForm.phase ||
               normalizeRevisionPhase(latestClientRevision?.phase) ||
               REVISION_PHASE_OPTIONS[0].value,
-            reviewedAt: formatDateTimeForInput(new Date()),
+            reviewedAt: formatDateForInput(new Date()),
           }));
         }
 
@@ -463,6 +488,13 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       return;
     }
 
+    const weightKg = parseNullableNumber(form.weightKg);
+
+    if (mode === 'create' && weightKg === null) {
+      setErrorMessage('Indica un peso para crear la revision.');
+      return;
+    }
+
     setErrorMessage(null);
     setIsSubmitting(true);
 
@@ -470,8 +502,8 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       const payload = {
         clientId: client.id,
         phase: normalizedPhase,
-        reviewedAt: parseDateTimeInputToIso(form.reviewedAt),
-        weightKg: parseNullableNumber(form.weightKg),
+        reviewedAt: parseDateInputToIso(form.reviewedAt),
+        weightKg,
         neckCm: selectedPerimeterProtocolId ? parseNullableNumber(form.neckCm) : null,
         armCm: selectedPerimeterProtocolId ? parseNullableNumber(form.armCm) : null,
         waistCm: selectedPerimeterProtocolId ? parseNullableNumber(form.waistCm) : null,
@@ -522,7 +554,87 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     }
   }
 
+  function openUploadModal() {
+    const revisionDateFallback = form.reviewedAt ? parseDateOrNow(form.reviewedAt) : new Date();
+    setUploadCapturedAt(revisionDateFallback);
+    setUploadTypeSelection('front');
+    setUploadCustomType('');
+    setIsUploadModalOpen(true);
+  }
+
+  function closeUploadModal() {
+    setIsUploadModalOpen(false);
+  }
+
+  function resolveUploadType() {
+    if (uploadTypeSelection !== 'other') {
+      return uploadTypeSelection;
+    }
+
+    const normalized = uploadCustomType.trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  async function handleUploadPhotoFromForm() {
+    if (!user?.id || !client || isUploadingPhoto) {
+      return;
+    }
+
+    const resolvedType = resolveUploadType();
+
+    if (!resolvedType) {
+      setErrorMessage('Indica un tipo personalizado para la imagen.');
+      return;
+    }
+
+    if (!uploadCapturedAt) {
+      setErrorMessage('Selecciona una fecha para la imagen.');
+      return;
+    }
+
+    setErrorMessage(null);
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      setErrorMessage('Necesitas dar permiso a la galeria para subir imagenes.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.9,
+      selectionLimit: 1,
+    });
+
+    if (result.canceled || result.assets.length === 0) {
+      return;
+    }
+
+    setIsUploadingPhoto(true);
+
+    try {
+      await photosService.uploadFromDevice({
+        ownerId: user.id,
+        clientId: client.id,
+        revisionId: mode === 'edit' ? revisionId ?? null : null,
+        asset: result.assets[0],
+        type: resolvedType,
+        capturedAt: toDateOnlyIso(uploadCapturedAt),
+      });
+
+      closeUploadModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo subir la imagen.';
+      setErrorMessage(message);
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  }
+
   const { setField } = sectionFields(form, setForm);
+  const isCreateMode = mode === 'create';
   const isWide = width >= 960;
   const isMedium = width >= 720;
   const reviewedAtDate = form.reviewedAt ? new Date(form.reviewedAt) : null;
@@ -549,7 +661,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       calfFoldMm: toInputValue(referenceRevision.calfFoldMm),
       bodyFatVisualPct: toInputValue(referenceRevision.bodyFatVisualPct),
       phase: normalizeRevisionPhase(referenceRevision.phase),
-      reviewedAt: formatDateTimeForDisplay(new Date(referenceRevision.reviewedAt ?? Date.now())),
+      reviewedAt: formatDateForDisplay(new Date(referenceRevision.reviewedAt ?? Date.now())),
       notes: referenceRevision.notes?.trim() ? truncateText(referenceRevision.notes.trim()) : '',
     };
   }, [mode, referenceRevision]);
@@ -691,6 +803,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       <View style={[styles.contextCell, isMedium && styles.contextCellThird]}>
         <AppInput
           label="Peso (kg)"
+          hint={isCreateMode ? 'Obligatorio para crear la revision' : undefined}
           placeholder={referencePlaceholders?.weightKg ?? '61.2'}
           keyboardType="decimal-pad"
           unit="kg"
@@ -755,6 +868,16 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     children: React.ReactNode
   ) {
     const isOpen = activeSections.includes(sectionKey);
+    const sectionHint =
+      sectionKey === 'context'
+        ? 'Cliente, fecha, fase y peso'
+        : sectionKey === 'composition'
+          ? 'Composición visual y energía'
+          : sectionKey === 'perimeters'
+            ? 'Perímetros y análisis automático'
+            : sectionKey === 'skinfolds'
+              ? 'Pliegues y comparación'
+              : 'Observaciones de la sesión';
 
     function toggleSection() {
       setActiveSections((currentSections) =>
@@ -765,10 +888,20 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     }
 
     return (
-      <View style={[styles.sectionCard, { borderColor: theme.backgroundSelected }]}>
-        <Pressable onPress={toggleSection} style={styles.sectionToggle}>
-          <ThemedText type="smallBold" style={styles.sectionTitle}>{title}</ThemedText>
-          <ThemedText type="smallBold" style={styles.sectionChevron}>{isOpen ? '−' : '+'}</ThemedText>
+      <View style={[styles.sectionCard, styles.sectionCardCreate, { borderColor: theme.backgroundSelected }]}>
+        <Pressable onPress={toggleSection} style={[styles.sectionToggle, styles.sectionToggleCreate]}>
+          <View style={styles.sectionTitleArea}>
+            <View style={[styles.sectionMarker, isOpen && styles.sectionMarkerActive]} />
+            <View style={styles.sectionTitleBlock}>
+              <ThemedText type="smallBold" style={styles.sectionTitle}>{title}</ThemedText>
+              {isCreateMode ? (
+                <ThemedText type="small" themeColor="textSecondary" style={styles.sectionHint}>
+                  {sectionHint}
+                </ThemedText>
+              ) : null}
+            </View>
+          </View>
+          <ThemedText type="smallBold" style={[styles.sectionChevron, isOpen && styles.sectionChevronOpen]}>{isOpen ? '−' : '+'}</ThemedText>
         </Pressable>
         {isOpen ? <View style={styles.sectionBody}>{children}</View> : null}
       </View>
@@ -803,10 +936,10 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         </View>
         <View style={[styles.contextCell, isMedium && styles.contextCellThird]}>
           <AppDateTimeInput
-            label="Fecha y hora"
+            label="Fecha"
             value={reviewedAtDate}
-            onChange={(nextDate) => setField('reviewedAt', formatDateTimeForInput(nextDate))}
-            mode="datetime"
+            onChange={(nextDate) => setField('reviewedAt', formatDateForInput(nextDate))}
+            mode="date"
             helper={referencePlaceholders?.reviewedAt ? `Anterior: ${referencePlaceholders.reviewedAt}` : undefined}
             shellStyle={styles.compactDateTimeShell}
             valueStyle={styles.compactDateTimeValue}
@@ -979,29 +1112,57 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
 
   return (
     <ScreenContainer contentStyle={styles.screenContent}>
-      <View style={styles.headerRow}>
-        <Pressable
-          onPress={() => router.back()}
-          accessibilityLabel="Volver"
-          style={({ pressed }) => [
-            styles.backButton,
-            {
-              borderColor: theme.backgroundSelected,
-              backgroundColor: pressed ? '#F6F9FE' : '#FFFFFF',
-              opacity: pressed ? 0.92 : 1,
-            },
-          ]}>
-          <ThemedText type="smallBold" style={styles.backIcon}>←</ThemedText>
-        </Pressable>
-        <View style={styles.headerCopy}>
-          <ThemedText type="label" style={styles.headerEyebrow}>{mode === 'create' ? 'Revision' : 'Edicion'}</ThemedText>
-          <ThemedText type="headline">{mode === 'create' ? 'Nueva revision' : 'Editar revision'}</ThemedText>
+      <View style={[styles.headerCard, styles.headerCardCreate, { borderColor: theme.backgroundSelected }]}>
+        <View style={styles.headerCardTopAccent} />
+        <View style={styles.headerRow}>
+          <Pressable
+            onPress={() => router.back()}
+            accessibilityLabel="Volver"
+            style={({ pressed }) => [
+              styles.backButton,
+              {
+                borderColor: theme.backgroundSelected,
+                backgroundColor: pressed ? '#F6F9FE' : '#FFFFFF',
+                opacity: pressed ? 0.92 : 1,
+              },
+            ]}>
+            <ThemedText type="smallBold" style={styles.backIcon}>←</ThemedText>
+          </Pressable>
+          <View style={styles.headerCopy}>
+            <ThemedText type="label" style={styles.headerEyebrow}>{mode === 'create' ? 'Revision' : 'Actualizacion'}</ThemedText>
+            <ThemedText type="headline">{mode === 'create' ? 'Nueva revision' : 'Editar revision'}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.headerSubtitle}>
+              {mode === 'create'
+                ? 'Registro guiado para una evaluación clara y fiable.'
+                : 'Actualiza la revisión y mantén un historial consistente y fiable.'}
+            </ThemedText>
+            {isCreateMode ? (
+              <View style={styles.clientTag}>
+                <ThemedText type="smallBold" style={styles.clientTagText}>Cliente: {client.name}</ThemedText>
+              </View>
+            ) : null}
+          </View>
+          <AppButton label="Cancelar" variant="ghost" size="compact" fullWidth={false} onPress={() => router.back()} disabled={isSubmitting} />
         </View>
-        <AppButton label="Cancelar" variant="ghost" size="compact" fullWidth={false} onPress={() => router.back()} disabled={isSubmitting} />
       </View>
 
+      {isCreateMode ? (
+        <View style={[styles.createGuide, { borderColor: theme.backgroundSelected }]}>
+          <View style={styles.guideStep}>
+            <ThemedText type="smallBold" style={styles.guideText}>1. Contexto</ThemedText>
+          </View>
+          <View style={styles.guideStep}>
+            <ThemedText type="smallBold" style={styles.guideText}>2. Medidas</ThemedText>
+          </View>
+          <View style={styles.guideStep}>
+            <ThemedText type="smallBold" style={styles.guideText}>3. Guardar</ThemedText>
+          </View>
+        </View>
+      ) : null}
+
       {isSubmitting ? <StatusBanner tone="info" loading message="Guardando revision..." /> : null}
-      {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
+
+      <View style={styles.formCanvas}>
 
       {renderSectionCard('context', 'Contexto', renderContextSectionBody())}
 
@@ -1085,29 +1246,151 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         />
       )}
 
-      <View style={[styles.footerCard, { borderColor: theme.backgroundSelected }]}>
+      {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
+
+      <View style={[styles.footerCard, isCreateMode && styles.footerCardCreate, { borderColor: theme.backgroundSelected }]}>
+        {isCreateMode ? (
+          <ThemedText type="small" themeColor="textSecondary" style={styles.footerHint}>
+            Revisa los datos clave y guarda para generar la revisión completa del cliente.
+          </ThemedText>
+        ) : null}
         <View style={[styles.actions, isMedium && styles.actionsWide]}>
           <View style={styles.actionPrimary}>
             <AppButton label={mode === 'create' ? 'Guardar revision' : 'Guardar cambios'} onPress={handleSubmit} loading={isSubmitting} />
           </View>
         </View>
+        <AppButton
+          label={mode === 'edit' ? 'Subir imagen asociada' : 'Subir imagen'}
+          variant="surface"
+          onPress={openUploadModal}
+        />
+        {mode === 'create' ? (
+          <ThemedText type="small" themeColor="textSecondary" style={styles.footerHint}>
+            En creación, la imagen se sube sin asociación automática. En edición se asocia a esta revisión.
+          </ThemedText>
+        ) : null}
       </View>
+      </View>
+
+      <Modal transparent visible={isUploadModalOpen} animationType="fade" onRequestClose={closeUploadModal}>
+        <Pressable style={styles.modalBackdrop} onPress={closeUploadModal}>
+          <Pressable style={[styles.modalPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
+            <View style={styles.modalHeader}>
+              <ThemedText type="smallBold">Subir imagen</ThemedText>
+              <Pressable onPress={closeUploadModal} style={styles.modalCloseButton}>
+                <ThemedText type="smallBold" style={styles.modalCloseText}>×</ThemedText>
+              </Pressable>
+            </View>
+
+            <AppDateTimeInput
+              label="Fecha"
+              value={uploadCapturedAt}
+              mode="date"
+              helper="Preseleccionada a hoy"
+              onChange={(value) => setUploadCapturedAt(value)}
+            />
+
+            <AppSelect
+              label="Tipo"
+              value={uploadTypeSelection}
+              options={UPLOAD_TYPE_OPTIONS}
+              onChange={(value) => setUploadTypeSelection(value as 'front' | 'back' | 'side' | 'other')}
+            />
+
+            {uploadTypeSelection === 'other' ? (
+              <AppInput
+                label="Tipo personalizado"
+                placeholder="Ejemplo: Poses, Bikini, Competición..."
+                value={uploadCustomType}
+                onChangeText={setUploadCustomType}
+              />
+            ) : null}
+
+            <View style={styles.modalActions}>
+              <AppButton label="Cancelar" variant="ghost" size="compact" fullWidth={false} onPress={closeUploadModal} disabled={isUploadingPhoto} />
+              <AppButton label="Seleccionar y subir" size="compact" fullWidth={false} onPress={() => void handleUploadPhotoFromForm()} loading={isUploadingPhoto} />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
   screenContent: {
+    gap: 12,
+  },
+  formCanvas: {
+    gap: 10,
+  },
+  headerCard: {
+    borderWidth: 1,
+    borderRadius: Radius.large,
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
+    shadowColor: '#12336E',
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+  headerCardCreate: {
+    backgroundColor: '#F8FBFF',
+  },
+  headerCardTopAccent: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 4,
+    backgroundColor: '#2D66E0',
+  },
+  createGuide: {
+    borderWidth: 1,
+    borderRadius: Radius.medium,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     gap: 8,
+  },
+  guideStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 0,
+  },
+  guideText: {
+    color: '#355079',
+    lineHeight: 16,
+    fontSize: 12,
+  },
+  clientTag: {
+    alignSelf: 'flex-start',
+    marginTop: 2,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    borderColor: '#D4E2FA',
+    backgroundColor: '#EAF2FF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  clientTagText: {
+    color: '#2A4E95',
+    lineHeight: 16,
   },
   headerRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
+    alignItems: 'flex-start',
+    gap: 8,
   },
   backButton: {
-    width: 36,
-    height: 36,
+    width: 38,
+    height: 38,
     borderWidth: 1,
     borderRadius: Radius.pill,
     alignItems: 'center',
@@ -1116,13 +1399,18 @@ const styles = StyleSheet.create({
   },
   backIcon: {
     color: Accent.primary,
+    fontSize: 16,
+    lineHeight: 16,
   },
   headerCopy: {
     flex: 1,
-    gap: 0,
+    gap: 2,
   },
   headerEyebrow: {
     color: Accent.primary,
+  },
+  headerSubtitle: {
+    lineHeight: 18,
   },
   headerTitle: {
     fontSize: 20,
@@ -1181,7 +1469,7 @@ const styles = StyleSheet.create({
   contextGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 10,
   },
   contextCell: {
     width: '100%',
@@ -1193,36 +1481,64 @@ const styles = StyleSheet.create({
     width: '31.8%',
   },
   compactSelectShell: {
-    minHeight: 40,
-    borderRadius: 8,
-    paddingHorizontal: 4,
+    minHeight: 54,
+    borderRadius: Radius.medium,
+    paddingHorizontal: 6,
   },
   sectionCard: {
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: Radius.large,
     backgroundColor: '#FFFFFF',
     overflow: 'hidden',
+  },
+  sectionCardCreate: {
+    shadowColor: '#12336E',
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1,
   },
   sectionToggle: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  sectionToggleCreate: {
+    backgroundColor: '#F9FCFF',
+    paddingVertical: 12,
   },
   sectionTitleArea: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+    alignItems: 'flex-start',
+    gap: 8,
     minWidth: 0,
+  },
+  sectionMarker: {
+    marginTop: 6,
+    width: 8,
+    height: 8,
+    borderRadius: Radius.pill,
+    backgroundColor: '#C4D6F4',
+  },
+  sectionMarkerActive: {
+    backgroundColor: Accent.primary,
+  },
+  sectionTitleBlock: {
+    flex: 1,
+    gap: 1,
   },
   sectionTitle: {
     color: '#10203B',
-    fontSize: 13,
-    lineHeight: 17,
+    fontSize: 14,
+    lineHeight: 20,
     flexShrink: 1,
+  },
+  sectionHint: {
+    lineHeight: 17,
   },
   sectionHeaderRight: {
     flexShrink: 0,
@@ -1245,12 +1561,16 @@ const styles = StyleSheet.create({
   },
   sectionChevron: {
     color: '#6C7A92',
-    width: 16,
+    width: 20,
     textAlign: 'center',
   },
+  sectionChevronOpen: {
+    color: Accent.primary,
+  },
   sectionBody: {
-    paddingHorizontal: 10,
-    paddingBottom: 8,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 12,
     borderTopWidth: 1,
     borderTopColor: '#EDF2FB',
   },
@@ -1294,7 +1614,9 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     borderWidth: 1,
     borderRadius: Radius.medium,
-    padding: 10,
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    paddingBottom: 11,
   },
   measureGroupPrimary: {
     backgroundColor: '#FCFDFF',
@@ -1353,10 +1675,10 @@ const styles = StyleSheet.create({
     color: Accent.ink,
   },
   skinfoldSelectShell: {
-    minHeight: 48,
+    minHeight: 54,
   },
   skinfoldSelectText: {
-    fontSize: 13,
+    fontSize: 14,
   },
   skinfoldSelectorHint: {
     lineHeight: 17,
@@ -1383,11 +1705,11 @@ const styles = StyleSheet.create({
   },
   autoSummaryCard: {
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: Radius.medium,
     backgroundColor: '#FBFCFE',
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 6,
+    paddingVertical: 11,
+    gap: 8,
   },
   autoSummaryEyebrow: {
     lineHeight: 12,
@@ -1419,8 +1741,8 @@ const styles = StyleSheet.create({
   },
   autoSummaryValue: {
     color: Accent.ink,
-    fontSize: 28,
-    lineHeight: 32,
+    fontSize: 30,
+    lineHeight: 34,
   },
   autoSummaryMetaText: {
     lineHeight: 13,
@@ -1495,81 +1817,88 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   fieldCardHalf: {
-    width: '48.6%',
+    width: '47.9%',
   },
   fieldCardThird: {
-    width: '32.1%',
+    width: '32%',
   },
   contextFieldShell: {
-    minHeight: 40,
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 1,
+    minHeight: 56,
+    borderRadius: Radius.medium,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
   compactFieldShell: {
-    minHeight: 38,
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 1,
+    minHeight: 56,
+    borderRadius: Radius.medium,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
   compactPrimaryFieldShell: {
-    minHeight: 38,
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 1,
+    minHeight: 56,
+    borderRadius: Radius.medium,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     backgroundColor: '#FCFDFF',
   },
   compactSecondaryFieldShell: {
-    minHeight: 38,
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 1,
+    minHeight: 56,
+    borderRadius: Radius.medium,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     backgroundColor: '#F7F9FC',
   },
   compactInputText: {
-    fontSize: 13,
-    lineHeight: 17,
-    paddingVertical: 2,
+    fontSize: 15,
+    lineHeight: 21,
+    paddingVertical: 4,
   },
   compactPrimaryInputText: {
-    fontSize: 13,
-    lineHeight: 17,
-    paddingVertical: 2,
+    fontSize: 15,
+    lineHeight: 21,
+    paddingVertical: 4,
   },
   compactAffixText: {
-    fontSize: 10,
-    lineHeight: 12,
+    fontSize: 12,
+    lineHeight: 14,
     opacity: 0.72,
   },
   compactPickerText: {
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 14,
+    lineHeight: 20,
   },
   compactDateTimeShell: {
-    minHeight: 40,
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
+    minHeight: 56,
+    borderRadius: Radius.medium,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   compactDateTimeValue: {
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 14,
+    lineHeight: 20,
   },
   notesShell: {
-    minHeight: 72,
-    paddingTop: 4,
+    minHeight: 98,
+    paddingTop: 8,
   },
   textArea: {
-    minHeight: 58,
+    minHeight: 82,
     textAlignVertical: 'top',
   },
   footerCard: {
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: Radius.large,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
     gap: 4,
+  },
+  footerCardCreate: {
+    backgroundColor: '#F9FCFF',
+  },
+  footerHint: {
+    lineHeight: 18,
+    paddingBottom: 6,
   },
   actions: {
     gap: 0,
@@ -1580,4 +1909,52 @@ const styles = StyleSheet.create({
   actionPrimary: {
     flex: 1,
   },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(16, 32, 59, 0.2)',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.three,
+  },
+  modalPanel: {
+    borderWidth: 1,
+    borderRadius: Radius.large,
+    backgroundColor: '#FFFFFF',
+    padding: Spacing.three,
+    gap: Spacing.three,
+    maxWidth: 440,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  modalCloseButton: {
+    width: 28,
+    height: 28,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F3F6FB',
+  },
+  modalCloseText: {
+    color: '#5E6E88',
+    fontSize: 16,
+    lineHeight: 18,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
 });
+
+const UPLOAD_TYPE_OPTIONS = [
+  { value: 'front', label: 'Frontal' },
+  { value: 'back', label: 'Espalda' },
+  { value: 'side', label: 'Lateral' },
+  { value: 'other', label: 'Otro' },
+];

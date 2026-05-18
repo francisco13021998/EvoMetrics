@@ -35,7 +35,7 @@ export function LoginScreen() {
     setErrorMessage(null);
 
     if (!email.trim() || !password.trim()) {
-      setErrorMessage('Introduce tu email y tu contrasena para continuar.');
+      setErrorMessage('Introduce tu email y tu contraseña para continuar.');
       return;
     }
 
@@ -47,7 +47,7 @@ export function LoginScreen() {
       await signIn(credentials);
       router.replace('/clients');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No se pudo iniciar sesion.';
+      const message = error instanceof Error ? error.message : 'No se pudo iniciar sesión.';
       setErrorMessage(message);
     } finally {
       setIsSubmitting(false);
@@ -57,14 +57,15 @@ export function LoginScreen() {
   return (
     <AuthShell
       brandSubtitle="Gestión profesional para nutrición y entrenamiento"
-      eyebrow="Acceso profesional"
-      title="Accede a tu panel"
-      description="Gestiona clientes, revisiones y seguimiento desde una interfaz clara y rápida."
-      footerPrefix="¿No tienes cuenta?"
-      footerAction="Crear cuenta"
+      eyebrow="Acceso seguro"
+      title="Inicia sesión en tu panel"
+      description="Accede a tus clientes y revisiones con una interfaz clara, rápida y preparada para consulta profesional diaria."
+      highlights={['Flujo guiado', 'Datos organizados', 'Resultados fiables']}
+      footerPrefix=""
+      footerAction=""
       footerSuffix=""
-      onFooterPress={() => router.push('/register')}
-      footerDisabled={isSubmitting}>
+      onFooterPress={() => {}}
+      footerDisabled>
       <View style={styles.fieldsBlock}>
         <AppInput
           label="Correo"
@@ -87,10 +88,16 @@ export function LoginScreen() {
       </View>
 
       <View style={styles.actionsBlock}>
-        {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
-        {isSubmitting ? <StatusBanner tone="info" loading message="Validando acceso..." /> : null}
+        {errorMessage ? <StatusBanner tone="danger" title="No se pudo iniciar sesión" message={errorMessage} /> : null}
+        {isSubmitting ? <StatusBanner tone="info" title="Comprobando credenciales" loading message="Validando acceso..." /> : null}
 
-        <AppButton label="Iniciar sesión" onPress={handleLogin} loading={isSubmitting} />
+        <AppButton label="Iniciar sesión" onPress={handleLogin} loading={isSubmitting} disabled={isSubmitting} />
+        <AppButton
+          label="Unirme"
+          variant="ghost"
+          onPress={() => router.push('/join')}
+          disabled={isSubmitting}
+        />
       </View>
     </AuthShell>
   );

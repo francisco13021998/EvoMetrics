@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
 
+import { AthletePinModal } from '@/components/clients/athlete-pin-modal';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
@@ -15,6 +16,7 @@ import { formatAthleteLevelLabel } from '@/constants/athlete-level';
 import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
+import { athletePinsService } from '@/services/athlete-pins';
 import { clientsService } from '@/services/clients';
 import { revisionsService } from '@/services/revisions';
 import { Client, Revision } from '@/types/domain';
@@ -30,7 +32,8 @@ function formatSex(sex: Client['sex']) {
 }
 
 export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
-  const { user } = useAuth();
+  const { user, userRole } = useAuth();
+  const isAthlete = userRole === 'athlete';
   const theme = useTheme();
   const [client, setClient] = useState<Client | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -38,6 +41,10 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [isClientMenuOpen, setIsClientMenuOpen] = useState(false);
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [pinModalPin, setPinModalPin] = useState('');
+  const [pinModalExpiresAt, setPinModalExpiresAt] = useState('');
+  const [isGeneratingPin, setIsGeneratingPin] = useState(false);
 
   const showInitialLoading = isLoading && !client;
 
@@ -52,7 +59,9 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
     setErrorMessage(null);
 
     try {
-      const nextClient = await clientsService.getById(clientId, user.id);
+      const nextClient = isAthlete
+        ? await clientsService.getByIdForViewer(clientId)
+        : await clientsService.getById(clientId, user.id!);
       setClient(nextClient);
 
       if (nextClient) {
@@ -74,6 +83,20 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
       void loadClient();
     }, [loadClient])
   );
+
+  async function handleGeneratePin() {
+    if (!client) return;
+    setIsGeneratingPin(true);
+    const result = await athletePinsService.generateClientPin(client.id);
+    setIsGeneratingPin(false);
+    if (!result.success) {
+      Alert.alert('Error', result.error);
+      return;
+    }
+    setPinModalPin(result.pin);
+    setPinModalExpiresAt(result.expiresAt);
+    setPinModalVisible(true);
+  }
 
   async function confirmDelete() {
     if (!client || !user?.id || isDeleting) return;
@@ -151,39 +174,52 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
   return (
     <ScreenContainer contentStyle={styles.screenContent}>
       <View style={[styles.heroCard, { borderColor: theme.backgroundSelected }]}>
-        <View style={styles.heroTopRow}>
-          <Pressable
-            onPress={() => router.back()}
-            accessibilityLabel="Volver"
-            style={({ pressed }) => [
-              styles.backButton,
-              {
-                borderColor: theme.backgroundSelected,
-                backgroundColor: pressed ? '#F6F9FE' : '#FFFFFF',
-                opacity: pressed ? 0.9 : 1,
-              },
-            ]}>
-            <ThemedText type="smallBold" style={styles.backButtonIcon}>←</ThemedText>
-            <ThemedText type="smallBold" style={styles.backButtonText}>Volver</ThemedText>
-          </Pressable>
+        <View style={styles.heroTopAccent} />
 
-          <Pressable
-            onPress={() => setIsClientMenuOpen(true)}
-            accessibilityLabel="Más opciones"
-            style={({ pressed }) => [
-              styles.menuButton,
-              {
-                borderColor: theme.backgroundSelected,
-                backgroundColor: pressed ? '#F6F9FE' : '#FFFFFF',
-                opacity: pressed ? 0.92 : 1,
-              },
-            ]}>
-            <ThemedText type="headline" style={styles.menuDots}>⋯</ThemedText>
-          </Pressable>
+        <View style={styles.brandRow}>
+          <View style={styles.brandCopy}>
+            <ThemedText type="label" style={styles.brandEyebrow}>Ficha de cliente</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">Control y seguimiento profesional</ThemedText>
+          </View>
+          <View style={styles.brandActions}>
+            <Pressable
+              onPress={() => router.back()}
+              accessibilityLabel="Volver"
+              style={({ pressed }) => [
+                styles.backButton,
+                {
+                  borderColor: theme.backgroundSelected,
+                  backgroundColor: pressed ? '#F6F9FE' : '#FFFFFF',
+                  opacity: pressed ? 0.9 : 1,
+                },
+              ]}>
+              <ThemedText type="smallBold" style={styles.backButtonIcon}>←</ThemedText>
+              <ThemedText type="smallBold" style={styles.backButtonText}>Volver</ThemedText>
+            </Pressable>
+
+            {!isAthlete && (
+              <Pressable
+                onPress={() => setIsClientMenuOpen(true)}
+                accessibilityLabel="Más opciones"
+                style={({ pressed }) => [
+                  styles.menuIconButton,
+                  {
+                    borderColor: theme.backgroundSelected,
+                    backgroundColor: pressed ? '#F6F9FE' : '#FFFFFF',
+                    opacity: pressed ? 0.92 : 1,
+                  },
+                ]}>
+                <ThemedText type="headline" style={styles.menuDots}>⋯</ThemedText>
+              </Pressable>
+            )}
+          </View>
         </View>
 
         <View style={styles.heroCopy}>
-          <ThemedText type="headline" style={styles.heroTitle}>{client.name}</ThemedText>
+          <ThemedText type="label" style={styles.heroEyebrow}>Perfil activo</ThemedText>
+          <View style={styles.heroTitleRow}>
+            <ThemedText type="headline" style={styles.heroTitle}>{client.name}</ThemedText>
+          </View>
         </View>
 
         <View style={styles.summaryGrid}>
@@ -236,7 +272,7 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
         </Modal>
       </View>
 
-      <View style={styles.section}>
+      <View style={[styles.section, { borderColor: theme.backgroundSelected }]}>
         <View style={styles.sectionHeader}>
           <ThemedText type="headline">Revisiones</ThemedText>
           <View style={styles.revisionHeaderActions}>
@@ -249,20 +285,37 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
         <View style={styles.actionsBlock}>
           <View style={styles.actionsTopRow}>
             <View style={styles.actionCell}>
-              <AppButton
-                label="+ Revision"
-                size="compact"
-                leadingIcon={<ThemedText type="smallBold" style={styles.newRevisionIcon}>+</ThemedText>}
-                onPress={() => router.push(`/revisions/new?clientId=${client.id}`)}
-              />
+              <AppButton label="Fotos" variant="surface" size="compact" onPress={() => router.push(`/clients/${client.id}/photos`)} />
             </View>
             <View style={styles.actionCell}>
               <AppButton label="Análisis" variant="surface" size="compact" onPress={() => router.push(`/clients/${client.id}/metrics`)} />
             </View>
-            <View style={styles.actionCell}>
-              <AppButton label="Fotos" variant="surface" size="compact" onPress={() => router.push(`/clients/${client.id}/photos`)} />
-            </View>
+            {!isAthlete && (
+              <View style={styles.actionCell}>
+                <AppButton
+                  label="Revision"
+                  size="compact"
+                  leadingIcon={<ThemedText type="smallBold" style={styles.newRevisionIcon}>+</ThemedText>}
+                  onPress={() => router.push(`/revisions/new?clientId=${client.id}`)}
+                />
+              </View>
+            )}
           </View>
+          {!isAthlete && client.athleteUserId === null && (
+            <AppButton
+              label={isGeneratingPin ? 'Generando PIN...' : 'Generar PIN de acceso para atleta'}
+              variant="surface"
+              size="compact"
+              onPress={() => { void handleGeneratePin(); }}
+              loading={isGeneratingPin}
+            />
+          )}
+          {!isAthlete && client.athleteUserId !== null && (
+            <View style={[styles.athleteLinkedBadge, { borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' }]}>
+              <View style={[styles.timerDot, { backgroundColor: '#22C55E' }]} />
+              <ThemedText type="small" style={{ color: '#15803D' }}>Atleta vinculado</ThemedText>
+            </View>
+          )}
         </View>
 
         <View style={[styles.revisionsPanel, { borderColor: theme.backgroundSelected }]}>
@@ -286,52 +339,107 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
           )}
         </View>
       </View>
+
+      <AthletePinModal
+        visible={pinModalVisible}
+        pin={pinModalPin}
+        expiresAt={pinModalExpiresAt}
+        pinType="existing_client"
+        onClose={() => setPinModalVisible(false)}
+      />
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
   screenContent: {
-    gap: Spacing.two,
+    gap: 12,
   },
   heroCard: {
     borderWidth: 1,
     borderRadius: Radius.large,
     backgroundColor: '#FFFFFF',
-    padding: Spacing.three,
-    gap: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    paddingTop: 12,
+    paddingBottom: Spacing.three,
+    gap: 12,
+    overflow: 'hidden',
+    shadowColor: '#12336E',
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
   },
-  heroTopRow: {
+  heroTopAccent: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 4,
+    backgroundColor: '#2D66E0',
+  },
+  brandRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    gap: Spacing.two,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E1EAF8',
+    paddingBottom: 8,
+  },
+  brandActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  brandCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 0,
+  },
+  brandEyebrow: {
+    color: '#1E4FBF',
+  },
+  heroCopy: {
+    gap: 2,
+  },
+  heroTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.two,
   },
-  heroCopy: {
-    gap: 4,
+  heroEyebrow: {
+    color: Accent.primary,
   },
   heroTitle: {
+    flex: 1,
     color: '#10203B',
+    fontSize: 32,
+    lineHeight: 36,
   },
   backButton: {
-    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
     borderWidth: 1,
     borderRadius: Radius.pill,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    minHeight: 32,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
   },
   backButtonIcon: {
     color: Accent.primary,
+    fontSize: 12,
+    lineHeight: 14,
   },
   backButtonText: {
     color: '#10203B',
+    fontSize: 12,
+    lineHeight: 14,
   },
-  menuButton: {
-    width: 36,
-    height: 36,
+  menuIconButton: {
+    width: 32,
+    height: 32,
     borderWidth: 1,
     borderRadius: Radius.pill,
     alignItems: 'center',
@@ -339,9 +447,9 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   menuDots: {
-    color: '#10203B',
-    lineHeight: 24,
+    color: '#1F3D69',
     marginTop: -2,
+    lineHeight: 20,
   },
   newRevisionIcon: {
     color: Accent.primary,
@@ -350,7 +458,7 @@ const styles = StyleSheet.create({
   },
   summaryGrid: {
     flexDirection: 'row',
-    gap: Spacing.two,
+    gap: 10,
   },
   summaryItem: {
     flex: 1,
@@ -400,7 +508,7 @@ const styles = StyleSheet.create({
   },
   menuPanel: {
     alignSelf: 'flex-end',
-    width: 220,
+    width: 240,
     borderWidth: 1,
     borderRadius: Radius.large,
     backgroundColor: '#FFFFFF',
@@ -408,7 +516,12 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   section: {
-    paddingTop: Spacing.two,
+    borderWidth: 1,
+    borderRadius: Radius.large,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 12,
     gap: Spacing.two,
   },
   sectionHeader: {
@@ -435,7 +548,7 @@ const styles = StyleSheet.create({
   },
   actionsTopRow: {
     flexDirection: 'row',
-    gap: Spacing.two,
+    gap: 10,
     flexWrap: 'wrap',
   },
   actionCell: {
@@ -444,12 +557,26 @@ const styles = StyleSheet.create({
   },
   revisionsPanel: {
     borderWidth: 1,
-    borderRadius: Radius.large,
+    borderRadius: Radius.medium,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.two,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
   },
   emptyRevisions: {
     paddingVertical: Spacing.two,
+  },
+  athleteLinkedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: Radius.base,
+    borderWidth: 1,
+  },
+  timerDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
 });

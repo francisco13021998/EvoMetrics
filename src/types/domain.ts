@@ -1,12 +1,22 @@
+export type UserRole = 'trainer' | 'athlete' | 'coach' | 'nutritionist' | 'owner';
+
 export type Profile = {
   id: string;
   fullName: string;
   email: string;
-  role: 'coach' | 'nutritionist' | 'owner';
+  role: UserRole;
   clinicName?: string;
   createdAt: string;
   updatedAt: string;
 };
+
+export function isTrainer(role: UserRole): boolean {
+  return role === 'trainer' || role === 'coach' || role === 'nutritionist' || role === 'owner';
+}
+
+export function isAthlete(role: UserRole): boolean {
+  return role === 'athlete';
+}
 
 export type ClientSex = 'female' | 'male';
 
@@ -15,6 +25,7 @@ export type AthleteLevel = 'beginner' | 'intermediate' | 'advanced';
 export type Client = {
   id: string;
   ownerId: string;
+  athleteUserId: string | null;
   name: string;
   sex: ClientSex | null;
   athleteLevel: AthleteLevel;
@@ -50,9 +61,6 @@ export type Revision = {
   fatMassDiffKg: number | null;
   leanMassKg: number | null;
   leanMassDiffKg: number | null;
-  muscleMassKg: number | null;
-  nonMuscleNonFatMassKg: number | null;
-  muscleFormulaCode: string | null;
   maintenanceKcal: number | null;
   maintenanceKcalEstimated: number | null;
   targetKcal: number | null;
@@ -70,7 +78,7 @@ export type ClientPhoto = {
   revisionId: string | null;
   storagePath: string;
   imageUrl: string;
-  type: 'front' | 'side' | 'back' | 'progress';
+  type: string;
   capturedAt: string;
   createdAt: string;
 };

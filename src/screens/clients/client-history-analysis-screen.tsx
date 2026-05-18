@@ -1,25 +1,34 @@
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Modal, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
+import { PageHeader } from '@/components/layout/page-header';
+import { PageSection } from '@/components/layout/page-section';
 import { ScreenContainer } from '@/components/layout/screen-container';
 import { HistoryLineChart } from '@/components/surface/history-line-chart';
 import { ThemedText } from '@/components/themed-text';
-import { Accent, Radius, Shadows, Spacing } from '@/constants/theme';
+import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
 import { clientsService } from '@/services/clients';
 import { revisionsService } from '@/services/revisions';
 import { Client } from '@/types/domain';
 import {
+    AnalysisMetricDefinition,
+    SECONDARY_ANALYSIS_METRICS,
+    SECONDARY_METRIC_GROUPS,
+    SECONDARY_PRIMARY_METRIC_KEYS,
+} from '@/utils/analysis-metrics';
+import {
     type HistoricalComparisonMode,
     HistoricalRevisionMetrics,
     buildHistoricalRevisionMetrics,
     resolveHistoricalMetricComparison,
 } from '@/utils/client-history';
+import { buildRevisionBodyFatAverageSignature } from '@/utils/revision-comparisons';
 
 type ClientHistoryAnalysisScreenProps = {
   clientId: string;
@@ -41,6 +50,17 @@ type MetricConfig = {
 type ChartMetricConfig = MetricConfig & {
   strokeColor: string;
 };
+
+type SecondaryMetricProgressRow = {
+  metric: AnalysisMetricDefinition;
+  latestRevision: HistoricalRevisionMetrics;
+  latestValue: number;
+  firstRevision: HistoricalRevisionMetrics;
+  firstValue: number;
+  totalDelta: number;
+};
+
+type SecondaryGroupId = (typeof SECONDARY_METRIC_GROUPS)[number]['id'];
 
 const RANGE_OPTIONS: { label: string; value: HistoryRange }[] = [
   { label: 'Todas', value: 'all' },
@@ -122,65 +142,6 @@ const CHART_METRICS: ChartMetricConfig[] = [
   },
 ];
 
-const SECONDARY_METRICS: MetricConfig[] = [
-  {
-    key: 'bmi',
-    label: 'IMC',
-    unit: 'bmi',
-    direction: 'neutral',
-    comparisonMode: 'visible',
-    accessor: (revision) => revision?.bmi ?? null,
-  },
-  {
-    key: 'bellyCm',
-    label: 'Abdomen',
-    unit: 'cm',
-    direction: 'decrease-better',
-    comparisonMode: 'visible',
-    accessor: (revision) => revision?.bellyCm ?? null,
-  },
-  {
-    key: 'gluteCm',
-    label: 'Gluteo',
-    unit: 'cm',
-    direction: 'neutral',
-    comparisonMode: 'visible',
-    accessor: (revision) => revision?.gluteCm ?? null,
-  },
-  {
-    key: 'sumSkinfoldsMm',
-    label: 'Suma pliegues',
-    unit: 'mm',
-    direction: 'decrease-better',
-    comparisonMode: 'skinfold-formula',
-    accessor: (revision) => revision?.sumSkinfoldsMm ?? null,
-  },
-  {
-    key: 'bodyFatSkinfoldsPct',
-    label: '% pliegues',
-    unit: 'pct',
-    direction: 'decrease-better',
-    comparisonMode: 'skinfold-formula',
-    accessor: (revision) => revision?.bodyFatSkinfoldsPct ?? null,
-  },
-  {
-    key: 'bodyFatPerimetersPct',
-    label: '% perimetros',
-    unit: 'pct',
-    direction: 'decrease-better',
-    comparisonMode: 'perimeter-formula',
-    accessor: (revision) => revision?.bodyFatPerimetersPct ?? null,
-  },
-  {
-    key: 'bodyFatVisualPct',
-    label: '% visual',
-    unit: 'pct',
-    direction: 'decrease-better',
-    comparisonMode: 'visible',
-    accessor: (revision) => revision?.bodyFatVisualPct ?? null,
-  },
-];
-
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString('es-ES');
 }
@@ -239,29 +200,21 @@ function getDeltaTone(delta: number | null, direction: TrendDirection) {
   return { color: favorable ? Accent.success : Accent.danger };
 }
 
-function truncateNotes(value: string | null, length = 72) {
-  const trimmedValue = value?.trim() ?? '';
-
-  if (!trimmedValue) {
-    return '';
-  }
-
-  if (trimmedValue.length <= length) {
-    return trimmedValue;
-  }
-
-  return `${trimmedValue.slice(0, length - 1)}...`;
-}
-
 export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisScreenProps) {
-  const { user } = useAuth();
+  const { user, userRole } = useAuth();
+  const isAthlete = userRole === 'athlete';
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const [client, setClient] = useState<Client | null>(null);
   const [historyRange, setHistoryRange] = useState<HistoryRange>('all');
   const [historicalRevisions, setHistoricalRevisions] = useState<HistoricalRevisionMetrics[]>([]);
   const [isSecondaryExpanded, setIsSecondaryExpanded] = useState(false);
-  const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
+  const [expandedSecondaryGroups, setExpandedSecondaryGroups] = useState<Record<SecondaryGroupId, boolean>>({
+    'body-fat-measurements': false,
+    skinfolds: false,
+    perimeters: false,
+  });
+  const [isBodyFatWarningOpen, setIsBodyFatWarningOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -282,7 +235,9 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
     setErrorMessage(null);
 
     try {
-      const nextClient = await clientsService.getById(clientId, user.id);
+      const nextClient = isAthlete
+        ? await clientsService.getByIdForViewer(clientId)
+        : await clientsService.getById(clientId, user.id!);
       setClient(nextClient);
 
       if (!nextClient) {
@@ -315,16 +270,106 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
   const currentRevision = filteredHistory[0] ?? null;
   const latestRevision = historicalRevisions[0] ?? null;
   const chartSeries = useMemo(() => filteredHistory.slice().reverse(), [filteredHistory]);
-  const secondaryRows = useMemo(
-    () => SECONDARY_METRICS.filter((metric) => metric.accessor(currentRevision) !== null),
-    [currentRevision]
+  const secondaryRows = useMemo<SecondaryMetricProgressRow[]>(() => {
+    return SECONDARY_ANALYSIS_METRICS.flatMap((metric) => {
+      const metricHistory = historicalRevisions
+        .map((revision) => ({ revision, value: metric.accessor(revision) }))
+        .filter((entry): entry is { revision: HistoricalRevisionMetrics; value: number } => entry.value !== null);
+
+      if (metricHistory.length === 0) {
+        return [];
+      }
+
+      const latestEntry = metricHistory[0];
+      const firstEntry = metricHistory[metricHistory.length - 1];
+
+      return [{
+        metric,
+        latestRevision: latestEntry.revision,
+        latestValue: latestEntry.value,
+        firstRevision: firstEntry.revision,
+        firstValue: firstEntry.value,
+        totalDelta: latestEntry.value - firstEntry.value,
+      }];
+    });
+  }, [historicalRevisions]);
+  const secondaryRowsByKey = useMemo(
+    () => new Map(secondaryRows.map((row) => [row.metric.key, row])),
+    [secondaryRows]
   );
+  const hasMixedBodyFatAverageMethods = useMemo(() => {
+    if (!client) {
+      return false;
+    }
+
+    const signatures = historicalRevisions
+      .map((revision) => buildRevisionBodyFatAverageSignature(client, revision.revision))
+      .filter((signature): signature is string => Boolean(signature));
+
+    return new Set(signatures).size > 1;
+  }, [client, historicalRevisions]);
+
+  function renderSecondaryMetricRows(metricKeys: readonly string[]) {
+    const rows = metricKeys
+      .map((metricKey) => secondaryRowsByKey.get(metricKey))
+      .filter((row): row is SecondaryMetricProgressRow => Boolean(row));
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    return (
+      <View style={styles.secondaryMetricsWrap}>
+        {rows.map((row, index) => {
+          const tone = getDeltaTone(row.totalDelta, row.metric.direction);
+          const progressSymbol = row.totalDelta === 0 ? '•' : row.totalDelta > 0 ? '▲' : '▼';
+
+          return (
+            <Pressable
+              key={row.metric.key}
+              onPress={() => router.push(`/clients/${client.id}/metrics/${row.metric.key}`)}
+              style={({ pressed }) => [
+                styles.secondaryMetricRow,
+                {
+                  borderTopColor: theme.backgroundSelected,
+                  borderTopWidth: index === 0 ? 0 : 1,
+                  backgroundColor: pressed ? '#F6FAFF' : '#FAFCFF',
+                },
+              ]}>
+              <View style={styles.secondaryMetricLeft}>
+                <ThemedText type="smallBold" style={styles.secondaryMetricLabel}>{row.metric.label}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Último: {formatDate(row.latestRevision.reviewedAt)}
+                </ThemedText>
+              </View>
+              <View style={styles.secondaryMetricRight}>
+                <ThemedText type="smallBold">{formatMetricValue(row.latestValue, row.metric.unit)}</ThemedText>
+                <View style={styles.secondaryProgressRow}>
+                  <View style={[styles.secondaryProgressIndicator, { backgroundColor: tone.color }]}>
+                    <ThemedText type="smallBold" style={styles.secondaryProgressSymbol}>{progressSymbol}</ThemedText>
+                  </View>
+                  <ThemedText type="smallBold" style={{ color: tone.color }}>
+                    {formatDeltaValue(row.totalDelta, row.metric.unit, '0')}
+                  </ThemedText>
+                </View>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Desde {formatDate(row.firstRevision.reviewedAt)}
+                </ThemedText>
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+    );
+  }
 
   if (isLoading) {
     return (
       <ScreenContainer>
-        <StatusBanner tone="info" loading message="Preparando analisis historico..." />
-        <StatusBanner tone="info" loading message="Preparando análisis histórico..." />
+        <PageHeader title="Analizando..." />
+        <PageSection first>
+          <StatusBanner tone="info" loading message="Preparando análisis histórico..." />
+        </PageSection>
       </ScreenContainer>
     );
   }
@@ -332,8 +377,11 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
   if (errorMessage) {
     return (
       <ScreenContainer>
-        <StatusBanner tone="danger" message={errorMessage} />
-        <AppButton label="Reintentar" onPress={() => void loadContent()} variant="secondary" />
+        <PageHeader title="Error" />
+        <PageSection first>
+          <StatusBanner tone="danger" message={errorMessage} />
+          <AppButton label="Reintentar" onPress={() => void loadContent()} variant="secondary" />
+        </PageSection>
       </ScreenContainer>
     );
   }
@@ -354,42 +402,36 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
   if (historicalRevisions.length === 0) {
     return (
       <ScreenContainer>
-        <View style={styles.headerShell}>
-          <Pressable onPress={() => router.back()} style={[styles.backButton, { borderColor: theme.backgroundSelected }]}>
-            <ThemedText type="smallBold" style={styles.backButtonText}>← Volver</ThemedText>
-          </Pressable>
-          <View style={styles.heroCopy}>
-            <ThemedText type="headline" style={styles.heroTitle}>{client.name}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">Análisis histórico</ThemedText>
-          </View>
-        </View>
-        <EmptyState
-          title="Todavía no hay revisiones para analizar"
-          description="Cuando registres la primera revisión aparecerán aquí el resumen, las gráficas y la comparativa histórica del cliente."
-          actionLabel="Crear primera revisión"
-          onAction={() => router.push(`/revisions/new?clientId=${client.id}`)}
+        <PageHeader
+          eyebrow={`Cliente: ${client.name}`}
+          title="Análisis histórico"
+          rightSlot={<AppButton label="← Volver" variant="ghost" size="compact" fullWidth={false} onPress={() => router.back()} />}
         />
+        <PageSection first>
+          <EmptyState
+            title="Todavía no hay revisiones para analizar"
+            description="Cuando registres la primera revisión aparecerán aquí el resumen, las gráficas y la comparativa histórica del cliente."
+            actionLabel="Crear primera revisión"
+            onAction={() => router.push(`/revisions/new?clientId=${client.id}`)}
+          />
+        </PageSection>
       </ScreenContainer>
     );
   }
 
   return (
-    <ScreenContainer contentStyle={styles.screenContent}>
-      <View style={styles.headerShell}>
-        <View style={styles.heroTopRow}>
-          <Pressable
-            onPress={() => router.back()}
-            accessibilityLabel="Volver"
-            style={({ pressed }) => [
-              styles.backButton,
-              {
-                borderColor: theme.backgroundSelected,
-                backgroundColor: pressed ? '#F6F9FE' : 'transparent',
-              },
-            ]}>
-            <ThemedText type="smallBold" style={styles.backButtonText}>← Volver</ThemedText>
-          </Pressable>
+    <ScreenContainer>
+      <PageHeader
+        eyebrow={`Cliente: ${client.name}`}
+        title="Análisis histórico"
+        subtitle="Evolución y comparativas"
+        rightSlot={<AppButton label="← Volver" variant="ghost" size="compact" fullWidth={false} onPress={() => router.back()} />}
+      />
 
+      <PageSection
+        first
+        label="Resumen"
+        rightSlot={
           <View style={styles.rangeSwitch}>
             {RANGE_OPTIONS.map((option) => {
               const isActive = historyRange === option.value;
@@ -410,19 +452,8 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
               );
             })}
           </View>
-        </View>
-
-        <View style={styles.heroCopy}>
-          <ThemedText type="headline" style={styles.heroTitle}>{client.name}</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">Análisis histórico</ThemedText>
-        </View>
-      </View>
-
-      <View style={[styles.summaryPanel, { borderColor: theme.backgroundSelected }]}> 
-        <View style={styles.sectionCopy}>
-          <ThemedText type="headline">Resumen principal</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">Actual y cambio válido</ThemedText>
-        </View>
+        }
+      >
         <View style={styles.summaryGridCompact}>
           {SUMMARY_METRICS.map((metric) => {
             const comparison = resolveHistoricalMetricComparison({
@@ -441,7 +472,28 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
                   styles.summaryCardCompact,
                   { width: summaryCardWidth, borderColor: theme.backgroundSelected },
                 ]}>
-                <ThemedText type="small" themeColor="textSecondary">{metric.label}</ThemedText>
+                <View style={styles.summaryLabelRow}>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {metric.label}
+                  </ThemedText>
+                  {metric.key === 'bodyFatAveragePct' && hasMixedBodyFatAverageMethods ? (
+                    <Pressable
+                      accessibilityLabel="Aviso sobre comparación mixta de % grasa medio"
+                      accessibilityRole="button"
+                      onPress={() => setIsBodyFatWarningOpen(true)}
+                      hitSlop={8}
+                      style={({ pressed }) => [
+                        styles.bodyFatWarningTrigger,
+                        {
+                          borderColor: pressed ? '#F0B56A' : '#F4C98B',
+                          backgroundColor: pressed ? '#FFF1DF' : '#FFF6E8',
+                          opacity: pressed ? 0.9 : 1,
+                        },
+                      ]}>
+                      <ThemedText type="smallBold" style={styles.bodyFatWarningTriggerText}>!</ThemedText>
+                    </Pressable>
+                  ) : null}
+                </View>
                 <ThemedText type="headline" style={styles.summaryValue}>{formatMetricValue(comparison.currentValue, metric.unit)}</ThemedText>
                 <ThemedText type="smallBold" style={{ color: tone.color }}>
                   {formatDeltaValue(comparison.delta, metric.unit, comparison.missingReferenceLabel)}
@@ -450,13 +502,9 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
             );
           })}
         </View>
-      </View>
+      </PageSection>
 
-      <View style={styles.sectionWrap}>
-        <View style={styles.sectionCopy}>
-          <ThemedText type="headline">Tendencias</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">Peso, composición y evolución reciente</ThemedText>
-        </View>
+      <PageSection label="Tendencias">
         <View style={styles.chartsGrid}>
           {CHART_METRICS.map((metric) => {
             const comparison = resolveHistoricalMetricComparison({
@@ -489,129 +537,86 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
             );
           })}
         </View>
-      </View>
+      </PageSection>
 
-      <View style={[styles.secondaryPanel, { borderColor: theme.backgroundSelected }]}> 
+      <Modal transparent visible={isBodyFatWarningOpen} animationType="fade" onRequestClose={() => setIsBodyFatWarningOpen(false)}>
+        <Pressable style={styles.warningBackdrop} onPress={() => setIsBodyFatWarningOpen(false)}>
+          <Pressable style={[styles.warningPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
+            <View style={styles.warningHeader}>
+              <View style={styles.warningHeaderText}>
+                <ThemedText type="smallBold" style={styles.warningTitle}>Comparación entre métodos</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary" style={styles.warningSubtitle}>
+                  Las revisiones usan métodos distintos (visual, perímetros o pliegues).
+                </ThemedText>
+              </View>
+              <Pressable
+                onPress={() => setIsBodyFatWarningOpen(false)}
+                accessibilityLabel="Cerrar aviso"
+                style={({ pressed }) => [styles.warningCloseButton, { backgroundColor: pressed ? '#EEF3FB' : '#F8FBFF' }]}>
+                <ThemedText type="smallBold" style={styles.warningCloseText}>×</ThemedText>
+              </Pressable>
+            </View>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.warningBody}>
+              El % es comparable, pero puede tener menor precisión.
+            </ThemedText>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <PageSection>
+      <View style={[styles.secondaryPanel, { borderColor: theme.backgroundSelected }]}>
         <Pressable
           onPress={() => setIsSecondaryExpanded((currentValue) => !currentValue)}
           style={[styles.historyToggle, { borderColor: theme.backgroundSelected }]}> 
           <View style={styles.sectionCopy}>
             <ThemedText type="smallBold">Lectura secundaria</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">Métricas útiles, pero no protagonistas</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">Último dato disponible y progreso total por métrica</ThemedText>
           </View>
           <ThemedText type="smallBold" style={styles.historyToggleIcon}>{isSecondaryExpanded ? '-' : '+'}</ThemedText>
         </Pressable>
 
         {isSecondaryExpanded ? (
           <>
-            {secondaryRows.length > 0 ? (
-              <View style={styles.secondaryMetricsWrap}>
-                {secondaryRows.map((metric, index) => {
-                  const comparison = resolveHistoricalMetricComparison({
-                    client,
-                    history: filteredHistory,
-                    currentRevision,
-                    mode: metric.comparisonMode,
-                    accessor: metric.accessor,
-                  });
-                  const tone = getDeltaTone(comparison.delta, metric.direction);
+            <View style={styles.secondarySectionBlock}>
+              <ThemedText type="smallBold" style={styles.secondarySectionTitle}>Datos principales</ThemedText>
+              {renderSecondaryMetricRows(SECONDARY_PRIMARY_METRIC_KEYS)}
+            </View>
 
-                  return (
-                    <View
-                      key={metric.key}
-                      style={[
-                        styles.secondaryMetricRow,
-                        {
-                          borderTopColor: theme.backgroundSelected,
-                          borderTopWidth: index === 0 ? 0 : 1,
-                        },
-                      ]}>
-                      <ThemedText type="smallBold" style={styles.secondaryMetricLabel}>{metric.label}</ThemedText>
-                      <View style={styles.secondaryMetricValues}>
-                        <ThemedText type="small">{formatMetricValue(comparison.currentValue, metric.unit)}</ThemedText>
-                        <ThemedText type="smallBold" style={{ color: tone.color }}>
-                          {formatDeltaValue(comparison.delta, metric.unit, comparison.missingReferenceLabel)}
-                        </ThemedText>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            ) : null}
+            {SECONDARY_METRIC_GROUPS.map((group) => {
+              const isOpen = expandedSecondaryGroups[group.id];
 
-            <Pressable
-              onPress={() => setIsHistoryExpanded((currentValue) => !currentValue)}
-              style={[styles.historyToggle, { borderColor: theme.backgroundSelected }]}> 
-              <View style={styles.sectionCopy}>
-                <ThemedText type="smallBold">Historial detallado</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">Secundario y colapsable</ThemedText>
-              </View>
-              <ThemedText type="smallBold" style={styles.historyToggleIcon}>{isHistoryExpanded ? '-' : '+'}</ThemedText>
-            </Pressable>
-
-            {isHistoryExpanded ? (
-              <View style={styles.historyListCompact}>
-                {filteredHistory.map((revision, index) => (
+              return (
+                <View key={group.id} style={styles.secondaryGroupWrap}>
                   <Pressable
-                    key={revision.id}
-                    onPress={() => router.push(`/revisions/${revision.id}`)}
-                    style={({ pressed }) => [
-                      styles.historyRow,
-                      {
-                        borderTopColor: theme.backgroundSelected,
-                        borderTopWidth: index === 0 ? 0 : 1,
-                        backgroundColor: pressed ? '#F8FBFF' : 'transparent',
-                      },
-                    ]}>
-                    <View style={styles.historyRowPrimary}>
-                      <ThemedText type="smallBold">{formatDate(revision.reviewedAt)}</ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">{revision.phaseLabel}</ThemedText>
+                    onPress={() =>
+                      setExpandedSecondaryGroups((currentGroups) => ({
+                        ...currentGroups,
+                        [group.id]: !currentGroups[group.id],
+                      }))
+                    }
+                    style={[styles.historyToggle, { borderColor: theme.backgroundSelected }]}> 
+                    <View style={styles.sectionCopy}>
+                      <ThemedText type="smallBold">{group.title}</ThemedText>
                     </View>
-                    <View style={styles.historyRowMetrics}>
-                      <ThemedText type="small" themeColor="textSecondary">{formatMetricValue(revision.weightKg, 'kg')}</ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">{formatMetricValue(revision.bodyFatAveragePct, 'pct')}</ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">{truncateNotes(revision.notes) || 'Sin notas'}</ThemedText>
-                    </View>
+                    <ThemedText type="smallBold" style={styles.historyToggleIcon}>{isOpen ? '-' : '+'}</ThemedText>
                   </Pressable>
-                ))}
-              </View>
-            ) : null}
+                  {isOpen ? renderSecondaryMetricRows(group.metricKeys) : null}
+                </View>
+              );
+            })}
           </>
         ) : null}
       </View>
+      </PageSection>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  screenContent: {
-    gap: 18,
-  },
-  headerShell: {
-    gap: 10,
-    paddingTop: 4,
-  },
-  heroTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: Spacing.two,
-    flexWrap: 'wrap',
-  },
-  backButton: {
-    borderWidth: 1,
-    borderRadius: Radius.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  backButtonText: {
-    color: '#10203B',
-  },
   rangeSwitch: {
     flexDirection: 'row',
     gap: Spacing.one,
     flexWrap: 'wrap',
-    justifyContent: 'flex-end',
   },
   rangeChip: {
     borderWidth: 1,
@@ -619,30 +624,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
-  heroCopy: {
-    gap: 2,
-    paddingHorizontal: 2,
-  },
-  heroTitle: {
-    color: '#10203B',
-  },
-  heroMeta: {
-    lineHeight: 22,
-  },
-  sectionWrap: {
-    gap: 12,
-  },
-  sectionCopy: {
-    gap: 2,
-    flex: 1,
-  },
-  summaryPanel: {
+  bodyFatWarningTrigger: {
+    width: 16,
+    height: 16,
     borderWidth: 1,
-    borderRadius: Radius.large,
-    backgroundColor: '#F8FBFF',
-    padding: 14,
-    gap: 12,
-    ...Shadows.soft,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  bodyFatWarningTriggerText: {
+    color: '#A95E12',
+    fontSize: 10,
+    lineHeight: 12,
   },
   summaryGridCompact: {
     flexDirection: 'row',
@@ -662,12 +656,6 @@ const styles = StyleSheet.create({
   summaryValue: {
     color: '#10203B',
   },
-  summaryDeltaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
   chartsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -682,6 +670,53 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 12,
   },
+  warningBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(16, 32, 59, 0.18)',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.three,
+  },
+  warningPanel: {
+    borderWidth: 1,
+    borderRadius: Radius.large,
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    gap: 10,
+    maxWidth: 440,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  warningHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  warningHeaderText: {
+    flex: 1,
+    gap: 2,
+  },
+  warningTitle: {
+    color: Accent.ink,
+  },
+  warningSubtitle: {
+    lineHeight: 18,
+  },
+  warningCloseButton: {
+    width: 30,
+    height: 30,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  warningCloseText: {
+    color: '#5E6E88',
+    fontSize: 18,
+    lineHeight: 20,
+  },
+  warningBody: {
+    lineHeight: 19,
+  },
   secondaryMetricsWrap: {
     borderWidth: 1,
     borderColor: '#E3EBF6',
@@ -689,19 +724,50 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#FAFCFF',
   },
+  secondarySectionBlock: {
+    gap: 8,
+  },
+  secondarySectionTitle: {
+    color: '#10203B',
+  },
+  secondaryGroupWrap: {
+    gap: 8,
+  },
   secondaryMetricRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingHorizontal: 12,
     paddingVertical: 10,
+    gap: 10,
+  },
+  secondaryMetricLeft: {
+    flex: 1,
+    gap: 2,
   },
   secondaryMetricLabel: {
     color: '#10203B',
   },
-  secondaryMetricValues: {
+  secondaryMetricRight: {
     alignItems: 'flex-end',
     gap: 2,
+  },
+  secondaryProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  secondaryProgressIndicator: {
+    width: 14,
+    height: 14,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secondaryProgressSymbol: {
+    color: '#FFFFFF',
+    fontSize: 8,
+    lineHeight: 10,
   },
   historyToggle: {
     borderWidth: 1,
@@ -717,27 +783,6 @@ const styles = StyleSheet.create({
     color: Accent.primary,
     fontSize: 22,
     lineHeight: 24,
-  },
-  historyListCompact: {
-    borderWidth: 1,
-    borderColor: '#E3EBF6',
-    borderRadius: Radius.medium,
-    overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
-  },
-  historyRow: {
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    gap: 6,
-  },
-  historyRowPrimary: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  historyRowMetrics: {
-    gap: 2,
   },
 }
 );

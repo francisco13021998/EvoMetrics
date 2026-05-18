@@ -53,20 +53,12 @@ export type CompositionMetricsInput = {
   bodyFatPct: number | null | undefined;
   fatMassKg?: number | null | undefined;
   leanMassKg?: number | null | undefined;
-  heightCm: number | null | undefined;
-  sex: SupportedMaintenanceSex | null | undefined;
-  age: number | null | undefined;
 };
 
 export type CompositionMetricsResult = {
   fatMassKg: number;
   leanMassKg: number;
-  muscleMassKg: number | null;
-  nonMuscleNonFatMassKg: number | null;
-  muscleFormulaCode: string | null;
 };
-
-export const ESTIMATED_MUSCLE_FORMULA_CODE = 'lee_2000_simple';
 
 export const FEMALE_BODY_FAT_SKINFOLD_KEYS = [
   'bicepFoldMm',
@@ -276,68 +268,6 @@ export function calculateLeanMassKg(weightKg: number | null, fatMassKg: number |
   return roundTo(weightKg - fatMassKg);
 }
 
-export function getSexBinaryValue(sex: SupportedMaintenanceSex | null | undefined) {
-  if (sex === 'male') {
-    return 1;
-  }
-
-  if (sex === 'female') {
-    return 0;
-  }
-
-  return null;
-}
-
-export function calculateEstimatedMuscleMassKg(
-  weightKg: number | null | undefined,
-  heightCm: number | null | undefined,
-  sex: SupportedMaintenanceSex | null | undefined,
-  age: number | null | undefined,
-  leanMassKg: number | null | undefined
-) {
-  const sexBinary = getSexBinaryValue(sex);
-
-  if (
-    !hasValidNumericValue(weightKg) ||
-    !hasValidNumericValue(heightCm) ||
-    !hasValidNumericValue(age) ||
-    !hasValidNumericValue(leanMassKg) ||
-    sexBinary === null
-  ) {
-    return null;
-  }
-
-  const heightM = heightCm / 100;
-
-  if (weightKg <= 0 || heightM <= 0 || age <= 0 || leanMassKg <= 0) {
-    return null;
-  }
-
-  const muscleMassKg =
-    (0.244 * weightKg) +
-    (7.8 * heightM) +
-    (6.6 * sexBinary) -
-    (0.098 * age) -
-    3.3;
-
-  if (!Number.isFinite(muscleMassKg) || muscleMassKg <= 0) {
-    return null;
-  }
-
-  return roundTo(muscleMassKg);
-}
-
-export function calculateNonMuscleNonFatMassKg(
-  leanMassKg: number | null | undefined,
-  muscleMassKg: number | null | undefined
-) {
-  if (!hasValidNumericValue(leanMassKg) || !hasValidNumericValue(muscleMassKg)) {
-    return null;
-  }
-
-  return roundTo(leanMassKg - muscleMassKg);
-}
-
 export function buildCompositionMetrics(values: CompositionMetricsInput): CompositionMetricsResult | null {
   const fatMassKg = values.fatMassKg ?? calculateFatMassKg(values.weightKg ?? null, values.bodyFatPct ?? null);
   const leanMassKg = values.leanMassKg ?? calculateLeanMassKg(values.weightKg ?? null, fatMassKg);
@@ -346,20 +276,9 @@ export function buildCompositionMetrics(values: CompositionMetricsInput): Compos
     return null;
   }
 
-  const muscleMassKg = calculateEstimatedMuscleMassKg(
-    values.weightKg,
-    values.heightCm,
-    values.sex,
-    values.age,
-    leanMassKg
-  );
-
   return {
     fatMassKg,
     leanMassKg,
-    muscleMassKg,
-    nonMuscleNonFatMassKg: calculateNonMuscleNonFatMassKg(leanMassKg, muscleMassKg),
-    muscleFormulaCode: muscleMassKg !== null ? ESTIMATED_MUSCLE_FORMULA_CODE : null,
   };
 }
 

@@ -51,14 +51,14 @@ export function AuthLoadingScreen() {
 }
 
 export function GuestRoute({ children }: AuthRouteProps) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, userRole } = useAuth();
 
   if (isLoading) {
     return <AuthLoadingScreen />;
   }
 
   if (isAuthenticated) {
-    return <Redirect href="/clients" />;
+    return <Redirect href={userRole === 'athlete' ? '/athlete' : '/clients'} />;
   }
 
   return <>{children}</>;
@@ -73,6 +73,42 @@ export function ProtectedRoute({ children }: AuthRouteProps) {
 
   if (!isAuthenticated) {
     return <Redirect href="/login" />;
+  }
+
+  return <>{children}</>;
+}
+
+export function TrainerRoute({ children }: AuthRouteProps) {
+  const { isAuthenticated, isLoading, userRole } = useAuth();
+
+  if (isLoading) {
+    return <AuthLoadingScreen />;
+  }
+
+  if (!isAuthenticated) {
+    return <Redirect href="/login" />;
+  }
+
+  if (userRole === 'athlete') {
+    return <Redirect href="/athlete" />;
+  }
+
+  return <>{children}</>;
+}
+
+export function AthleteRoute({ children }: AuthRouteProps) {
+  const { isAuthenticated, isLoading, userRole } = useAuth();
+
+  if (isLoading) {
+    return <AuthLoadingScreen />;
+  }
+
+  if (!isAuthenticated) {
+    return <Redirect href="/login" />;
+  }
+
+  if (userRole !== 'athlete') {
+    return <Redirect href="/clients" />;
   }
 
   return <>{children}</>;

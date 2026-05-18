@@ -31,11 +31,15 @@ export function AppInput({
   const [isFocused, setIsFocused] = useState(false);
   const isAuth = variant === 'auth';
   const isDisabled = Boolean(props.editable === false);
+  const resolvedBorderColor = isFocused ? Accent.primary : isAuth ? '#C6D8F4' : theme.backgroundSelected;
+  const resolvedBackgroundColor = isAuth ? '#F9FBFF' : '#FFFFFF';
 
   return (
     <View style={styles.wrapper}>
       <View style={styles.header}>
-        <ThemedText type="small" themeColor="textSecondary" style={isAuth && styles.authLabel}>{label}</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary" style={isAuth && styles.authLabel}>
+          {label}
+        </ThemedText>
         {hint ? (
           <ThemedText type="small" themeColor="textSecondary" style={styles.hint}>
             {hint}
@@ -48,8 +52,8 @@ export function AppInput({
           styles.inputShell,
           isAuth && styles.authInputShell,
           {
-            backgroundColor: '#FFFFFF',
-            borderColor: isFocused ? Accent.primary : theme.backgroundSelected,
+            backgroundColor: resolvedBackgroundColor,
+            borderColor: resolvedBorderColor,
             opacity: isDisabled ? 0.65 : 1,
           },
           containerStyle,
@@ -76,6 +80,7 @@ export function AppInput({
             styles.input,
             styles.inputBackground,
             isAuth && styles.authInput,
+            isAuth && styles.authInputColor,
             { color: theme.text },
             props.multiline && styles.textArea,
             style,
@@ -137,13 +142,19 @@ const styles = StyleSheet.create({
   authInput: {
     fontSize: 16,
     lineHeight: 24,
+    fontWeight: 500,
+  },
+  authInputColor: {
+    color: '#0E274F',
   },
   inputBackground: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'transparent',
     borderRadius: Radius.small,
   },
   authLabel: {
     letterSpacing: 0.2,
+    color: '#334A70',
+    fontWeight: 600,
   },
   affix: {
     paddingHorizontal: Spacing.one,

@@ -23,7 +23,7 @@ export function ClientRow({ name, meta, onPress, last = false }: ClientRowProps)
         styles.row,
         { backgroundColor: '#FFFFFF', borderColor: theme.backgroundSelected },
         !last && styles.rowSpacing,
-        { opacity: pressed ? 0.84 : 1, transform: [{ scale: pressed ? 0.995 : 1 }] },
+        { opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.997 : 1 }] },
       ]}>
       <View style={[styles.avatar, { backgroundColor: Accent.primaryMuted }]}>
         <ThemedText type="smallBold" style={{ color: Accent.primary }}>
@@ -37,7 +37,7 @@ export function ClientRow({ name, meta, onPress, last = false }: ClientRowProps)
         </ThemedText>
       </View>
       <ThemedText type="small" themeColor="textSecondary" style={styles.arrow}>
-        →
+        Ver
       </ThemedText>
     </Pressable>
   );
@@ -49,7 +49,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderRadius: Radius.medium,
-    paddingVertical: 10,
+    paddingVertical: 11,
     paddingHorizontal: Spacing.three,
     gap: Spacing.two,
   },
@@ -57,23 +57,27 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.two,
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
+    borderWidth: 1,
+    borderColor: '#CFE0FA',
   },
   info: {
     flex: 1,
-    gap: 1,
+    gap: 2,
     minWidth: 0,
   },
   nameText: {
     flex: 1,
+    color: '#112746',
   },
   arrow: {
     flexShrink: 0,
     color: Accent.primary,
+    fontWeight: 700,
   },
 });

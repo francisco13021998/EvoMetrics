@@ -60,10 +60,11 @@ export function RegisterScreen() {
 
   return (
     <AuthShell
-      brandSubtitle="Onboarding rápido para profesionales de salud y fitness"
-      eyebrow="Alta de cuenta"
-      title="Crea tu cuenta"
-      description="Configura tu perfil y empieza a trabajar en minutos."
+      brandSubtitle="Onboarding guiado para profesionales de salud y fitness"
+      eyebrow="Registro profesional"
+      title="Crea tu cuenta de trabajo"
+      description="Configura tu perfil una sola vez y empieza a registrar revisiones de forma ordenada y segura."
+      highlights={['Configuracion en minutos', 'Estructura profesional', 'Escalable con tu cartera']}
       footerPrefix="¿Ya tienes cuenta?"
       footerAction="Iniciar sesión"
       footerSuffix=""
@@ -105,9 +106,9 @@ export function RegisterScreen() {
       </View>
 
       <View style={styles.actionsBlock}>
-        {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
-        {successMessage ? <StatusBanner tone="success" message={successMessage} /> : null}
-        {isSubmitting ? <StatusBanner tone="info" loading message="Creando tu cuenta..." /> : null}
+        {errorMessage ? <StatusBanner tone="danger" title="No se pudo crear la cuenta" message={errorMessage} /> : null}
+        {successMessage ? <StatusBanner tone="success" title="Cuenta creada" message={successMessage} /> : null}
+        {isSubmitting ? <StatusBanner tone="info" title="Creando cuenta" loading message="Creando tu cuenta..." /> : null}
 
         <AppButton label="Crear cuenta" onPress={handleRegister} loading={isSubmitting} />
       </View>

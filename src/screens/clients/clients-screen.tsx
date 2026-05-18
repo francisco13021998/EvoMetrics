@@ -1,8 +1,9 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Alert, Image, StyleSheet, View } from 'react-native';
 
+import { AthletePinModal } from '@/components/clients/athlete-pin-modal';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
@@ -12,6 +13,7 @@ import { DashboardMetricCard } from '@/components/surface/dashboard-metric-card'
 import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
+import { athletePinsService } from '@/services/athlete-pins';
 import { clientsService } from '@/services/clients';
 import { Client } from '@/types/domain';
 
@@ -30,13 +32,18 @@ export function ClientsScreen() {
   const [isLoadingClients, setIsLoadingClients] = useState(true);
   const [clientsError, setClientsError] = useState<string | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [pinModalPin, setPinModalPin] = useState('');
+  const [pinModalExpiresAt, setPinModalExpiresAt] = useState('');
+  const [isGeneratingPin, setIsGeneratingPin] = useState(false);
 
   const hasClients = clients.length > 0;
   const showInitialLoading = isLoadingClients && !hasClients && !clientsError;
   const userName = (user?.user_metadata?.fullName as string | undefined)?.trim() || user?.email?.split('@')[0] || 'Usuario';
   const clinicName = (user?.user_metadata?.clinicName as string | undefined)?.trim() || null;
+  const syncStatus = isLoadingClients ? 'Sincronizando...' : clientsError ? 'Requiere revision' : 'Sincronizado';
 
-  async function loadClients() {
+  const loadClients = useCallback(async () => {
     if (!user?.id) {
       setClients([]);
       setIsLoadingClients(false);
@@ -55,17 +62,30 @@ export function ClientsScreen() {
     } finally {
       setIsLoadingClients(false);
     }
-  }
+  }, [user?.id]);
 
   useEffect(() => {
     void loadClients();
-  }, [user?.id]);
+  }, [loadClients]);
 
   useFocusEffect(
     React.useCallback(() => {
       void loadClients();
-    }, [user?.id])
+    }, [loadClients])
   );
+
+  async function handleGenerateNewAthletePin() {
+    setIsGeneratingPin(true);
+    const result = await athletePinsService.generatePin();
+    setIsGeneratingPin(false);
+    if (!result.success) {
+      Alert.alert('Error', result.error);
+      return;
+    }
+    setPinModalPin(result.pin);
+    setPinModalExpiresAt(result.expiresAt);
+    setPinModalVisible(true);
+  }
 
   async function handleLogout() {
     setIsSigningOut(true);
@@ -81,12 +101,16 @@ export function ClientsScreen() {
   return (
     <ScreenContainer>
       <View style={styles.heroPanel}>
-        <View style={styles.heroTopRow}>
-          <View style={styles.heroIdentity}>
-            <ThemedText type="label" style={styles.heroEyebrow}>Panel</ThemedText>
-            <ThemedText style={styles.heroTitle}>{userName}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.heroSubtitle}>
-              {clinicName || 'Centro o marca pendiente'}
+        <View style={styles.brandStrip}>
+          <View style={styles.brandBadge}>
+            <Image source={require('../../../assets/branding/logo-evometrics.png')} style={styles.brandLogo} resizeMode="contain" />
+          </View>
+          <View style={styles.brandCopy}>
+            <ThemedText type="label" style={styles.brandEyebrow}>
+              Dashboard
+            </ThemedText>
+            <ThemedText type="small" style={styles.brandText}>
+              Control de clientes EvoMetrics
             </ThemedText>
           </View>
           <AppButton
@@ -99,26 +123,69 @@ export function ClientsScreen() {
           />
         </View>
 
+        <View style={styles.heroTopRow}>
+          <ThemedText type="label" style={styles.heroEyebrow}>
+            Resumen operativo
+          </ThemedText>
+          <View style={styles.heroIdentity}>
+            <ThemedText style={styles.heroTitle}>{userName}</ThemedText>
+            <View style={styles.heroMetaRow}>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.heroSubtitle}>
+                {clinicName || 'Centro o marca pendiente'}
+              </ThemedText>
+              <View style={styles.statusPill}>
+                <View style={[styles.statusDot, clientsError ? styles.statusDotWarning : styles.statusDotOk]} />
+                <ThemedText type="small" style={styles.statusText}>
+                  {syncStatus}
+                </ThemedText>
+              </View>
+            </View>
+          </View>
+        </View>
+
         <View style={styles.heroMetricsRow}>
           <DashboardMetricCard
-            label="Clientes"
+            label="Clientes activos"
             value={String(clients.length)}
+            helper="Perfiles disponibles para seguimiento"
             tone="primary"
           />
           <DashboardMetricCard
-            label="Facturación media mensual"
-            value="-"
+            label="Ganancias mensuales"
+            value="1.480 EUR"
+            helper="Estimacion mensual actual"
+            variant="placeholder"
           />
         </View>
 
-        <View style={styles.primaryActionRow}>
-          <AppButton label="Nuevo cliente" onPress={() => router.push('/clients/new')} />
+        <View style={styles.assuranceRow}>
+          <ThemedText type="small" style={styles.assuranceText}>
+            Los datos se guardan con trazabilidad para mantener un seguimiento claro y fiable.
+          </ThemedText>
         </View>
       </View>
 
       <View style={styles.clientsSection}>
         <View style={styles.clientsHeader}>
-          <ThemedText type="label" style={styles.clientsEyebrow}>Clientes</ThemedText>
+          <View style={styles.clientsHeaderCopy}>
+            <ThemedText type="label" style={styles.clientsEyebrow}>
+              Clientes
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.clientsSubcopy}>
+              {hasClients ? `${clients.length} perfiles disponibles` : 'Sin perfiles cargados'}
+            </ThemedText>
+          </View>
+          <View style={styles.clientsHeaderActions}>
+            <AppButton
+              label="PIN atleta"
+              variant="surface"
+              size="compact"
+              fullWidth={false}
+              onPress={() => { void handleGenerateNewAthletePin(); }}
+              loading={isGeneratingPin}
+            />
+            <AppButton label="Nuevo cliente" onPress={() => router.push('/clients/new')} size="compact" fullWidth={false} />
+          </View>
         </View>
 
         {showInitialLoading ? (
@@ -132,14 +199,14 @@ export function ClientsScreen() {
           <View style={[styles.emptyWrap, { borderColor: theme.backgroundSelected }]}>
             <EmptyState
               title="Sin clientes todavía"
-              description="Crea el primer perfil para empezar el seguimiento profesional."
+              description="Crea el primer perfil para empezar el seguimiento profesional de forma estructurada."
               actionLabel="Crear cliente"
               actionVariant="primary"
               onAction={() => router.push('/clients/new')}
             />
           </View>
         ) : (
-          <View style={styles.clientsList}>
+          <View style={[styles.clientsList, { borderColor: theme.backgroundSelected }]}>
             {clients.map((client, index) => (
               <ClientRow
                 key={client.id}
@@ -152,6 +219,14 @@ export function ClientsScreen() {
           </View>
         )}
       </View>
+
+      <AthletePinModal
+        visible={pinModalVisible}
+        pin={pinModalPin}
+        expiresAt={pinModalExpiresAt}
+        pinType="new_client"
+        onClose={() => setPinModalVisible(false)}
+      />
     </ScreenContainer>
   );
 }
@@ -160,54 +235,153 @@ const styles = StyleSheet.create({
   heroPanel: {
     backgroundColor: '#FFFFFF',
     borderRadius: Radius.large,
-    paddingHorizontal: Spacing.three,
-    paddingTop: Spacing.three,
-    paddingBottom: Spacing.two,
+    borderWidth: 1,
+    borderColor: '#D8E5F8',
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
+    gap: 12,
+    shadowColor: '#12336E',
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
+  },
+  brandStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing.two,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E1EAF8',
+  },
+  brandBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#D6E2F8',
+    backgroundColor: '#F8FBFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandLogo: {
+    width: 32,
+    height: 32,
+  },
+  brandCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 0,
+  },
+  brandEyebrow: {
+    color: '#1E4FBF',
+  },
+  brandText: {
+    color: '#3F5780',
+    lineHeight: 18,
   },
   heroTopRow: {
+    gap: 6,
+  },
+  heroIdentity: {
+    gap: 5,
+  },
+  heroMetaRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: Spacing.two,
-  },
-  heroIdentity: {
-    flex: 1,
-    gap: Spacing.one,
   },
   heroEyebrow: {
     color: Accent.primary,
   },
   heroTitle: {
     color: '#10203B',
-    fontSize: 28,
-    lineHeight: 32,
+    fontSize: 24,
+    lineHeight: 30,
     fontWeight: 700,
+    letterSpacing: -0.2,
   },
   heroSubtitle: {
-    maxWidth: 260,
+    flex: 1,
     lineHeight: 19,
+  },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+    gap: 6,
+    backgroundColor: '#F3F8FF',
+    borderWidth: 1,
+    borderColor: '#D8E6FB',
+    borderRadius: Radius.pill,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: Radius.pill,
+  },
+  statusDotOk: {
+    backgroundColor: '#1F57D6',
+  },
+  statusDotWarning: {
+    backgroundColor: '#DC5B5B',
+  },
+  statusText: {
+    color: '#27406A',
+    lineHeight: 17,
   },
   heroMetricsRow: {
     flexDirection: 'row',
-    gap: Spacing.two,
+    gap: 10,
   },
-  primaryActionRow: {
-    paddingTop: Spacing.one,
+  assuranceRow: {
+    backgroundColor: '#F4F8FF',
+    borderRadius: Radius.medium,
+    borderWidth: 1,
+    borderColor: '#D9E6FB',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  assuranceText: {
+    color: '#35517A',
+    lineHeight: 18,
   },
   clientsSection: {
     gap: Spacing.two,
-    paddingTop: Spacing.three,
+    paddingTop: 12,
   },
   clientsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  clientsHeaderCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  clientsHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   clientsEyebrow: {
     color: Accent.primary,
   },
+  clientsSubcopy: {
+    marginTop: 2,
+    lineHeight: 18,
+  },
   clientsList: {
     gap: 0,
+    borderWidth: 1,
+    borderRadius: Radius.large,
+    backgroundColor: '#FFFFFF',
+    padding: 10,
   },
   emptyWrap: {
     borderWidth: 1,

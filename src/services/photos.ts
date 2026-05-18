@@ -1,10 +1,14 @@
-import { ImagePickerAsset } from 'expo-image-picker';
-
 import { supabase } from '@/lib/supabase';
 import { ClientPhoto } from '@/types/domain';
 
 export const PHOTOS_TABLE = 'client_photos';
 export const CLIENT_IMAGES_BUCKET = 'client-images';
+
+type LocalImageSource = {
+  uri: string;
+  fileName?: string | null;
+  mimeType?: string | null;
+};
 
 type DbClientPhotoRow = {
   id: string;
@@ -20,9 +24,36 @@ type DbClientPhotoRow = {
 export type UploadClientPhotoInput = {
   ownerId: string;
   clientId: string;
-  asset: ImagePickerAsset;
+  asset: LocalImageSource;
   revisionId?: string | null;
-  type?: ClientPhoto['type'];
+  type?: string;
+  capturedAt?: string;
+};
+
+export type UpdateClientPhotoCapturedAtInput = {
+  photoId: string;
+  ownerId: string;
+  capturedAt: string;
+};
+
+export type UpdateClientPhotoRevisionInput = {
+  photoId: string;
+  ownerId: string;
+  revisionId: string | null;
+};
+
+export type UpdateClientPhotoDetailsInput = {
+  photoId: string;
+  ownerId: string;
+  capturedAt: string;
+  revisionId: string | null;
+  type: string;
+};
+
+export type ReplaceClientPhotoImageInput = {
+  photoId: string;
+  ownerId: string;
+  asset: LocalImageSource;
 };
 
 function sanitizeFileNameSegment(value: string) {
@@ -35,7 +66,7 @@ function sanitizeFileNameSegment(value: string) {
     .toLowerCase();
 }
 
-function getFileExtension(asset: ImagePickerAsset) {
+function getFileExtension(asset: LocalImageSource) {
   const fromName = asset.fileName?.split('.').pop()?.trim().toLowerCase();
 
   if (fromName) {
@@ -52,10 +83,16 @@ function getFileExtension(asset: ImagePickerAsset) {
     return fromMime;
   }
 
+  const fromUri = asset.uri.split('?')[0].split('.').pop()?.trim().toLowerCase();
+
+  if (fromUri) {
+    return fromUri;
+  }
+
   return 'jpg';
 }
 
-function buildStorageFileName(asset: ImagePickerAsset) {
+function buildStorageFileName(asset: LocalImageSource) {
   const baseName = asset.fileName?.replace(/\.[^.]+$/, '') ?? 'photo';
   const safeBaseName = sanitizeFileNameSegment(baseName) || 'photo';
   const extension = getFileExtension(asset);
@@ -99,15 +136,28 @@ async function getFileArrayBuffer(uri: string) {
   return response.arrayBuffer();
 }
 
-function mapCreatePayload(payload: { ownerId: string; clientId: string; revisionId?: string | null; storagePath: string; type: ClientPhoto['type'] }) {
+function mapCreatePayload(payload: { ownerId: string; clientId: string; revisionId?: string | null; storagePath: string; type: string; capturedAt?: string }) {
+  const normalizedCapturedAt = payload.capturedAt ? toDateOnlyIso(payload.capturedAt) : toDateOnlyIso(new Date().toISOString());
+
   return {
     owner_id: payload.ownerId,
     client_id: payload.clientId,
     revision_id: payload.revisionId ?? null,
     storage_path: payload.storagePath,
     type: payload.type,
-    captured_at: new Date().toISOString(),
+    captured_at: normalizedCapturedAt,
   };
+}
+
+function toDateOnlyIso(value: string) {
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    const now = new Date();
+    return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)).toISOString();
+  }
+
+  return new Date(Date.UTC(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate(), 0, 0, 0, 0)).toISOString();
 }
 
 export const photosService = {
@@ -121,6 +171,51 @@ export const photosService = {
       .select('*')
       .eq('client_id', clientId)
       .eq('owner_id', ownerId)
+      .order('captured_at', { ascending: false });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return Promise.all(((data as DbClientPhotoRow[] | null) ?? []).map(mapDbClientPhoto));
+  },
+
+  /** Queries only by client_id — relies on RLS for access control (athletes + trainers). */
+  async listByClientForViewer(clientId: string) {
+    const { data, error } = await supabase
+      .from(PHOTOS_TABLE)
+      .select('*')
+      .eq('client_id', clientId)
+      .order('captured_at', { ascending: false });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return Promise.all(((data as DbClientPhotoRow[] | null) ?? []).map(mapDbClientPhoto));
+  },
+
+  async listByRevision(revisionId: string, ownerId: string) {
+    const { data, error } = await supabase
+      .from(PHOTOS_TABLE)
+      .select('*')
+      .eq('revision_id', revisionId)
+      .eq('owner_id', ownerId)
+      .order('captured_at', { ascending: false });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return Promise.all(((data as DbClientPhotoRow[] | null) ?? []).map(mapDbClientPhoto));
+  },
+
+  /** Queries only by revision_id — relies on RLS for access control. */
+  async listByRevisionForViewer(revisionId: string) {
+    const { data, error } = await supabase
+      .from(PHOTOS_TABLE)
+      .select('*')
+      .eq('revision_id', revisionId)
       .order('captured_at', { ascending: false });
 
     if (error) {
@@ -145,7 +240,7 @@ export const photosService = {
     return data ? mapDbClientPhoto(data as DbClientPhotoRow) : null;
   },
 
-  async uploadFromDevice({ ownerId, clientId, asset, revisionId, type = 'progress' }: UploadClientPhotoInput) {
+  async uploadFromDevice({ ownerId, clientId, asset, revisionId, type = 'front', capturedAt }: UploadClientPhotoInput) {
     const fileName = buildStorageFileName(asset);
     const storagePath = this.buildPath(ownerId, clientId, fileName);
     const body = await getFileArrayBuffer(asset.uri);
@@ -162,7 +257,7 @@ export const photosService = {
 
     const { data, error } = await supabase
       .from(PHOTOS_TABLE)
-      .insert(mapCreatePayload({ ownerId, clientId, revisionId, storagePath, type }))
+      .insert(mapCreatePayload({ ownerId, clientId, revisionId, storagePath, type, capturedAt }))
       .select('*')
       .single();
 
@@ -196,5 +291,96 @@ export const photosService = {
     if (error) {
       throw new Error(error.message);
     }
+  },
+
+  async updateCapturedAt({ photoId, ownerId, capturedAt }: UpdateClientPhotoCapturedAtInput) {
+    const { data, error } = await supabase
+      .from(PHOTOS_TABLE)
+      .update({ captured_at: toDateOnlyIso(capturedAt) })
+      .eq('id', photoId)
+      .eq('owner_id', ownerId)
+      .select('*')
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return mapDbClientPhoto(data as DbClientPhotoRow);
+  },
+
+  async updateRevision({ photoId, ownerId, revisionId }: UpdateClientPhotoRevisionInput) {
+    const { data, error } = await supabase
+      .from(PHOTOS_TABLE)
+      .update({ revision_id: revisionId })
+      .eq('id', photoId)
+      .eq('owner_id', ownerId)
+      .select('*')
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return mapDbClientPhoto(data as DbClientPhotoRow);
+  },
+
+  async updateDetails({ photoId, ownerId, capturedAt, revisionId, type }: UpdateClientPhotoDetailsInput) {
+    const { data, error } = await supabase
+      .from(PHOTOS_TABLE)
+      .update({
+        captured_at: toDateOnlyIso(capturedAt),
+        revision_id: revisionId,
+        type,
+      })
+      .eq('id', photoId)
+      .eq('owner_id', ownerId)
+      .select('*')
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return mapDbClientPhoto(data as DbClientPhotoRow);
+  },
+
+  async replaceImageFromDevice({ photoId, ownerId, asset }: ReplaceClientPhotoImageInput) {
+    const currentPhoto = await this.getById(photoId, ownerId);
+
+    if (!currentPhoto) {
+      throw new Error('La imagen que intentas editar no existe.');
+    }
+
+    const fileName = buildStorageFileName(asset);
+    const nextStoragePath = this.buildPath(currentPhoto.ownerId, currentPhoto.clientId, fileName);
+    const body = await getFileArrayBuffer(asset.uri);
+    const contentType = asset.mimeType ?? `image/${getFileExtension(asset)}`;
+
+    const { error: uploadError } = await supabase.storage.from(CLIENT_IMAGES_BUCKET).upload(nextStoragePath, body, {
+      contentType,
+      upsert: false,
+    });
+
+    if (uploadError) {
+      throw new Error(uploadError.message);
+    }
+
+    const { data, error } = await supabase
+      .from(PHOTOS_TABLE)
+      .update({ storage_path: nextStoragePath })
+      .eq('id', photoId)
+      .eq('owner_id', ownerId)
+      .select('*')
+      .single();
+
+    if (error) {
+      await supabase.storage.from(CLIENT_IMAGES_BUCKET).remove([nextStoragePath]);
+      throw new Error(error.message);
+    }
+
+    await supabase.storage.from(CLIENT_IMAGES_BUCKET).remove([currentPhoto.storagePath]);
+
+    return mapDbClientPhoto(data as DbClientPhotoRow);
   },
 };

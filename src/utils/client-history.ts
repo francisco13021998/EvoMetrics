@@ -24,7 +24,6 @@ export type HistoricalRevisionMetrics = {
   bodyFatVisualPct: number | null;
   fatMassKg: number | null;
   leanMassKg: number | null;
-  muscleMassKg: number | null;
   bmi: number | null;
   waistCm: number | null;
   bellyCm: number | null;
@@ -145,9 +144,6 @@ export function buildHistoricalRevisionMetrics(client: Client, revisions: Revisi
       bodyFatPct: averageBodyFat?.bodyFatPct ?? null,
       fatMassKg: revision.fatMassKg,
       leanMassKg: revision.leanMassKg,
-      heightCm: client.heightCm,
-      sex: client.sex,
-      age: client.age,
     });
     const bmi = revision.bmi ?? calculateBmi(revision.weightKg, client.heightCm);
 
@@ -162,7 +158,6 @@ export function buildHistoricalRevisionMetrics(client: Client, revisions: Revisi
       bodyFatVisualPct: revision.bodyFatVisualPct,
       fatMassKg: compositionMetrics?.fatMassKg ?? null,
       leanMassKg: compositionMetrics?.leanMassKg ?? null,
-      muscleMassKg: revision.muscleMassKg ?? compositionMetrics?.muscleMassKg ?? null,
       bmi,
       waistCm: revision.waistCm,
       bellyCm: revision.bellyCm,

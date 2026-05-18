@@ -1,7 +1,9 @@
 import { Session, User } from '@supabase/supabase-js';
 import React, { createContext, ReactNode, useEffect, useMemo, useState } from 'react';
 
+import { supabase } from '@/lib/supabase';
 import { authService, SignInWithPasswordInput, SignUpInput } from '@/services/auth';
+import { UserRole } from '@/types/domain';
 
 type SignUpResult = {
   needsEmailConfirmation: boolean;
@@ -10,6 +12,7 @@ type SignUpResult = {
 type AuthContextValue = {
   session: Session | null;
   user: User | null;
+  userRole: UserRole | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   signIn: (input: SignInWithPasswordInput) => Promise<void>;
@@ -26,7 +29,17 @@ type AuthProviderProps = {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  async function fetchRole(userId: string) {
+    const { data } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', userId)
+      .maybeSingle();
+    setUserRole((data?.role as UserRole) ?? 'trainer');
+  }
 
   useEffect(() => {
     let isMounted = true;
@@ -41,9 +54,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (error) {
           setSession(null);
           setUser(null);
+          setUserRole(null);
         } else {
           setSession(data.session);
           setUser(data.session?.user ?? null);
+          if (data.session?.user) {
+            void fetchRole(data.session.user.id);
+          }
         }
       })
       .finally(() => {
@@ -62,6 +79,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
       setIsLoading(false);
+      if (nextSession?.user) {
+        void fetchRole(nextSession.user.id);
+      } else {
+        setUserRole(null);
+      }
     });
 
     return () => {
@@ -74,6 +96,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     () => ({
       session,
       user,
+      userRole,
       isAuthenticated: Boolean(session?.user),
       isLoading,
       async signIn(input) {
@@ -102,7 +125,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
       },
     }),
-    [isLoading, session, user]
+    [isLoading, session, user, userRole]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
