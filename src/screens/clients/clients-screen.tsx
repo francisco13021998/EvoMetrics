@@ -1,9 +1,8 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Image, StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 
-import { AthletePinModal } from '@/components/clients/athlete-pin-modal';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
@@ -13,7 +12,6 @@ import { DashboardMetricCard } from '@/components/surface/dashboard-metric-card'
 import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
-import { athletePinsService } from '@/services/athlete-pins';
 import { clientsService } from '@/services/clients';
 import { Client } from '@/types/domain';
 
@@ -32,10 +30,6 @@ export function ClientsScreen() {
   const [isLoadingClients, setIsLoadingClients] = useState(true);
   const [clientsError, setClientsError] = useState<string | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const [pinModalVisible, setPinModalVisible] = useState(false);
-  const [pinModalPin, setPinModalPin] = useState('');
-  const [pinModalExpiresAt, setPinModalExpiresAt] = useState('');
-  const [isGeneratingPin, setIsGeneratingPin] = useState(false);
 
   const hasClients = clients.length > 0;
   const showInitialLoading = isLoadingClients && !hasClients && !clientsError;
@@ -73,19 +67,6 @@ export function ClientsScreen() {
       void loadClients();
     }, [loadClients])
   );
-
-  async function handleGenerateNewAthletePin() {
-    setIsGeneratingPin(true);
-    const result = await athletePinsService.generatePin();
-    setIsGeneratingPin(false);
-    if (!result.success) {
-      Alert.alert('Error', result.error);
-      return;
-    }
-    setPinModalPin(result.pin);
-    setPinModalExpiresAt(result.expiresAt);
-    setPinModalVisible(true);
-  }
 
   async function handleLogout() {
     setIsSigningOut(true);
@@ -158,11 +139,7 @@ export function ClientsScreen() {
           />
         </View>
 
-        <View style={styles.assuranceRow}>
-          <ThemedText type="small" style={styles.assuranceText}>
-            Los datos se guardan con trazabilidad para mantener un seguimiento claro y fiable.
-          </ThemedText>
-        </View>
+        <StatusBanner tone="warning" title="PIN Atleta" message="Función en mantennimiento" />
       </View>
 
       <View style={styles.clientsSection}>
@@ -177,12 +154,11 @@ export function ClientsScreen() {
           </View>
           <View style={styles.clientsHeaderActions}>
             <AppButton
-              label="PIN atleta"
+              label="PIN Atleta"
               variant="surface"
               size="compact"
               fullWidth={false}
-              onPress={() => { void handleGenerateNewAthletePin(); }}
-              loading={isGeneratingPin}
+              disabled
             />
             <AppButton label="Nuevo cliente" onPress={() => router.push('/clients/new')} size="compact" fullWidth={false} />
           </View>
@@ -220,13 +196,6 @@ export function ClientsScreen() {
         )}
       </View>
 
-      <AthletePinModal
-        visible={pinModalVisible}
-        pin={pinModalPin}
-        expiresAt={pinModalExpiresAt}
-        pinType="new_client"
-        onClose={() => setPinModalVisible(false)}
-      />
     </ScreenContainer>
   );
 }
@@ -300,7 +269,7 @@ const styles = StyleSheet.create({
     color: '#10203B',
     fontSize: 24,
     lineHeight: 30,
-    fontWeight: 700,
+    fontWeight: '700',
     letterSpacing: -0.2,
   },
   heroSubtitle: {

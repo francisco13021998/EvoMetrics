@@ -206,6 +206,7 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const [client, setClient] = useState<Client | null>(null);
+  const currentClient = client as Client;
   const [historyRange, setHistoryRange] = useState<HistoryRange>('all');
   const [historicalRevisions, setHistoricalRevisions] = useState<HistoricalRevisionMetrics[]>([]);
   const [isSecondaryExpanded, setIsSecondaryExpanded] = useState(false);
@@ -327,7 +328,7 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
           return (
             <Pressable
               key={row.metric.key}
-              onPress={() => router.push(`/clients/${client.id}/metrics/${row.metric.key}`)}
+              onPress={() => router.push(`/clients/${currentClient.id}/metrics/${row.metric.key}`)}
               style={({ pressed }) => [
                 styles.secondaryMetricRow,
                 {
@@ -653,6 +654,12 @@ const styles = StyleSheet.create({
     gap: 6,
     minHeight: 96,
   },
+  summaryLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
   summaryValue: {
     color: '#10203B',
   },
@@ -669,6 +676,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     padding: 14,
     gap: 12,
+  },
+  sectionCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  autoSummaryMetaLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   warningBackdrop: {
     flex: 1,

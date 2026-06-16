@@ -329,9 +329,10 @@ function mapUpdatePayload(payload: CreateRevisionInput, metrics: RevisionCompute
     ...(payload.bodyFatVisualPct !== undefined ? { body_fat_visual_pct: payload.bodyFatVisualPct } : {}),
     ...(payload.activityFactor !== undefined
       ? {
-          activity_factor: isSupportedActivityFactor(payload.activityFactor)
-            ? Number(payload.activityFactor.toFixed(2))
-            : null,
+          activity_factor:
+            typeof payload.activityFactor === 'number' && isSupportedActivityFactor(payload.activityFactor)
+              ? Number(payload.activityFactor.toFixed(2))
+              : null,
         }
       : {}),
     fat_mass_kg: metrics.fatMassKg,

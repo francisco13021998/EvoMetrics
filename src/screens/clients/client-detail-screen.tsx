@@ -3,7 +3,6 @@ import { router } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
 
-import { AthletePinModal } from '@/components/clients/athlete-pin-modal';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
@@ -16,7 +15,6 @@ import { formatAthleteLevelLabel } from '@/constants/athlete-level';
 import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
-import { athletePinsService } from '@/services/athlete-pins';
 import { clientsService } from '@/services/clients';
 import { revisionsService } from '@/services/revisions';
 import { Client, Revision } from '@/types/domain';
@@ -41,10 +39,6 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [isClientMenuOpen, setIsClientMenuOpen] = useState(false);
-  const [pinModalVisible, setPinModalVisible] = useState(false);
-  const [pinModalPin, setPinModalPin] = useState('');
-  const [pinModalExpiresAt, setPinModalExpiresAt] = useState('');
-  const [isGeneratingPin, setIsGeneratingPin] = useState(false);
 
   const showInitialLoading = isLoading && !client;
 
@@ -76,27 +70,13 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [clientId, user?.id]);
+  }, [clientId, user?.id, isAthlete]);
 
   useFocusEffect(
     useCallback(() => {
       void loadClient();
     }, [loadClient])
   );
-
-  async function handleGeneratePin() {
-    if (!client) return;
-    setIsGeneratingPin(true);
-    const result = await athletePinsService.generateClientPin(client.id);
-    setIsGeneratingPin(false);
-    if (!result.success) {
-      Alert.alert('Error', result.error);
-      return;
-    }
-    setPinModalPin(result.pin);
-    setPinModalExpiresAt(result.expiresAt);
-    setPinModalVisible(true);
-  }
 
   async function confirmDelete() {
     if (!client || !user?.id || isDeleting) return;
@@ -283,6 +263,13 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
         </View>
 
         <View style={styles.actionsBlock}>
+          {!isAthlete && client.athleteUserId === null && (
+            <StatusBanner
+              tone="warning"
+              title="PIN Atleta"
+              message="Función en mantenimiento"
+            />
+          )}
           <View style={styles.actionsTopRow}>
             <View style={styles.actionCell}>
               <AppButton label="Fotos" variant="surface" size="compact" onPress={() => router.push(`/clients/${client.id}/photos`)} />
@@ -303,11 +290,10 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
           </View>
           {!isAthlete && client.athleteUserId === null && (
             <AppButton
-              label={isGeneratingPin ? 'Generando PIN...' : 'Generar PIN de acceso para atleta'}
+              label="PIN Atleta"
               variant="surface"
               size="compact"
-              onPress={() => { void handleGeneratePin(); }}
-              loading={isGeneratingPin}
+              disabled
             />
           )}
           {!isAthlete && client.athleteUserId !== null && (
@@ -340,13 +326,6 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
         </View>
       </View>
 
-      <AthletePinModal
-        visible={pinModalVisible}
-        pin={pinModalPin}
-        expiresAt={pinModalExpiresAt}
-        pinType="existing_client"
-        onClose={() => setPinModalVisible(false)}
-      />
     </ScreenContainer>
   );
 }
@@ -571,7 +550,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: Radius.base,
+    borderRadius: Radius.small,
     borderWidth: 1,
   },
   timerDot: {

@@ -39,10 +39,16 @@ export const Fonts = Platform.select({
     rounded: 'ui-rounded',
     mono: 'ui-monospace',
   },
-  default: {
-    sans: 'normal',
+  android: {
+    sans: 'sans-serif',
     serif: 'serif',
-    rounded: 'normal',
+    rounded: 'sans-serif-rounded',
+    mono: 'monospace',
+  },
+  default: {
+    sans: 'sans-serif',
+    serif: 'serif',
+    rounded: 'sans-serif-rounded',
     mono: 'monospace',
   },
   web: {

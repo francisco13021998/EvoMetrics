@@ -89,6 +89,12 @@ type RevisionFieldConfig = {
   placeholder: string;
 };
 
+type RevisionReferencePlaceholders = Partial<Record<FieldKey, string>> & {
+  phase?: string;
+  reviewedAt?: string;
+  notes?: string;
+};
+
 const PERIMETER_PROTOCOL_ID = 'perimeters';
 
 const PERIMETER_PROTOCOL_OPTIONS = [
@@ -481,6 +487,11 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       return;
     }
 
+    if (!user) {
+      setErrorMessage('Necesitas iniciar sesion para guardar la revision.');
+      return;
+    }
+
     const normalizedPhase = normalizeRevisionPhase(form.phase);
 
     if (!isRevisionPhase(normalizedPhase)) {
@@ -638,7 +649,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   const isWide = width >= 960;
   const isMedium = width >= 720;
   const reviewedAtDate = form.reviewedAt ? new Date(form.reviewedAt) : null;
-  const referencePlaceholders = useMemo(() => {
+  const referencePlaceholders = useMemo<RevisionReferencePlaceholders | null>(() => {
     if (mode !== 'create' || !referenceRevision) {
       return null;
     }
@@ -660,6 +671,9 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       frontThighFoldMm: toInputValue(referenceRevision.frontThighFoldMm),
       calfFoldMm: toInputValue(referenceRevision.calfFoldMm),
       bodyFatVisualPct: toInputValue(referenceRevision.bodyFatVisualPct),
+      activityFactor: toInputValue(referenceRevision.activityFactor),
+      maintenanceKcal: toInputValue(referenceRevision.maintenanceKcal),
+      targetKcal: toInputValue(referenceRevision.targetKcal),
       phase: normalizeRevisionPhase(referenceRevision.phase),
       reviewedAt: formatDateForDisplay(new Date(referenceRevision.reviewedAt ?? Date.now())),
       notes: referenceRevision.notes?.trim() ? truncateText(referenceRevision.notes.trim()) : '',
@@ -1746,6 +1760,12 @@ const styles = StyleSheet.create({
   },
   autoSummaryMetaText: {
     lineHeight: 13,
+  },
+  autoSummaryMetaLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   autoSummaryInlineChange: {
     lineHeight: 13,

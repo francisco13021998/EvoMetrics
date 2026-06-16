@@ -1,24 +1,21 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
-import { useColorScheme } from 'react-native';
 
 import { Colors } from '@/constants/theme';
 import { AuthProvider } from '@/providers/auth-provider';
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
-  const theme = colorScheme === 'dark' ? DarkTheme : DefaultTheme;
-  const palette = Colors[colorScheme === 'dark' ? 'dark' : 'light'];
+const palette = Colors.light;
 
+export default function TabLayout() {
   return (
     <AuthProvider>
       <ThemeProvider
         value={{
-          ...(theme ?? DefaultTheme),
+          ...DefaultTheme,
           colors: {
-            ...(theme?.colors ?? DefaultTheme.colors),
+            ...DefaultTheme.colors,
             background: palette.background,
             card: palette.backgroundElement,
             text: palette.text,
@@ -26,7 +23,7 @@ export default function TabLayout() {
             primary: palette.text,
           },
         }}>
-        <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+        <StatusBar style="dark" />
         <Stack
           screenOptions={{
             headerShown: false,

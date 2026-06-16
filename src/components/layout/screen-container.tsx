@@ -1,5 +1,7 @@
 import React, { ReactNode } from 'react';
 import {
+    KeyboardAvoidingView,
+    Platform,
     ScrollView,
     StyleProp,
     StyleSheet,
@@ -27,23 +29,32 @@ export function ScreenContainer({
   const content = <View style={[styles.content, contentStyle]}>{children}</View>;
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
-      {scrollable ? (
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}>
-          {content}
-        </ScrollView>
-      ) : (
-        <View style={styles.staticWrapper}>{content}</View>
-      )}
-    </SafeAreaView>
+    <KeyboardAvoidingView
+      style={[styles.keyboardAvoidingView, { backgroundColor: theme.background }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={0}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        {scrollable ? (
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets
+            showsVerticalScrollIndicator={false}>
+            {content}
+          </ScrollView>
+        ) : (
+          <View style={styles.staticWrapper}>{content}</View>
+        )}
+      </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoidingView: {
+    flex: 1,
+  },
   safeArea: {
     flex: 1,
   },

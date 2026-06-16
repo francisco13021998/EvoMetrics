@@ -78,6 +78,6 @@ const styles = StyleSheet.create({
   arrow: {
     flexShrink: 0,
     color: Accent.primary,
-    fontWeight: 700,
+    fontWeight: '700',
   },
 });

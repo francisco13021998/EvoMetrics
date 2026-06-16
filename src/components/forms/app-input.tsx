@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
   authInput: {
     fontSize: 16,
     lineHeight: 24,
-    fontWeight: 500,
+    fontWeight: '500',
   },
   authInputColor: {
     color: '#0E274F',
@@ -154,7 +154,7 @@ const styles = StyleSheet.create({
   authLabel: {
     letterSpacing: 0.2,
     color: '#334A70',
-    fontWeight: 600,
+    fontWeight: '600',
   },
   affix: {
     paddingHorizontal: Spacing.one,

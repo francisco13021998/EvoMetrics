@@ -8,7 +8,7 @@ import { formatRevisionPhase } from '@/utils/revisions';
 import { ThemedText } from '@/components/themed-text';
 
 type RevisionRowProps = {
-  phase: string;
+  phase: string | null | undefined;
   date: string;
   weight: string;
   onPress: () => void;
