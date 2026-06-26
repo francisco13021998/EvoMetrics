@@ -408,6 +408,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   const [uploadTypeSelection, setUploadTypeSelection] = useState<'front' | 'back' | 'side' | 'other'>('front');
   const [uploadCustomType, setUploadCustomType] = useState('');
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [pendingRevisionPhotoIds, setPendingRevisionPhotoIds] = useState<string[]>([]);
   const [isCompositionGuideOpen, setIsCompositionGuideOpen] = useState(false);
 
   useEffect(() => {
@@ -547,6 +548,20 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
           ...payload,
           ownerId: user.id,
         });
+
+        if (pendingRevisionPhotoIds.length > 0) {
+          await Promise.all(
+            pendingRevisionPhotoIds.map((photoId) =>
+              photosService.updateRevision({
+                photoId,
+                ownerId: user.id,
+                revisionId: createdRevision.id,
+              })
+            )
+          );
+          setPendingRevisionPhotoIds([]);
+        }
+
         router.replace(`/revisions/${createdRevision.id}`);
         return;
       }
@@ -629,7 +644,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     setIsUploadingPhoto(true);
 
     try {
-      await photosService.uploadFromDevice({
+      const uploadedPhoto = await photosService.uploadFromDevice({
         ownerId: user.id,
         clientId: client.id,
         revisionId: mode === 'edit' ? revisionId ?? null : null,
@@ -637,6 +652,10 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         type: resolvedType,
         capturedAt: toDateOnlyIso(uploadCapturedAt),
       });
+
+      if (mode === 'create') {
+        setPendingRevisionPhotoIds((currentPhotoIds) => [...currentPhotoIds, uploadedPhoto.id]);
+      }
 
       closeUploadModal();
     } catch (error) {
@@ -1305,7 +1324,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         />
         {mode === 'create' ? (
           <ThemedText type="small" themeColor="textSecondary" style={styles.footerHint}>
-            En creación, la imagen se sube sin asociación automática. En edición se asocia a esta revisión.
+            En creación, la imagen se sube y se enlaza al guardar la revisión. En edición se asocia de inmediato.
           </ThemedText>
         ) : null}
       </View>
