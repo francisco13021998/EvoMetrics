@@ -40,7 +40,7 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
   const [sex, setSex] = useState<ClientSex | null>(null);
   const [athleteLevel, setAthleteLevel] = useState(DEFAULT_ATHLETE_LEVEL);
   const [heightCm, setHeightCm] = useState('');
-  const [birthDate, setBirthDate] = useState<Date | null>(null);
+  const [birthDate, setBirthDate] = useState<Date | null>(mode === 'create' ? new Date(2000, 0, 1) : null);
   const [isLoading, setIsLoading] = useState(mode === 'edit');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -242,6 +242,8 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
                 label="Fecha de nacimiento"
                 value={birthDate}
                 mode="date"
+                allowYearSelection
+                minYear={1940}
                 helper={birthDate ? `Edad actual: ${calculateAgeFromBirthDate(birthDate) ?? '-'} años` : 'Calcula la edad automáticamente.'}
                 onChange={setBirthDate}
                 shellStyle={styles.formField}

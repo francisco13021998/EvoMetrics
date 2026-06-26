@@ -1,5 +1,6 @@
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useEffect, useState } from 'react';
 import {
+    Keyboard,
     KeyboardAvoidingView,
     Platform,
     ScrollView,
@@ -25,30 +26,67 @@ export function ScreenContainer({
   contentStyle,
 }: ScreenContainerProps) {
   const theme = useTheme();
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const shouldAvoidKeyboard = Platform.OS === 'ios';
 
-  const content = <View style={[styles.content, contentStyle]}>{children}</View>;
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return undefined;
+    }
 
-  return (
-    <KeyboardAvoidingView
-      style={[styles.keyboardAvoidingView, { backgroundColor: theme.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={0}>
-      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-        {scrollable ? (
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-            automaticallyAdjustKeyboardInsets
-            showsVerticalScrollIndicator={false}>
-            {content}
-          </ScrollView>
-        ) : (
-          <View style={styles.staticWrapper}>{content}</View>
-        )}
-      </SafeAreaView>
-    </KeyboardAvoidingView>
+    const showEvent = Keyboard.addListener('keyboardDidShow', (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+    });
+    const hideEvent = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showEvent.remove();
+      hideEvent.remove();
+    };
+  }, []);
+
+  const content = (
+    <View
+      style={[
+        styles.content,
+        { paddingBottom: Spacing.six + keyboardHeight },
+        contentStyle,
+      ]}>
+      {children}
+    </View>
   );
+
+  const container = (
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      {scrollable ? (
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets={shouldAvoidKeyboard}
+          showsVerticalScrollIndicator={false}>
+          {content}
+        </ScrollView>
+      ) : (
+        <View style={styles.staticWrapper}>{content}</View>
+      )}
+    </SafeAreaView>
+  );
+
+  if (shouldAvoidKeyboard) {
+    return (
+      <KeyboardAvoidingView
+        style={[styles.keyboardAvoidingView, { backgroundColor: theme.background }]}
+        behavior="padding"
+        keyboardVerticalOffset={0}>
+        {container}
+      </KeyboardAvoidingView>
+    );
+  }
+
+  return <View style={[styles.keyboardAvoidingView, { backgroundColor: theme.background }]}>{container}</View>;
 }
 
 const styles = StyleSheet.create({

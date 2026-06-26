@@ -1,6 +1,6 @@
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import React, { useMemo, useState } from 'react';
-import { Modal, Platform, Pressable, StyleProp, StyleSheet, TextStyle, View, ViewStyle } from 'react-native';
+import { Modal, Platform, Pressable, ScrollView, StyleProp, StyleSheet, TextStyle, View, ViewStyle } from 'react-native';
 
 import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -11,6 +11,8 @@ type AppDateTimeInputProps = {
   label: string;
   value: Date | null;
   mode?: 'date' | 'time' | 'datetime';
+  allowYearSelection?: boolean;
+  minYear?: number;
   helper?: string;
   onChange: (value: Date) => void;
   shellStyle?: StyleProp<ViewStyle>;
@@ -21,6 +23,8 @@ export function AppDateTimeInput({
   label,
   value,
   mode = 'datetime',
+  allowYearSelection = false,
+  minYear = 1900,
   helper,
   onChange,
   shellStyle,
@@ -29,7 +33,15 @@ export function AppDateTimeInput({
   const theme = useTheme();
   const [showPicker, setShowPicker] = useState(false);
   const [internalMode, setInternalMode] = useState<'date' | 'time'>('date');
+  const [calendarView, setCalendarView] = useState<'calendar' | 'years'>(allowYearSelection ? 'calendar' : 'calendar');
   const [draftDate, setDraftDate] = useState<Date>(value ?? new Date());
+
+  const yearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const firstYear = Math.min(minYear, currentYear);
+
+    return Array.from({ length: currentYear - firstYear + 1 }, (_, index) => currentYear - index);
+  }, [minYear]);
 
   const calendarMonthLabel = useMemo(
     () =>
@@ -67,6 +79,7 @@ export function AppDateTimeInput({
   }, [draftDate]);
 
   const isAndroidCalendarVisible = Platform.OS === 'android' && showPicker && internalMode === 'date';
+  const canSelectYear = allowYearSelection && mode === 'date';
 
   const displayValue = useMemo(() => {
     if (!value) {
@@ -87,6 +100,7 @@ export function AppDateTimeInput({
   function handlePress() {
     if (mode === 'date') {
       setInternalMode('date');
+      setCalendarView('calendar');
       setDraftDate(value ?? new Date());
       setShowPicker(true);
       return;
@@ -94,11 +108,13 @@ export function AppDateTimeInput({
 
     if (mode === 'time') {
       setInternalMode('time');
+      setCalendarView('calendar');
       setShowPicker(true);
       return;
     }
 
     setInternalMode('date');
+    setCalendarView('calendar');
     setDraftDate(value ?? new Date());
     setShowPicker(true);
   }
@@ -106,10 +122,27 @@ export function AppDateTimeInput({
   function closePicker() {
     setShowPicker(false);
     setInternalMode('date');
+    setCalendarView('calendar');
   }
 
   function shiftCalendarMonth(offset: number) {
-    setDraftDate((currentDate) => new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1));
+    setDraftDate((currentDate) => {
+      const nextMonthDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1);
+      const maxDay = new Date(nextMonthDate.getFullYear(), nextMonthDate.getMonth() + 1, 0).getDate();
+      const nextDay = Math.min(currentDate.getDate(), maxDay);
+
+      return new Date(nextMonthDate.getFullYear(), nextMonthDate.getMonth(), nextDay);
+    });
+  }
+
+  function selectYear(nextYear: number) {
+    setDraftDate((currentDate) => {
+      const maxDay = new Date(nextYear, currentDate.getMonth() + 1, 0).getDate();
+      const nextDay = Math.min(currentDate.getDate(), maxDay);
+
+      return new Date(nextYear, currentDate.getMonth(), nextDay);
+    });
+    setCalendarView('calendar');
   }
 
   function applyCalendarDate() {
@@ -209,27 +242,103 @@ export function AppDateTimeInput({
         <Modal transparent visible animationType="fade" onRequestClose={closePicker}>
           <Pressable style={styles.androidBackdrop} onPress={closePicker}>
             <Pressable style={[styles.androidPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
-              <View style={styles.androidHeader}>
-                <Pressable onPress={() => shiftCalendarMonth(-1)} style={styles.androidNavButton} accessibilityLabel="Mes anterior">
-                  <ThemedText type="headline" style={styles.androidNavIcon}>‹</ThemedText>
-                </Pressable>
-                <ThemedText type="smallBold" style={styles.androidMonthLabel}>{calendarMonthLabel}</ThemedText>
-                <Pressable onPress={() => shiftCalendarMonth(1)} style={styles.androidNavButton} accessibilityLabel="Mes siguiente">
-                  <ThemedText type="headline" style={styles.androidNavIcon}>›</ThemedText>
-                </Pressable>
-              </View>
+              {calendarView === 'calendar' ? (
+                <>
+                  <View style={styles.androidHeader}>
+                    <Pressable onPress={() => shiftCalendarMonth(-1)} style={styles.androidNavButton} accessibilityLabel="Mes anterior">
+                      <ThemedText type="headline" style={styles.androidNavIcon}>‹</ThemedText>
+                    </Pressable>
+                    {canSelectYear ? (
+                      <Pressable onPress={() => setCalendarView('years')} style={styles.androidTitleButton} accessibilityLabel="Seleccionar año">
+                        <ThemedText type="smallBold" style={styles.androidMonthLabel}>{calendarMonthLabel}</ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary" style={styles.androidYearHint}>
+                          Toca para elegir el año
+                        </ThemedText>
+                      </Pressable>
+                    ) : (
+                      <ThemedText type="smallBold" style={styles.androidMonthLabel}>{calendarMonthLabel}</ThemedText>
+                    )}
+                    <Pressable onPress={() => shiftCalendarMonth(1)} style={styles.androidNavButton} accessibilityLabel="Mes siguiente">
+                      <ThemedText type="headline" style={styles.androidNavIcon}>›</ThemedText>
+                    </Pressable>
+                  </View>
 
-              <View style={styles.calendarWeekRow}>
-                {weekdayLabels.map((label) => (
-                  <ThemedText key={label} type="small" themeColor="textSecondary" style={styles.calendarWeekLabel}>
-                    {label}
-                  </ThemedText>
-                ))}
-              </View>
+                  <View style={styles.calendarWeekRow}>
+                    {weekdayLabels.map((label) => (
+                      <ThemedText key={label} type="small" themeColor="textSecondary" style={styles.calendarWeekLabel}>
+                        {label}
+                      </ThemedText>
+                    ))}
+                  </View>
 
-              <View style={styles.calendarGrid}>
-                {calendarGrid.map((day, index) => renderCalendarDay(day, index))}
-              </View>
+                  <View style={styles.calendarGrid}>
+                    {calendarGrid.map((day, index) => renderCalendarDay(day, index))}
+                  </View>
+                </>
+              ) : canSelectYear ? (
+                <>
+                  <View style={styles.androidHeader}>
+                    <Pressable onPress={() => setCalendarView('calendar')} style={styles.androidNavButton} accessibilityLabel="Volver al calendario">
+                      <ThemedText type="headline" style={styles.androidNavIcon}>‹</ThemedText>
+                    </Pressable>
+                    <View style={styles.androidTitleCopy}>
+                      <ThemedText type="smallBold" style={styles.androidMonthLabel}>Selecciona un año</ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary" style={styles.androidYearHint}>
+                        El año se aplica al mes y día actuales.
+                      </ThemedText>
+                    </View>
+                    <View style={styles.androidNavButtonSpacer} />
+                  </View>
+
+                  <ScrollView contentContainerStyle={styles.androidYearGrid} showsVerticalScrollIndicator={false}>
+                    {yearOptions.map((year) => {
+                      const isSelected = draftDate.getFullYear() === year;
+
+                      return (
+                        <Pressable
+                          key={year}
+                          onPress={() => selectYear(year)}
+                          style={({ pressed }) => [
+                            styles.androidYearOption,
+                            {
+                              backgroundColor: isSelected ? Accent.primary : '#F8FBFF',
+                              borderColor: isSelected ? Accent.primary : theme.backgroundSelected,
+                              opacity: pressed ? 0.9 : 1,
+                            },
+                          ]}>
+                          <ThemedText type="smallBold" style={[styles.androidYearOptionText, { color: isSelected ? '#FFFFFF' : Accent.ink }]}>
+                            {year}
+                          </ThemedText>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </>
+              ) : (
+                <>
+                  <View style={styles.androidHeader}>
+                    <Pressable onPress={() => shiftCalendarMonth(-1)} style={styles.androidNavButton} accessibilityLabel="Mes anterior">
+                      <ThemedText type="headline" style={styles.androidNavIcon}>‹</ThemedText>
+                    </Pressable>
+                    <ThemedText type="smallBold" style={styles.androidMonthLabel}>{calendarMonthLabel}</ThemedText>
+                    <Pressable onPress={() => shiftCalendarMonth(1)} style={styles.androidNavButton} accessibilityLabel="Mes siguiente">
+                      <ThemedText type="headline" style={styles.androidNavIcon}>›</ThemedText>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.calendarWeekRow}>
+                    {weekdayLabels.map((label) => (
+                      <ThemedText key={label} type="small" themeColor="textSecondary" style={styles.calendarWeekLabel}>
+                        {label}
+                      </ThemedText>
+                    ))}
+                  </View>
+
+                  <View style={styles.calendarGrid}>
+                    {calendarGrid.map((day, index) => renderCalendarDay(day, index))}
+                  </View>
+                </>
+              )}
 
               <View style={styles.androidActions}>
                 <Pressable onPress={closePicker} style={styles.androidActionButton}>
@@ -321,6 +430,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: Spacing.two,
   },
+  androidTitleButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingVertical: 2,
+  },
+  androidTitleCopy: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
   androidNavButton: {
     width: 36,
     height: 36,
@@ -329,6 +451,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#F8FBFF',
   },
+  androidNavButtonSpacer: {
+    width: 36,
+    height: 36,
+  },
   androidNavIcon: {
     color: Accent.primary,
     lineHeight: 24,
@@ -336,6 +462,11 @@ const styles = StyleSheet.create({
   androidMonthLabel: {
     color: Accent.ink,
     textTransform: 'capitalize',
+    textAlign: 'center',
+  },
+  androidYearHint: {
+    textAlign: 'center',
+    lineHeight: 16,
   },
   calendarWeekRow: {
     flexDirection: 'row',
@@ -364,6 +495,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  androidYearGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingVertical: 2,
+    justifyContent: 'space-between',
+  },
+  androidYearOption: {
+    width: '31%',
+    minHeight: 42,
+    borderRadius: Radius.small,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  androidYearOptionText: {
+    lineHeight: 18,
   },
   androidActions: {
     flexDirection: 'row',
