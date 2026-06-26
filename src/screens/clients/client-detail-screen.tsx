@@ -288,6 +288,16 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
                 />
               </View>
             )}
+            {!isAthlete && (
+              <View style={styles.actionCell}>
+                <AppButton
+                  label="Pagos"
+                  variant="surface"
+                  size="compact"
+                  disabled
+                />
+              </View>
+            )}
           </View>
           {!isAthlete && client.athleteUserId === null && (
             <AppButton

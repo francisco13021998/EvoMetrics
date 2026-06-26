@@ -20,6 +20,8 @@ export const demoClients: Client[] = [
     athleteLevel: 'beginner',
     heightCm: 168,
     birthDate: '1994-09-15',
+    coachingPrice: 0,
+    billingFrequency: 'one_time',
     createdAt: '2026-02-10T09:00:00.000Z',
   },
   {
@@ -31,6 +33,8 @@ export const demoClients: Client[] = [
     athleteLevel: 'advanced',
     heightCm: 182,
     birthDate: '1997-11-20',
+    coachingPrice: 0,
+    billingFrequency: 'one_time',
     createdAt: '2026-01-25T13:00:00.000Z',
   },
   {
@@ -42,6 +46,8 @@ export const demoClients: Client[] = [
     athleteLevel: 'intermediate',
     heightCm: 170,
     birthDate: '1991-09-01',
+    coachingPrice: 0,
+    billingFrequency: 'one_time',
     createdAt: '2026-04-17T10:15:00.000Z',
   },
 ];

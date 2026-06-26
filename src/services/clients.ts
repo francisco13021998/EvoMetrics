@@ -15,6 +15,8 @@ type DbClientRow = {
   athlete_level: string | null;
   height_cm: number | null;
   date_birth: string | null;
+  coaching_price: number | null;
+  billing_frequency: string | null;
   created_at: string;
 };
 
@@ -94,6 +96,8 @@ function mapDbClient(row: DbClientRow): Client {
     athleteLevel: normalizeAthleteLevel(row.athlete_level),
     heightCm: row.height_cm,
     birthDate: row.date_birth ?? null,
+    coachingPrice: row.coaching_price ?? 0,
+    billingFrequency: row.billing_frequency ?? 'one_time',
     createdAt: row.created_at,
   };
 }
@@ -106,6 +110,8 @@ function mapCreatePayload(payload: CreateClientInput, preferSpanishSex = false) 
     athlete_level: payload.athleteLevel ?? DEFAULT_ATHLETE_LEVEL,
     height_cm: payload.heightCm ?? null,
     date_birth: payload.birthDate ?? null,
+    coaching_price: 0,
+    billing_frequency: 'one_time',
   };
 }
 

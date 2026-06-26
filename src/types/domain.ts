@@ -22,6 +22,8 @@ export type ClientSex = 'female' | 'male';
 
 export type AthleteLevel = 'beginner' | 'intermediate' | 'advanced';
 
+export type BillingFrequency = string;
+
 export type Client = {
   id: string;
   ownerId: string;
@@ -31,6 +33,8 @@ export type Client = {
   athleteLevel: AthleteLevel;
   heightCm: number | null;
   birthDate: string | null;
+  coachingPrice: number;
+  billingFrequency: BillingFrequency;
   createdAt: string;
 };
 
