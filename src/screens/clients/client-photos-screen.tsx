@@ -24,6 +24,7 @@ import { CLIENT_IMAGES_BUCKET, photosService } from '@/services/photos';
 import { revisionsService } from '@/services/revisions';
 import { Client, ClientPhoto, Revision } from '@/types/domain';
 import { calculateBodyFatAverage, calculateBodyFatFromPerimeters, calculateBodyFatFromSkinfolds } from '@/utils/calculations';
+import { calculateAgeFromBirthDate } from '@/utils/client-age';
 
 import { ThemedText } from '@/components/themed-text';
 
@@ -64,13 +65,17 @@ function parseIsoDateOrNow(value: string | null | undefined) {
 }
 
 function getRevisionAverageBodyFat(client: Client, revision: Revision) {
+  if (revision.bodyFatPct !== null) {
+    return revision.bodyFatPct;
+  }
+
   const perimeter = calculateBodyFatFromPerimeters(client.sex, {
     neckCm: revision.neckCm,
     bellyCm: revision.bellyCm,
     gluteCm: revision.gluteCm,
     heightCm: client.heightCm,
   });
-  const skinfold = calculateBodyFatFromSkinfolds(client.sex, client.age, {
+  const skinfold = calculateBodyFatFromSkinfolds(client.sex, calculateAgeFromBirthDate(client.birthDate, new Date(revision.reviewedAt)), {
     bicepFoldMm: revision.bicepFoldMm,
     tricepFoldMm: revision.tricepFoldMm,
     subscapularFoldMm: revision.subscapularFoldMm,
@@ -83,7 +88,7 @@ function getRevisionAverageBodyFat(client: Client, revision: Revision) {
   return calculateBodyFatAverage({
     visualBodyFatPct: revision.bodyFatVisualPct,
     perimeterBodyFatPct: perimeter?.bodyFatPct ?? null,
-    skinfoldBodyFatPct: skinfold?.bodyFatPct ?? null,
+    skinfoldBodyFatPct: revision.bodyFatSkinfoldsPct ?? skinfold?.bodyFatPct ?? null,
   })?.bodyFatPct ?? null;
 }
 

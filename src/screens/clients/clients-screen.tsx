@@ -14,6 +14,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
 import { clientsService } from '@/services/clients';
 import { Client } from '@/types/domain';
+import { formatClientAge } from '@/utils/client-age';
 
 import { ThemedText } from '@/components/themed-text';
 
@@ -187,7 +188,7 @@ export function ClientsScreen() {
               <ClientRow
                 key={client.id}
                 name={client.name}
-                meta={`${formatSex(client.sex)} · ${client.age ? `${client.age} años` : 'Edad pendiente'} · ${client.heightCm ? `${client.heightCm} cm` : 'Altura pendiente'}`}
+                meta={`${formatSex(client.sex)} · ${formatClientAge(client) === '-' ? 'Edad pendiente' : formatClientAge(client)} · ${client.heightCm ? `${client.heightCm} cm` : 'Altura pendiente'}`}
                 onPress={() => router.push(`/clients/${client.id}`)}
                 last={index === clients.length - 1}
               />

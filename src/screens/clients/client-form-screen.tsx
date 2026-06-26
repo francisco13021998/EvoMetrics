@@ -1,10 +1,11 @@
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
+import { AppDateTimeInput } from '@/components/forms/app-date-time';
 import { AppInput } from '@/components/forms/app-input';
 import { AppSelect } from '@/components/forms/app-select';
 import { PageHeader } from '@/components/layout/page-header';
@@ -17,6 +18,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
 import { clientsService } from '@/services/clients';
 import { Client, ClientSex } from '@/types/domain';
+import { calculateAgeFromBirthDate, formatDateOnly, parseDateOnly } from '@/utils/client-age';
 
 
 type ClientFormScreenProps = {
@@ -32,11 +34,13 @@ const SEX_OPTIONS: { label: string; value: ClientSex }[] = [
 export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
   const { user } = useAuth();
   const theme = useTheme();
+  const { width } = useWindowDimensions();
+  const isWide = width >= 720;
   const [name, setName] = useState('');
   const [sex, setSex] = useState<ClientSex | null>(null);
   const [athleteLevel, setAthleteLevel] = useState(DEFAULT_ATHLETE_LEVEL);
   const [heightCm, setHeightCm] = useState('');
-  const [age, setAge] = useState('');
+  const [birthDate, setBirthDate] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(mode === 'edit');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -61,7 +65,7 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
         setSex(nextClient.sex);
         setAthleteLevel(nextClient.athleteLevel);
         setHeightCm(nextClient.heightCm ? String(nextClient.heightCm) : '');
-        setAge(nextClient.age ? String(nextClient.age) : '');
+        setBirthDate(parseDateOnly(nextClient.birthDate));
       })
       .catch((error) => {
         const message = error instanceof Error ? error.message : 'No se pudo cargar el cliente.';
@@ -78,24 +82,43 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
     setIsSubmitting(true);
 
     const parsedHeight = heightCm.trim() ? Number(heightCm.replace(',', '.')) : null;
-    const parsedAge = age.trim() ? Number(age) : null;
+    const resolvedBirthDate = birthDate ? formatDateOnly(birthDate) : null;
 
-    if ((parsedHeight !== null && Number.isNaN(parsedHeight)) || (parsedAge !== null && Number.isNaN(parsedAge))) {
-      setErrorMessage('Altura y edad deben ser valores numericos validos.');
+    if (parsedHeight !== null && Number.isNaN(parsedHeight)) {
+      setErrorMessage('La altura debe ser un valor numerico valido.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (mode === 'create' && !resolvedBirthDate) {
+      setErrorMessage('La fecha de nacimiento es obligatoria para crear el cliente.');
       setIsSubmitting(false);
       return;
     }
 
     try {
       if (mode === 'create') {
-        const createdClient = await clientsService.create({ ownerId: user.id, name: name.trim(), sex, athleteLevel, heightCm: parsedHeight, age: parsedAge });
+        const createdClient = await clientsService.create({
+          ownerId: user.id,
+          name: name.trim(),
+          sex,
+          athleteLevel,
+          heightCm: parsedHeight,
+          birthDate: resolvedBirthDate,
+        });
         router.replace(`/clients/${createdClient.id}`);
         return;
       }
 
       if (!clientId) throw new Error('No se ha encontrado el cliente a editar.');
 
-      const updatedClient = await clientsService.update(clientId, user.id, { name: name.trim(), sex, athleteLevel, heightCm: parsedHeight, age: parsedAge });
+      const updatedClient = await clientsService.update(clientId, user.id, {
+        name: name.trim(),
+        sex,
+        athleteLevel,
+        heightCm: parsedHeight,
+        birthDate: resolvedBirthDate,
+      });
       router.replace(`/clients/${updatedClient.id}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo guardar el cliente.';
@@ -200,7 +223,7 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
             containerStyle={styles.formField}
           />
 
-          <View style={styles.formRow}>
+          <View style={[styles.formRow, !isWide && styles.formRowStacked]}>
             <View style={styles.formCell}>
               <AppInput
                 label="Altura"
@@ -215,16 +238,13 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
               />
             </View>
             <View style={styles.formCell}>
-              <AppInput
-                label="Edad"
-                placeholder="31"
-                keyboardType="number-pad"
-                inputMode="numeric"
-                unit="años"
-                value={age}
-                onChangeText={setAge}
-                returnKeyType="done"
-                containerStyle={styles.formField}
+              <AppDateTimeInput
+                label="Fecha de nacimiento"
+                value={birthDate}
+                mode="date"
+                helper={birthDate ? `Edad actual: ${calculateAgeFromBirthDate(birthDate) ?? '-'} años` : 'Calcula la edad automáticamente.'}
+                onChange={setBirthDate}
+                shellStyle={styles.formField}
               />
             </View>
           </View>
@@ -309,6 +329,9 @@ const styles = StyleSheet.create({
   formRow: {
     flexDirection: 'row',
     gap: 12,
+  },
+  formRowStacked: {
+    flexDirection: 'column',
   },
   formCell: {
     flex: 1,

@@ -1,6 +1,7 @@
-import { Client, Revision } from '@/types/domain';
 import { getPerimeterFormulaCodeForSex, getSkinfoldFormulaCodeForAthleteLevel } from '@/constants/body-fat-formulas';
+import { Client, Revision } from '@/types/domain';
 import { calculateBodyFatFromPerimeters, calculateBodyFatFromSkinfolds } from '@/utils/calculations';
+import { calculateAgeFromBirthDate } from '@/utils/client-age';
 
 type AverageSignatureInput = {
   visualBodyFatPct: number | null | undefined;
@@ -10,7 +11,7 @@ type AverageSignatureInput = {
   skinfoldFormulaId: string | null | undefined;
 };
 
-type AverageSignatureClientContext = Pick<Client, 'sex' | 'heightCm' | 'age' | 'athleteLevel'>;
+type AverageSignatureClientContext = Pick<Client, 'sex' | 'heightCm' | 'birthDate' | 'athleteLevel'>;
 
 function resolvePerimeterComparisonKey(
   clientContext: Pick<Client, 'sex'>,
@@ -135,13 +136,14 @@ export function buildRevisionBodyFatAverageSignature(
   clientContext: AverageSignatureClientContext,
   revision: Revision
 ) {
+  const resolvedAge = calculateAgeFromBirthDate(clientContext.birthDate, new Date(revision.reviewedAt));
   const perimeterBodyFatPct = calculateBodyFatFromPerimeters(clientContext.sex, {
     neckCm: revision.neckCm,
     bellyCm: revision.bellyCm,
     gluteCm: revision.gluteCm,
     heightCm: clientContext.heightCm,
   })?.bodyFatPct ?? null;
-  const skinfoldBodyFatPct = calculateBodyFatFromSkinfolds(clientContext.sex, clientContext.age, {
+  const skinfoldBodyFatPct = revision.bodyFatSkinfoldsPct ?? calculateBodyFatFromSkinfolds(clientContext.sex, resolvedAge, {
     bicepFoldMm: revision.bicepFoldMm,
     tricepFoldMm: revision.tricepFoldMm,
     subscapularFoldMm: revision.subscapularFoldMm,

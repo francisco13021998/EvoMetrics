@@ -5,6 +5,7 @@ import {
     calculateBodyFatFromPerimeters,
     calculateBodyFatFromSkinfolds,
 } from '@/utils/calculations';
+import { calculateAgeFromBirthDate } from '@/utils/client-age';
 import {
     buildRevisionBodyFatAverageSignature,
     findPreviousComparableRevisionByAverageSignature,
@@ -119,29 +120,40 @@ export function calculateAvailableBodyFatAverage(values: {
 
 export function buildHistoricalRevisionMetrics(client: Client, revisions: Revision[]): HistoricalRevisionMetrics[] {
   return revisions.map((revision) => {
+    const resolvedAge = calculateAgeFromBirthDate(client.birthDate, new Date(revision.reviewedAt));
+    const sumSkinfoldsMm = [
+      revision.bicepFoldMm,
+      revision.tricepFoldMm,
+      revision.subscapularFoldMm,
+      revision.suprailiacFoldMm,
+    ].every((value) => value !== null && value !== undefined)
+      ? (revision.bicepFoldMm ?? 0) + (revision.tricepFoldMm ?? 0) + (revision.subscapularFoldMm ?? 0) + (revision.suprailiacFoldMm ?? 0)
+      : null;
     const perimeterBodyFat = calculateBodyFatFromPerimeters(client.sex, {
       neckCm: revision.neckCm,
       bellyCm: revision.bellyCm,
       gluteCm: revision.gluteCm,
       heightCm: client.heightCm,
     });
-    const skinfoldBodyFat = calculateBodyFatFromSkinfolds(client.sex, client.age, {
-      bicepFoldMm: revision.bicepFoldMm,
-      tricepFoldMm: revision.tricepFoldMm,
-      subscapularFoldMm: revision.subscapularFoldMm,
-      suprailiacFoldMm: revision.suprailiacFoldMm,
-      abdominalFoldMm: revision.abdominalFoldMm,
-      frontThighFoldMm: revision.frontThighFoldMm,
-      calfFoldMm: revision.calfFoldMm,
-    });
+    const skinfoldBodyFat = revision.bodyFatSkinfoldsPct !== null
+      ? null
+      : calculateBodyFatFromSkinfolds(client.sex, resolvedAge, {
+        bicepFoldMm: revision.bicepFoldMm,
+        tricepFoldMm: revision.tricepFoldMm,
+        subscapularFoldMm: revision.subscapularFoldMm,
+        suprailiacFoldMm: revision.suprailiacFoldMm,
+        abdominalFoldMm: revision.abdominalFoldMm,
+        frontThighFoldMm: revision.frontThighFoldMm,
+        calfFoldMm: revision.calfFoldMm,
+      });
     const averageBodyFat = calculateAvailableBodyFatAverage({
       visualBodyFatPct: revision.bodyFatVisualPct,
-      skinfoldBodyFatPct: skinfoldBodyFat?.bodyFatPct ?? null,
+      skinfoldBodyFatPct: revision.bodyFatSkinfoldsPct ?? skinfoldBodyFat?.bodyFatPct ?? null,
       perimeterBodyFatPct: perimeterBodyFat?.bodyFatPct ?? null,
     });
     const compositionMetrics = buildCompositionMetrics({
       weightKg: revision.weightKg,
-      bodyFatPct: averageBodyFat?.bodyFatPct ?? null,
+      bodyFatPct: revision.bodyFatPct ?? averageBodyFat?.bodyFatPct ?? null,
       fatMassKg: revision.fatMassKg,
       leanMassKg: revision.leanMassKg,
     });
@@ -152,9 +164,9 @@ export function buildHistoricalRevisionMetrics(client: Client, revisions: Revisi
       reviewedAt: revision.reviewedAt,
       phaseLabel: formatRevisionPhase(revision.phase),
       weightKg: revision.weightKg,
-      bodyFatAveragePct: averageBodyFat?.bodyFatPct ?? null,
+      bodyFatAveragePct: revision.bodyFatPct ?? averageBodyFat?.bodyFatPct ?? null,
       bodyFatPerimetersPct: perimeterBodyFat?.bodyFatPct ?? null,
-      bodyFatSkinfoldsPct: skinfoldBodyFat?.bodyFatPct ?? null,
+      bodyFatSkinfoldsPct: revision.bodyFatSkinfoldsPct ?? skinfoldBodyFat?.bodyFatPct ?? null,
       bodyFatVisualPct: revision.bodyFatVisualPct,
       fatMassKg: compositionMetrics?.fatMassKg ?? null,
       leanMassKg: compositionMetrics?.leanMassKg ?? null,
@@ -163,7 +175,7 @@ export function buildHistoricalRevisionMetrics(client: Client, revisions: Revisi
       bellyCm: revision.bellyCm,
       gluteCm: revision.gluteCm,
       thighCm: revision.thighCm,
-      sumSkinfoldsMm: skinfoldBodyFat?.sumMm ?? null,
+      sumSkinfoldsMm: skinfoldBodyFat?.sumMm ?? sumSkinfoldsMm,
       notes: revision.notes,
       revision,
     };

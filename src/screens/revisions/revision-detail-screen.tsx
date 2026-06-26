@@ -34,6 +34,7 @@ import {
     calculateLeanMassDiffKg,
     calculateWeightDiffKg,
 } from '@/utils/calculations';
+import { getClientAge } from '@/utils/client-age';
 import { getPerimeterFieldKeysForSex } from '@/utils/revision-measurements';
 import { formatRevisionPhase } from '@/utils/revisions';
 
@@ -402,7 +403,20 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
       return null;
     }
 
-    return calculateBodyFatFromSkinfolds(client.sex, client.age, {
+    if (revision.bodyFatSkinfoldsPct !== null) {
+      const sumMm = [revision.bicepFoldMm, revision.tricepFoldMm, revision.subscapularFoldMm, revision.suprailiacFoldMm]
+        .every((value) => value !== null && value !== undefined)
+        ? (revision.bicepFoldMm ?? 0) + (revision.tricepFoldMm ?? 0) + (revision.subscapularFoldMm ?? 0) + (revision.suprailiacFoldMm ?? 0)
+        : null;
+
+      return {
+        bodyFatPct: revision.bodyFatSkinfoldsPct,
+        roundedBodyFatPct: Math.round(revision.bodyFatSkinfoldsPct),
+        sumMm,
+      };
+    }
+
+    return calculateBodyFatFromSkinfolds(client.sex, getClientAge(client, revision ? new Date(revision.reviewedAt) : undefined), {
       bicepFoldMm: revision.bicepFoldMm,
       tricepFoldMm: revision.tricepFoldMm,
       subscapularFoldMm: revision.subscapularFoldMm,
@@ -411,7 +425,7 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
       frontThighFoldMm: revision.frontThighFoldMm,
       calfFoldMm: revision.calfFoldMm,
     });
-  }, [client?.age, client?.sex, revision]);
+  }, [client?.birthDate, client?.sex, revision]);
 
   const comparisonPerimeterCalculation = useMemo(() => {
     if (!selectedComparisonRevision || (client?.sex !== 'female' && client?.sex !== 'male')) {
@@ -431,7 +445,24 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
       return null;
     }
 
-    return calculateBodyFatFromSkinfolds(client.sex, client.age, {
+    if (selectedComparisonRevision.bodyFatSkinfoldsPct !== null) {
+      const sumMm = [
+        selectedComparisonRevision.bicepFoldMm,
+        selectedComparisonRevision.tricepFoldMm,
+        selectedComparisonRevision.subscapularFoldMm,
+        selectedComparisonRevision.suprailiacFoldMm,
+      ].every((value) => value !== null && value !== undefined)
+        ? (selectedComparisonRevision.bicepFoldMm ?? 0) + (selectedComparisonRevision.tricepFoldMm ?? 0) + (selectedComparisonRevision.subscapularFoldMm ?? 0) + (selectedComparisonRevision.suprailiacFoldMm ?? 0)
+        : null;
+
+      return {
+        bodyFatPct: selectedComparisonRevision.bodyFatSkinfoldsPct,
+        roundedBodyFatPct: Math.round(selectedComparisonRevision.bodyFatSkinfoldsPct),
+        sumMm,
+      };
+    }
+
+    return calculateBodyFatFromSkinfolds(client.sex, getClientAge(client, selectedComparisonRevision ? new Date(selectedComparisonRevision.reviewedAt) : undefined), {
       bicepFoldMm: selectedComparisonRevision.bicepFoldMm,
       tricepFoldMm: selectedComparisonRevision.tricepFoldMm,
       subscapularFoldMm: selectedComparisonRevision.subscapularFoldMm,
@@ -440,7 +471,7 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
       frontThighFoldMm: selectedComparisonRevision.frontThighFoldMm,
       calfFoldMm: selectedComparisonRevision.calfFoldMm,
     });
-  }, [client?.age, client?.sex, selectedComparisonRevision]);
+  }, [client?.birthDate, client?.sex, selectedComparisonRevision]);
 
   const comparisonPerimeterMeasurementValues = useMemo<MeasurementValueMap | null>(() => {
     if (!selectedComparisonRevision) {
@@ -479,6 +510,13 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
       return null;
     }
 
+    if (revision.bodyFatPct !== null) {
+      return {
+        bodyFatPct: revision.bodyFatPct,
+        roundedBodyFatPct: Math.round(revision.bodyFatPct),
+      };
+    }
+
     return calculateBodyFatAverage({
       visualBodyFatPct: revision.bodyFatVisualPct,
       skinfoldBodyFatPct: skinfoldCalculation?.bodyFatPct ?? null,
@@ -490,6 +528,13 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
       return null;
     }
 
+    if (selectedComparisonRevision.bodyFatPct !== null) {
+      return {
+        bodyFatPct: selectedComparisonRevision.bodyFatPct,
+        roundedBodyFatPct: Math.round(selectedComparisonRevision.bodyFatPct),
+      };
+    }
+
     return calculateBodyFatAverage({
       visualBodyFatPct: selectedComparisonRevision.bodyFatVisualPct,
       skinfoldBodyFatPct: comparisonSkinfoldCalculation?.bodyFatPct ?? null,
@@ -498,12 +543,12 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
   }, [comparisonPerimeterCalculation?.bodyFatPct, comparisonSkinfoldCalculation?.bodyFatPct, selectedComparisonRevision]);
 
   const perimeterFormulaContent = useMemo(
-    () => buildBodyFatFormulaInfoContent(perimeterFormulaInfo?.code, { sex: client?.sex, age: client?.age }),
-    [client?.age, client?.sex, perimeterFormulaInfo?.code]
+    () => buildBodyFatFormulaInfoContent(perimeterFormulaInfo?.code, { sex: client?.sex, age: getClientAge(client, revision ? new Date(revision.reviewedAt) : undefined) }),
+    [client, perimeterFormulaInfo?.code, revision]
   );
   const skinfoldFormulaContent = useMemo(
-    () => buildBodyFatFormulaInfoContent(skinfoldFormulaInfo?.code, { sex: client?.sex, age: client?.age }),
-    [client?.age, client?.sex, skinfoldFormulaInfo?.code]
+    () => buildBodyFatFormulaInfoContent(skinfoldFormulaInfo?.code, { sex: client?.sex, age: getClientAge(client, revision ? new Date(revision.reviewedAt) : undefined) }),
+    [client, skinfoldFormulaInfo?.code, revision]
   );
 
   const bodyFatAverageDiff =

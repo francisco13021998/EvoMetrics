@@ -8,11 +8,15 @@ import { isSupportedActivityFactor } from '@/utils/activity';
 import {
     buildCompositionMetrics,
     calculateBmi,
+    calculateBodyFatAverage,
+    calculateBodyFatFromPerimeters,
+    calculateBodyFatFromSkinfolds,
     calculateFatMassDiffKg,
     calculateLeanMassDiffKg,
     calculateMaintenanceCalories,
     calculateWeightDiffKg,
 } from '@/utils/calculations';
+import { calculateAgeFromBirthDate } from '@/utils/client-age';
 import { serializeRevisionPhase } from '@/utils/revisions';
 
 export const REVISIONS_TABLE = 'revisions';
@@ -40,6 +44,8 @@ type DbRevisionRow = {
   front_thigh_fold_mm: number | null;
   calf_fold_mm: number | null;
   body_fat_visual_pct: number | null;
+  body_fat_skinfolds_pct: number | null;
+  body_fat_pct: number | null;
   activity_factor: number | null;
   fat_mass_kg: number | null;
   fat_mass_diff_kg: number | null;
@@ -57,7 +63,7 @@ type DbRevisionRow = {
 
 type ClientMetricsRow = {
   height_cm: number | null;
-  age: number | null;
+  date_birth: string | null;
   sex: string | null;
   athlete_level: string | null;
 };
@@ -135,6 +141,8 @@ function mapDbRevision(row: DbRevisionRow): Revision {
     frontThighFoldMm: row.front_thigh_fold_mm,
     calfFoldMm: row.calf_fold_mm,
     bodyFatVisualPct: row.body_fat_visual_pct,
+    bodyFatSkinfoldsPct: row.body_fat_skinfolds_pct,
+    bodyFatPct: row.body_fat_pct,
     activityFactor: row.activity_factor,
     fatMassKg: row.fat_mass_kg,
     fatMassDiffKg: row.fat_mass_diff_kg,
@@ -154,6 +162,8 @@ function mapDbRevision(row: DbRevisionRow): Revision {
 type RevisionComputedMetrics = {
   bmi: number | null;
   weightDiffKg: number | null;
+  bodyFatPct: number | null;
+  bodyFatSkinfoldsPct: number | null;
   fatMassKg: number | null;
   fatMassDiffKg: number | null;
   leanMassKg: number | null;
@@ -166,7 +176,7 @@ type RevisionComputedMetrics = {
 async function getClientMetrics(clientId: string) {
   const { data, error } = await supabase
     .from(CLIENTS_TABLE)
-    .select('height_cm, age, sex, athlete_level')
+    .select('height_cm, date_birth, sex, athlete_level')
     .eq('id', clientId)
     .maybeSingle();
 
@@ -178,7 +188,7 @@ async function getClientMetrics(clientId: string) {
 
   return {
     heightCm: clientMetrics?.height_cm ?? null,
-    age: clientMetrics?.age ?? null,
+    birthDate: clientMetrics?.date_birth ?? null,
     sex: normalizeClientSex(clientMetrics?.sex ?? null),
     athleteLevel: normalizeAthleteLevel(clientMetrics?.athlete_level),
   };
@@ -230,12 +240,38 @@ async function buildComputedMetrics(payload: CreateRevisionInput, excludeRevisio
   const normalizedActivityFactor = isSupportedActivityFactor(payload.activityFactor ?? null)
     ? Number((payload.activityFactor ?? 0).toFixed(2))
     : null;
+  const revisionAge = calculateAgeFromBirthDate(
+    clientMetrics.birthDate,
+    payload.reviewedAt ? new Date(payload.reviewedAt) : new Date()
+  );
+  const perimeterBodyFat = calculateBodyFatFromPerimeters(clientMetrics.sex, {
+    neckCm: payload.neckCm ?? null,
+    bellyCm: payload.bellyCm ?? null,
+    gluteCm: payload.gluteCm ?? null,
+    heightCm: clientMetrics.heightCm,
+  });
+  const skinfoldBodyFat = calculateBodyFatFromSkinfolds(clientMetrics.sex, revisionAge, {
+    bicepFoldMm: payload.bicepFoldMm ?? null,
+    tricepFoldMm: payload.tricepFoldMm ?? null,
+    subscapularFoldMm: payload.subscapularFoldMm ?? null,
+    suprailiacFoldMm: payload.suprailiacFoldMm ?? null,
+    abdominalFoldMm: payload.abdominalFoldMm ?? null,
+    frontThighFoldMm: payload.frontThighFoldMm ?? null,
+    calfFoldMm: payload.calfFoldMm ?? null,
+  });
+  const computedBodyFat = calculateBodyFatAverage({
+    visualBodyFatPct: payload.bodyFatVisualPct ?? null,
+    skinfoldBodyFatPct: skinfoldBodyFat?.bodyFatPct ?? null,
+    perimeterBodyFatPct: perimeterBodyFat?.bodyFatPct ?? null,
+  });
   const compositionMetrics = buildCompositionMetrics({
     weightKg: payload.weightKg ?? null,
-    bodyFatPct: payload.bodyFatVisualPct ?? null,
+    bodyFatPct: computedBodyFat?.bodyFatPct ?? null,
   });
   const bmi = calculateBmi(payload.weightKg ?? null, clientMetrics.heightCm);
   const weightDiffKg = calculateWeightDiffKg(payload.weightKg ?? null, previousRevision);
+  const bodyFatPct = computedBodyFat?.bodyFatPct ?? null;
+  const bodyFatSkinfoldsPct = skinfoldBodyFat?.bodyFatPct ?? null;
   const fatMassKg = compositionMetrics?.fatMassKg ?? null;
   const leanMassKg = compositionMetrics?.leanMassKg ?? null;
   const fatMassDiffKg = calculateFatMassDiffKg(fatMassKg, previousRevision);
@@ -244,13 +280,18 @@ async function buildComputedMetrics(payload: CreateRevisionInput, excludeRevisio
     sex: clientMetrics.sex,
     weightKg: payload.weightKg ?? null,
     heightCm: clientMetrics.heightCm,
-    age: clientMetrics.age,
+    age: calculateAgeFromBirthDate(
+      clientMetrics.birthDate,
+      payload.reviewedAt ? new Date(payload.reviewedAt) : new Date()
+    ),
     activityFactor: normalizedActivityFactor,
   });
 
   return {
     bmi,
     weightDiffKg,
+    bodyFatPct,
+    bodyFatSkinfoldsPct,
     fatMassKg,
     fatMassDiffKg,
     leanMassKg,
@@ -287,6 +328,8 @@ function mapCreatePayload(payload: CreateRevisionInput, metrics: RevisionCompute
     front_thigh_fold_mm: payload.frontThighFoldMm ?? null,
     calf_fold_mm: payload.calfFoldMm ?? null,
     body_fat_visual_pct: payload.bodyFatVisualPct ?? null,
+    body_fat_skinfolds_pct: metrics.bodyFatSkinfoldsPct,
+    body_fat_pct: metrics.bodyFatPct,
     activity_factor: isSupportedActivityFactor(payload.activityFactor ?? null)
       ? Number((payload.activityFactor ?? 0).toFixed(2))
       : null,
@@ -327,6 +370,8 @@ function mapUpdatePayload(payload: CreateRevisionInput, metrics: RevisionCompute
     ...(payload.frontThighFoldMm !== undefined ? { front_thigh_fold_mm: payload.frontThighFoldMm } : {}),
     ...(payload.calfFoldMm !== undefined ? { calf_fold_mm: payload.calfFoldMm } : {}),
     ...(payload.bodyFatVisualPct !== undefined ? { body_fat_visual_pct: payload.bodyFatVisualPct } : {}),
+    body_fat_skinfolds_pct: metrics.bodyFatSkinfoldsPct,
+    body_fat_pct: metrics.bodyFatPct,
     ...(payload.activityFactor !== undefined
       ? {
           activity_factor:

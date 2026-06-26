@@ -16,6 +16,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { clientsService } from '@/services/clients';
 import { revisionsService } from '@/services/revisions';
 import { Client, Revision } from '@/types/domain';
+import { formatClientAge } from '@/utils/client-age';
 
 function formatSex(sex: Client['sex']) {
   if (sex === 'female') return 'Mujer';
@@ -105,7 +106,7 @@ export function AthleteHomeScreen() {
 
   const summaryItems = [
     { label: 'Sexo', value: formatSex(client.sex) },
-    { label: 'Edad', value: client.age ? `${client.age} años` : '-' },
+    { label: 'Edad', value: formatClientAge(client) },
     { label: 'Altura', value: client.heightCm ? `${client.heightCm} cm` : '-' },
   ];
 

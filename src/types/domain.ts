@@ -30,7 +30,7 @@ export type Client = {
   sex: ClientSex | null;
   athleteLevel: AthleteLevel;
   heightCm: number | null;
-  age: number | null;
+  birthDate: string | null;
   createdAt: string;
 };
 
@@ -56,6 +56,8 @@ export type Revision = {
   frontThighFoldMm: number | null;
   calfFoldMm: number | null;
   bodyFatVisualPct: number | null;
+  bodyFatSkinfoldsPct: number | null;
+  bodyFatPct: number | null;
   activityFactor: number | null;
   fatMassKg: number | null;
   fatMassDiffKg: number | null;

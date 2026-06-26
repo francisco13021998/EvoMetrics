@@ -1,3 +1,4 @@
+import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -38,6 +39,7 @@ import {
     calculateBodyFatFromSkinfolds,
     calculateMaintenanceCalories,
 } from '@/utils/calculations';
+import { getClientAge } from '@/utils/client-age';
 import {
     findPreviousComparableRevisionByPerimeterFormula,
     findPreviousComparableRevisionBySkinfoldFormula,
@@ -387,7 +389,7 @@ function getDeltaColor(delta: number | null, direction: 'decrease-is-better' | '
 export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormScreenProps) {
   const { user } = useAuth();
   const theme = useTheme();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const [client, setClient] = useState<Client | null>(null);
   const [clientRevisions, setClientRevisions] = useState<Revision[]>([]);
   const [referenceRevision, setReferenceRevision] = useState<Revision | null>(null);
@@ -406,6 +408,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   const [uploadTypeSelection, setUploadTypeSelection] = useState<'front' | 'back' | 'side' | 'other'>('front');
   const [uploadCustomType, setUploadCustomType] = useState('');
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [isCompositionGuideOpen, setIsCompositionGuideOpen] = useState(false);
 
   useEffect(() => {
     async function loadContext() {
@@ -648,6 +651,8 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   const isCreateMode = mode === 'create';
   const isWide = width >= 960;
   const isMedium = width >= 720;
+  const compositionGuidePanelWidth = Math.min(width - 24, 920);
+  const compositionGuideImageHeight = Math.min(height * 0.72, 760);
   const reviewedAtDate = form.reviewedAt ? new Date(form.reviewedAt) : null;
   const referencePlaceholders = useMemo<RevisionReferencePlaceholders | null>(() => {
     if (mode !== 'create' || !referenceRevision) {
@@ -712,13 +717,13 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   const perimeterFormulaContent = useMemo(
     () =>
       isPerimeterProtocolSelected
-        ? buildBodyFatFormulaInfoContent(perimeterFormulaInfo?.code ?? getPerimeterFormulaCodeForSex(client?.sex), { sex: client?.sex, age: client?.age })
+        ? buildBodyFatFormulaInfoContent(perimeterFormulaInfo?.code ?? getPerimeterFormulaCodeForSex(client?.sex), { sex: client?.sex, age: getClientAge(client, reviewedAtDate ?? new Date()) })
         : null,
-    [client?.age, client?.sex, isPerimeterProtocolSelected, perimeterFormulaInfo?.code]
+    [client, isPerimeterProtocolSelected, perimeterFormulaInfo?.code, reviewedAtDate]
   );
   const skinfoldFormulaContent = useMemo(
-    () => buildBodyFatFormulaInfoContent(selectedSkinfoldProtocol?.formulaCode ?? skinfoldFormulaInfo?.code, { sex: client?.sex, age: client?.age }),
-    [client?.age, client?.sex, selectedSkinfoldProtocol?.formulaCode, skinfoldFormulaInfo?.code]
+    () => buildBodyFatFormulaInfoContent(selectedSkinfoldProtocol?.formulaCode ?? skinfoldFormulaInfo?.code, { sex: client?.sex, age: getClientAge(client, reviewedAtDate ?? new Date()) }),
+    [client, selectedSkinfoldProtocol?.formulaCode, skinfoldFormulaInfo?.code, reviewedAtDate]
   );
   const perimeterCalculation = useMemo(() => {
     if (!isPerimeterProtocolSelected || (client?.sex !== 'female' && client?.sex !== 'male')) {
@@ -753,8 +758,8 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       return null;
     }
 
-    return calculateBodyFatFromSkinfolds(client.sex, client.age, {
-      bicepFoldMm: parseFieldValue(form.bicepFoldMm),
+    return calculateBodyFatFromSkinfolds(client.sex, getClientAge(client, reviewedAtDate ?? new Date()), {
+      bicepFoldMm: activeSkinfoldFieldKeySet.has('bicepFoldMm') ? parseFieldValue(form.bicepFoldMm) : null,
       tricepFoldMm: parseFieldValue(form.tricepFoldMm),
       subscapularFoldMm: parseFieldValue(form.subscapularFoldMm),
       suprailiacFoldMm: parseFieldValue(form.suprailiacFoldMm),
@@ -763,10 +768,11 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       calfFoldMm: activeSkinfoldFieldKeySet.has('calfFoldMm') ? parseFieldValue(form.calfFoldMm) : null,
     });
   }, [
-    client?.age,
+    client?.birthDate,
     client?.sex,
     activeSkinfoldFieldKeySet,
     selectedSkinfoldProtocol,
+    reviewedAtDate,
     form.bicepFoldMm,
     form.abdominalFoldMm,
     form.calfFoldMm,
@@ -784,8 +790,8 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       return null;
     }
 
-    return calculateBodyFatFromSkinfolds(client.sex, client.age, {
-      bicepFoldMm: previousComparableSkinfoldRevision.bicepFoldMm,
+    return calculateBodyFatFromSkinfolds(client.sex, getClientAge(client, reviewedAtDate ?? new Date()), {
+      bicepFoldMm: activeSkinfoldFieldKeySet.has('bicepFoldMm') ? previousComparableSkinfoldRevision.bicepFoldMm : null,
       tricepFoldMm: previousComparableSkinfoldRevision.tricepFoldMm,
       subscapularFoldMm: previousComparableSkinfoldRevision.subscapularFoldMm,
       suprailiacFoldMm: previousComparableSkinfoldRevision.suprailiacFoldMm,
@@ -793,7 +799,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       frontThighFoldMm: activeSkinfoldFieldKeySet.has('frontThighFoldMm') ? previousComparableSkinfoldRevision.frontThighFoldMm : null,
       calfFoldMm: activeSkinfoldFieldKeySet.has('calfFoldMm') ? previousComparableSkinfoldRevision.calfFoldMm : null,
     });
-  }, [activeSkinfoldFieldKeySet, client?.age, client?.sex, previousComparableSkinfoldRevision, selectedSkinfoldProtocol]);
+  }, [activeSkinfoldFieldKeySet, client?.birthDate, client?.sex, previousComparableSkinfoldRevision, selectedSkinfoldProtocol, reviewedAtDate]);
   const skinfoldDifference =
     skinfoldCalculation && previousSkinfoldCalculation
       ? skinfoldCalculation.roundedBodyFatPct - previousSkinfoldCalculation.roundedBodyFatPct
@@ -807,10 +813,10 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       sex: client?.sex,
       weightKg: parseFieldValue(form.weightKg),
       heightCm: client?.heightCm,
-      age: client?.age,
+      age: getClientAge(client, reviewedAtDate ?? new Date()),
       activityFactor: activityFactorValue,
     }),
-    [activityFactorValue, client?.age, client?.heightCm, client?.sex, form.weightKg]
+    [activityFactorValue, client?.birthDate, client?.heightCm, client?.sex, form.weightKg, reviewedAtDate]
   );
   function renderWeightField() {
     return (
@@ -1184,6 +1190,25 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         'composition',
         'Composición',
         <View style={styles.compositionSectionBody}>
+          {isCreateMode ? (
+            <View style={styles.compositionGuideRow}>
+              <View style={styles.compositionGuideCopy}>
+                <ThemedText type="smallBold" style={styles.compositionGuideTitle}>
+                  Apoyo visual para estimar la grasa
+                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary" style={styles.compositionGuideText}>
+                  Abre la guía rápida sin salir del formulario.
+                </ThemedText>
+              </View>
+              <AppButton
+                label="Guia composición"
+                variant="surface"
+                size="compact"
+                fullWidth={false}
+                onPress={() => setIsCompositionGuideOpen(true)}
+              />
+            </View>
+          ) : null}
           {renderFieldGrid(COMPOSITION_FIELDS, 1)}
         </View>
       )}
@@ -1324,6 +1349,43 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
               <AppButton label="Cancelar" variant="ghost" size="compact" fullWidth={false} onPress={closeUploadModal} disabled={isUploadingPhoto} />
               <AppButton label="Seleccionar y subir" size="compact" fullWidth={false} onPress={() => void handleUploadPhotoFromForm()} loading={isUploadingPhoto} />
             </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal transparent visible={isCompositionGuideOpen} animationType="fade" onRequestClose={() => setIsCompositionGuideOpen(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setIsCompositionGuideOpen(false)}>
+          <Pressable
+            style={[styles.guideModalPanel, { borderColor: theme.backgroundSelected, maxWidth: compositionGuidePanelWidth }]}
+            onPress={() => null}>
+            <View style={styles.guideModalHeader}>
+              <View style={styles.guideModalTitleBlock}>
+                <ThemedText type="smallBold" style={styles.guideModalTitle}>
+                  Guia composición
+                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary" style={styles.guideModalSubtitle}>
+                  Referencia visual para valorar el porcentaje graso.
+                </ThemedText>
+              </View>
+              <Pressable onPress={() => setIsCompositionGuideOpen(false)} style={styles.modalCloseButton}>
+                <ThemedText type="smallBold" style={styles.modalCloseText}>×</ThemedText>
+              </Pressable>
+            </View>
+
+            <Image
+              source={require('../../../assets/images/guia-composicion/porcentaje-graso.jpg')}
+              style={[styles.guideModalImage, { height: compositionGuideImageHeight }]}
+              contentFit="contain"
+              transition={150}
+            />
+
+            <AppButton
+              label="Cerrar guía"
+              variant="ghost"
+              size="compact"
+              fullWidth={false}
+              onPress={() => setIsCompositionGuideOpen(false)}
+            />
           </Pressable>
         </Pressable>
       </Modal>
@@ -1590,6 +1652,33 @@ const styles = StyleSheet.create({
   },
   perimetersSectionBody: {
     gap: Spacing.two,
+  },
+  compositionSectionBody: {
+    gap: Spacing.two,
+  },
+  compositionGuideRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+    borderWidth: 1,
+    borderRadius: Radius.medium,
+    borderColor: '#DCE8FB',
+    backgroundColor: '#F8FBFF',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  compositionGuideCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  compositionGuideTitle: {
+    color: '#10203B',
+    lineHeight: 18,
+  },
+  compositionGuideText: {
+    lineHeight: 16,
   },
   formulaHeaderRow: {
     flexDirection: 'row',
@@ -1969,6 +2058,37 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     alignItems: 'center',
     gap: Spacing.two,
+  },
+  guideModalPanel: {
+    borderWidth: 1,
+    borderRadius: Radius.large,
+    backgroundColor: '#FFFFFF',
+    padding: Spacing.three,
+    gap: Spacing.three,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  guideModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  guideModalTitleBlock: {
+    flex: 1,
+    gap: 2,
+  },
+  guideModalTitle: {
+    color: '#10203B',
+    lineHeight: 20,
+  },
+  guideModalSubtitle: {
+    lineHeight: 17,
+  },
+  guideModalImage: {
+    width: '100%',
+    borderRadius: Radius.medium,
+    backgroundColor: '#F5F8FD',
   },
 });
 

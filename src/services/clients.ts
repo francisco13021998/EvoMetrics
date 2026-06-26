@@ -14,7 +14,7 @@ type DbClientRow = {
   sex: DbClientSex | null;
   athlete_level: string | null;
   height_cm: number | null;
-  age: number | null;
+  date_birth: string | null;
   created_at: string;
 };
 
@@ -24,7 +24,7 @@ export type CreateClientInput = {
   sex?: ClientSex | null;
   athleteLevel?: AthleteLevel;
   heightCm?: number | null;
-  age?: number | null;
+  birthDate?: string | null;
 };
 
 export type UpdateClientInput = {
@@ -32,7 +32,7 @@ export type UpdateClientInput = {
   sex?: ClientSex | null;
   athleteLevel?: AthleteLevel;
   heightCm?: number | null;
-  age?: number | null;
+  birthDate?: string | null;
 };
 
 function normalizeClientSex(value: DbClientSex | null): ClientSex | null {
@@ -93,7 +93,7 @@ function mapDbClient(row: DbClientRow): Client {
     sex: normalizeClientSex(row.sex),
     athleteLevel: normalizeAthleteLevel(row.athlete_level),
     heightCm: row.height_cm,
-    age: row.age,
+    birthDate: row.date_birth ?? null,
     createdAt: row.created_at,
   };
 }
@@ -105,7 +105,7 @@ function mapCreatePayload(payload: CreateClientInput, preferSpanishSex = false) 
     sex: toDbClientSex(payload.sex ?? null, preferSpanishSex),
     athlete_level: payload.athleteLevel ?? DEFAULT_ATHLETE_LEVEL,
     height_cm: payload.heightCm ?? null,
-    age: payload.age ?? null,
+    date_birth: payload.birthDate ?? null,
   };
 }
 
@@ -115,7 +115,7 @@ function mapUpdatePayload(payload: UpdateClientInput, preferSpanishSex = false) 
     ...(payload.sex !== undefined ? { sex: toDbClientSex(payload.sex, preferSpanishSex) } : {}),
     ...(payload.athleteLevel !== undefined ? { athlete_level: payload.athleteLevel } : {}),
     ...(payload.heightCm !== undefined ? { height_cm: payload.heightCm } : {}),
-    ...(payload.age !== undefined ? { age: payload.age } : {}),
+    ...(payload.birthDate !== undefined ? { date_birth: payload.birthDate } : {}),
   };
 }
 
