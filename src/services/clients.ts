@@ -1,6 +1,6 @@
 import { DEFAULT_ATHLETE_LEVEL, normalizeAthleteLevel } from '@/constants/athlete-level';
 import { supabase } from '@/lib/supabase';
-import { AthleteLevel, Client, ClientSex } from '@/types/domain';
+import { AthleteLevel, BillingFrequency, Client, ClientSex } from '@/types/domain';
 
 export const CLIENTS_TABLE = 'clients';
 
@@ -17,6 +17,7 @@ type DbClientRow = {
   date_birth: string | null;
   coaching_price: number | null;
   billing_frequency: string | null;
+  force_payment_pending: boolean | null;
   created_at: string;
 };
 
@@ -35,6 +36,9 @@ export type UpdateClientInput = {
   athleteLevel?: AthleteLevel;
   heightCm?: number | null;
   birthDate?: string | null;
+  coachingPrice?: number | null;
+  billingFrequency?: BillingFrequency;
+  forcePaymentPending?: boolean;
 };
 
 function normalizeClientSex(value: DbClientSex | null): ClientSex | null {
@@ -97,7 +101,8 @@ function mapDbClient(row: DbClientRow): Client {
     heightCm: row.height_cm,
     birthDate: row.date_birth ?? null,
     coachingPrice: row.coaching_price ?? 0,
-    billingFrequency: row.billing_frequency ?? 'one_time',
+    billingFrequency: (row.billing_frequency ?? 'one_time') as BillingFrequency,
+    forcePaymentPending: row.force_payment_pending ?? false,
     createdAt: row.created_at,
   };
 }
@@ -112,6 +117,7 @@ function mapCreatePayload(payload: CreateClientInput, preferSpanishSex = false) 
     date_birth: payload.birthDate ?? null,
     coaching_price: 0,
     billing_frequency: 'one_time',
+    force_payment_pending: false,
   };
 }
 
@@ -122,6 +128,9 @@ function mapUpdatePayload(payload: UpdateClientInput, preferSpanishSex = false) 
     ...(payload.athleteLevel !== undefined ? { athlete_level: payload.athleteLevel } : {}),
     ...(payload.heightCm !== undefined ? { height_cm: payload.heightCm } : {}),
     ...(payload.birthDate !== undefined ? { date_birth: payload.birthDate } : {}),
+    ...(payload.coachingPrice !== undefined ? { coaching_price: payload.coachingPrice } : {}),
+    ...(payload.billingFrequency !== undefined ? { billing_frequency: payload.billingFrequency } : {}),
+    ...(payload.forcePaymentPending !== undefined ? { force_payment_pending: payload.forcePaymentPending } : {}),
   };
 }
 

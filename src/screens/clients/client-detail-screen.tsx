@@ -1,6 +1,6 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
 
 import { EmptyState } from '@/components/feedback/empty-state';
@@ -15,10 +15,12 @@ import { formatAthleteLevelLabel } from '@/constants/athlete-level';
 import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
+import { clientPaymentsService } from '@/services/client-payments';
 import { clientsService } from '@/services/clients';
 import { revisionsService } from '@/services/revisions';
-import { Client, Revision } from '@/types/domain';
+import { Client, ClientPayment, Revision } from '@/types/domain';
 import { formatClientAge } from '@/utils/client-age';
+import { calculateClientPaymentStatus } from '@/utils/client-payments';
 
 type ClientDetailScreenProps = {
   clientId: string;
@@ -39,6 +41,7 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [revisions, setRevisions] = useState<Revision[]>([]);
+  const [payments, setPayments] = useState<ClientPayment[]>([]);
   const [isClientMenuOpen, setIsClientMenuOpen] = useState(false);
 
   const showInitialLoading = isLoading && !client;
@@ -60,10 +63,15 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
       setClient(nextClient);
 
       if (nextClient) {
-        const nextRevisions = await revisionsService.listByClient(nextClient.id);
+        const [nextRevisions, nextPayments] = await Promise.all([
+          revisionsService.listByClient(nextClient.id),
+          clientPaymentsService.listByClient(nextClient.id),
+        ]);
         setRevisions(nextRevisions);
+        setPayments(nextPayments);
       } else {
         setRevisions([]);
+        setPayments([]);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo cargar el cliente.';
@@ -77,6 +85,11 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
     useCallback(() => {
       void loadClient();
     }, [loadClient])
+  );
+
+  const paymentStatus = useMemo(
+    () => calculateClientPaymentStatus(client, payments),
+    [client, payments]
   );
 
   async function confirmDelete() {
@@ -151,7 +164,6 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
     { label: 'Edad', value: formatClientAge(client) },
     { label: 'Altura', value: client.heightCm ? `${client.heightCm} cm` : '-' },
   ];
-
   return (
     <ScreenContainer contentStyle={styles.screenContent}>
       <View style={[styles.heroCard, { borderColor: theme.backgroundSelected }]}>
@@ -217,6 +229,30 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
           ))}
         </View>
 
+        {paymentStatus.isPending ? (
+          <StatusBanner
+            tone="warning"
+            title="Pendiente de pago"
+            message="Este cliente no está al corriente de pago. Revisa su historial antes de continuar."
+          />
+        ) : null}
+
+        {!isAthlete ? (
+          <View style={[styles.paymentShortcutPanel, { borderColor: theme.backgroundSelected, backgroundColor: '#F8FBFF' }]}>
+            <View style={styles.paymentShortcutCopy}>
+              <ThemedText type="small" themeColor="textSecondary">Pagos</ThemedText>
+              <ThemedText type="smallBold" style={styles.paymentShortcutTitle}>Accede a la gestión de cobros</ThemedText>
+            </View>
+            <AppButton
+              label="Pagos"
+              variant="surface"
+              size="compact"
+              fullWidth={false}
+              onPress={() => router.push(`/clients/${client.id}/payments`)}
+            />
+          </View>
+        ) : null}
+
         <View style={[styles.levelPanel, { borderColor: theme.backgroundSelected, backgroundColor: '#F8FBFF' }]}>
           <View style={styles.levelPanelHeader}>
             <ThemedText type="small" themeColor="textSecondary">Nivel del cliente</ThemedText>
@@ -264,13 +300,6 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
         </View>
 
         <View style={styles.actionsBlock}>
-          {!isAthlete && client.athleteUserId === null && (
-            <StatusBanner
-              tone="warning"
-              title="PIN Atleta"
-              message="Función en mantenimiento"
-            />
-          )}
           <View style={styles.actionsTopRow}>
             <View style={styles.actionCell}>
               <AppButton label="Fotos" variant="surface" size="compact" onPress={() => router.push(`/clients/${client.id}/photos`)} />
@@ -285,16 +314,6 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
                   size="compact"
                   leadingIcon={<ThemedText type="smallBold" style={styles.newRevisionIcon}>+</ThemedText>}
                   onPress={() => router.push(`/revisions/new?clientId=${client.id}`)}
-                />
-              </View>
-            )}
-            {!isAthlete && (
-              <View style={styles.actionCell}>
-                <AppButton
-                  label="Pagos"
-                  variant="surface"
-                  size="compact"
-                  disabled
                 />
               </View>
             )}
@@ -489,6 +508,39 @@ const styles = StyleSheet.create({
   },
   levelHint: {
     lineHeight: 18,
+  },
+  paymentShortcutPanel: {
+    borderWidth: 1,
+    borderRadius: Radius.medium,
+    padding: Spacing.two,
+    gap: Spacing.two,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  paymentShortcutCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  paymentShortcutTitle: {
+    color: '#10203B',
+  },
+  paymentMetaGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  paymentMetaItem: {
+    width: '48.5%',
+    borderWidth: 1,
+    borderRadius: Radius.small,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 10,
+    gap: 2,
+  },
+  paymentMetaValue: {
+    color: '#10203B',
   },
   menuBackdrop: {
     flex: 1,

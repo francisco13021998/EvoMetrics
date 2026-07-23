@@ -22,6 +22,7 @@ export const demoClients: Client[] = [
     birthDate: '1994-09-15',
     coachingPrice: 0,
     billingFrequency: 'one_time',
+    forcePaymentPending: false,
     createdAt: '2026-02-10T09:00:00.000Z',
   },
   {
@@ -35,6 +36,7 @@ export const demoClients: Client[] = [
     birthDate: '1997-11-20',
     coachingPrice: 0,
     billingFrequency: 'one_time',
+    forcePaymentPending: false,
     createdAt: '2026-01-25T13:00:00.000Z',
   },
   {
@@ -48,6 +50,7 @@ export const demoClients: Client[] = [
     birthDate: '1991-09-01',
     coachingPrice: 0,
     billingFrequency: 'one_time',
+    forcePaymentPending: false,
     createdAt: '2026-04-17T10:15:00.000Z',
   },
 ];

@@ -22,7 +22,7 @@ export type ClientSex = 'female' | 'male';
 
 export type AthleteLevel = 'beginner' | 'intermediate' | 'advanced';
 
-export type BillingFrequency = string;
+export type BillingFrequency = 'one_time' | 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly';
 
 export type Client = {
   id: string;
@@ -35,6 +35,15 @@ export type Client = {
   birthDate: string | null;
   coachingPrice: number;
   billingFrequency: BillingFrequency;
+  forcePaymentPending: boolean;
+  createdAt: string;
+};
+
+export type ClientPayment = {
+  id: string;
+  clientId: string;
+  amount: number;
+  paymentDate: string;
   createdAt: string;
 };
 

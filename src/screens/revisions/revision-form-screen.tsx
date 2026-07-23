@@ -1209,25 +1209,23 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         'composition',
         'Composición',
         <View style={styles.compositionSectionBody}>
-          {isCreateMode ? (
-            <View style={styles.compositionGuideRow}>
-              <View style={styles.compositionGuideCopy}>
-                <ThemedText type="smallBold" style={styles.compositionGuideTitle}>
-                  Apoyo visual para estimar la grasa
-                </ThemedText>
-                <ThemedText type="small" themeColor="textSecondary" style={styles.compositionGuideText}>
-                  Abre la guía rápida sin salir del formulario.
-                </ThemedText>
-              </View>
-              <AppButton
-                label="Guia composición"
-                variant="surface"
-                size="compact"
-                fullWidth={false}
-                onPress={() => setIsCompositionGuideOpen(true)}
-              />
+          <View style={styles.compositionGuideRow}>
+            <View style={styles.compositionGuideCopy}>
+              <ThemedText type="smallBold" style={styles.compositionGuideTitle}>
+                Apoyo visual para estimar la grasa
+              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.compositionGuideText}>
+                Abre la guía rápida sin salir del formulario.
+              </ThemedText>
             </View>
-          ) : null}
+            <AppButton
+              label="Guia composición"
+              variant="surface"
+              size="compact"
+              fullWidth={false}
+              onPress={() => setIsCompositionGuideOpen(true)}
+            />
+          </View>
           {renderFieldGrid(COMPOSITION_FIELDS, 1)}
         </View>
       )}
