@@ -14,7 +14,11 @@ async function loadNotificationsModule(): Promise<NotificationsModule | null> {
     return null;
   }
 
-  return import('expo-notifications');
+  try {
+    return await import('expo-notifications');
+  } catch {
+    return null;
+  }
 }
 
 type SignUpResult = {
@@ -109,7 +113,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return;
     }
 
-    void ensureDeviceNotificationsPermission();
+    void ensureDeviceNotificationsPermission().catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -136,7 +140,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           // Local reminders are optional; the app can continue if sync fails.
         }
       });
-    })();
+    })().catch(() => {});
 
     return () => {
       isMounted = false;
@@ -186,7 +190,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         router.push(`/clients/${data.clientId}`);
       });
-    })();
+    })().catch(() => {});
 
     return () => {
       subscription?.remove();

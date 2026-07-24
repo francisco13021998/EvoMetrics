@@ -282,12 +282,14 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
     return Math.max(compareZoomMin, Math.min(compareZoomMax, value));
   }
 
-  function setSourceCompareZoom(nextZoom: number) {
-    setCompareSourceZoom(clampCompareZoom(nextZoom));
+  function setSourceCompareZoom(nextZoom: number | ((currentZoom: number) => number)) {
+    const resolvedZoom = typeof nextZoom === 'function' ? nextZoom(compareSourceZoom) : nextZoom;
+    setCompareSourceZoom(clampCompareZoom(resolvedZoom));
   }
 
-  function setTargetCompareZoom(nextZoom: number) {
-    setCompareTargetZoom(clampCompareZoom(nextZoom));
+  function setTargetCompareZoom(nextZoom: number | ((currentZoom: number) => number)) {
+    const resolvedZoom = typeof nextZoom === 'function' ? nextZoom(compareTargetZoom) : nextZoom;
+    setCompareTargetZoom(clampCompareZoom(resolvedZoom));
   }
 
   function resetCompareZoom() {

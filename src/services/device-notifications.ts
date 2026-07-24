@@ -33,7 +33,11 @@ async function loadNotificationsModule(): Promise<NotificationsModule | null> {
     return null;
   }
 
-  return import('expo-notifications');
+  try {
+    return await import('expo-notifications');
+  } catch {
+    return null;
+  }
 }
 
 let isHandlerConfigured = false;

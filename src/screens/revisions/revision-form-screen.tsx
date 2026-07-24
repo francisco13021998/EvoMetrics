@@ -1767,9 +1767,6 @@ const styles = StyleSheet.create({
   skinfoldSelectorHint: {
     lineHeight: 17,
   },
-  compositionSectionBody: {
-    gap: 6,
-  },
   compactSummaryBlock: {
     borderWidth: 1,
     borderRadius: 8,
