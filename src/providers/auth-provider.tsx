@@ -1,9 +1,21 @@
 import { Session, User } from '@supabase/supabase-js';
+import { router } from 'expo-router';
 import React, { createContext, ReactNode, useEffect, useMemo, useState } from 'react';
 
 import { supabase } from '@/lib/supabase';
 import { authService, SignInWithPasswordInput, SignUpInput } from '@/services/auth';
+import { ensureDeviceNotificationsPermission, supportsDeviceNotifications, syncDeviceNotificationsForUser } from '@/services/device-notifications';
 import { UserRole } from '@/types/domain';
+
+type NotificationsModule = typeof import('expo-notifications');
+
+async function loadNotificationsModule(): Promise<NotificationsModule | null> {
+  if (!supportsDeviceNotifications()) {
+    return null;
+  }
+
+  return import('expo-notifications');
+}
 
 type SignUpResult = {
   needsEmailConfirmation: boolean;
@@ -89,6 +101,95 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => {
       isMounted = false;
       subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!supportsDeviceNotifications()) {
+      return;
+    }
+
+    void ensureDeviceNotificationsPermission();
+  }, []);
+
+  useEffect(() => {
+    if (!supportsDeviceNotifications()) {
+      return;
+    }
+
+    let isMounted = true;
+
+    void (async () => {
+      const Notifications = await loadNotificationsModule();
+
+      if (!Notifications) {
+        return;
+      }
+
+      if (!user?.id) {
+        await Notifications.cancelAllScheduledNotificationsAsync().catch(() => {});
+        return;
+      }
+
+      await syncDeviceNotificationsForUser(user.id).catch(() => {
+        if (isMounted) {
+          // Local reminders are optional; the app can continue if sync fails.
+        }
+      });
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!supportsDeviceNotifications()) {
+      return;
+    }
+
+    let subscription: { remove: () => void } | null = null;
+
+    void (async () => {
+      const Notifications = await loadNotificationsModule();
+
+      if (!Notifications) {
+        return;
+      }
+
+      subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+        const data = response.notification.request.content.data as { kind?: string; clientId?: string } | undefined;
+
+        if (!data?.clientId || (data.kind !== 'payment' && data.kind !== 'revision')) {
+          return;
+        }
+
+        if (data.kind === 'payment') {
+          router.push(`/clients/${data.clientId}/payments`);
+          return;
+        }
+
+        router.push(`/clients/${data.clientId}`);
+      });
+
+      void Notifications.getLastNotificationResponseAsync().then((response) => {
+        const data = response?.notification.request.content.data as { kind?: string; clientId?: string } | undefined;
+
+        if (!data?.clientId || (data.kind !== 'payment' && data.kind !== 'revision')) {
+          return;
+        }
+
+        if (data.kind === 'payment') {
+          router.push(`/clients/${data.clientId}/payments`);
+          return;
+        }
+
+        router.push(`/clients/${data.clientId}`);
+      });
+    })();
+
+    return () => {
+      subscription?.remove();
     };
   }, []);
 

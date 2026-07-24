@@ -640,10 +640,12 @@ const styles = StyleSheet.create({
   statusMetaGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    justifyContent: 'space-between',
+    rowGap: 10,
   },
   metaItem: {
-    width: '48.5%',
+    width: '49%',
+    flexShrink: 0,
     borderWidth: 1,
     borderRadius: Radius.medium,
     backgroundColor: '#FFFFFF',

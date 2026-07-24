@@ -9,7 +9,6 @@ import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
 import { AppDateTimeInput } from '@/components/forms/app-date-time';
-import { AppInput } from '@/components/forms/app-input';
 import { AppSelect } from '@/components/forms/app-select';
 import { PageHeader } from '@/components/layout/page-header';
 import { PageSection } from '@/components/layout/page-section';
@@ -141,14 +140,6 @@ function toDateOnlyIso(value: Date) {
   return new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0)).toISOString();
 }
 
-function getPhotoTypeLabel(type: string) {
-  if (type === 'front') return 'Frontal';
-  if (type === 'back') return 'Espalda';
-  if (type === 'side') return 'Lateral';
-
-  return type;
-}
-
 function parseIsoDateOrNow(value: string | null | undefined) {
   if (!value) {
     return new Date();
@@ -187,8 +178,6 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
   const [previewPhoto, setPreviewPhoto] = useState<ClientPhoto | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [uploadCapturedAt, setUploadCapturedAt] = useState<Date | null>(new Date());
-  const [uploadTypeSelection, setUploadTypeSelection] = useState<'front' | 'back' | 'side' | 'other'>('front');
-  const [uploadCustomType, setUploadCustomType] = useState('');
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   const loadRevision = useCallback(async () => {
@@ -283,8 +272,6 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
 
   function openUploadModal() {
     setUploadCapturedAt(parseIsoDateOrNow(revision?.reviewedAt));
-    setUploadTypeSelection('front');
-    setUploadCustomType('');
     setIsUploadModalOpen(true);
   }
 
@@ -292,24 +279,8 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
     setIsUploadModalOpen(false);
   }
 
-  function resolveUploadType() {
-    if (uploadTypeSelection !== 'other') {
-      return uploadTypeSelection;
-    }
-
-    const normalized = uploadCustomType.trim();
-    return normalized.length > 0 ? normalized : null;
-  }
-
   async function handleUploadPhotoFromRevision() {
     if (!user?.id || !client || !revision || isUploadingPhoto) {
-      return;
-    }
-
-    const resolvedType = resolveUploadType();
-
-    if (!resolvedType) {
-      setErrorMessage('Indica un tipo personalizado para la imagen.');
       return;
     }
 
@@ -329,9 +300,10 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
+      allowsEditing: false,
+      allowsMultipleSelection: true,
       quality: 0.9,
-      selectionLimit: 1,
+      selectionLimit: 0,
     });
 
     if (result.canceled || result.assets.length === 0) {
@@ -341,12 +313,11 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
     setIsUploadingPhoto(true);
 
     try {
-      await photosService.uploadFromDevice({
+      await photosService.uploadManyFromDevice({
         ownerId: user.id,
         clientId: client.id,
         revisionId: revision.id,
-        asset: result.assets[0],
-        type: resolvedType,
+        assets: result.assets,
         capturedAt: toDateOnlyIso(uploadCapturedAt),
       });
 
@@ -1169,7 +1140,6 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
                 <Image source={{ uri: previewPhoto.imageUrl }} style={styles.viewerImage} contentFit="contain" transition={150} />
                 <View style={styles.viewerMetaRow}>
                   <View style={styles.viewerMetaCopy}>
-                    <ThemedText type="smallBold">{getPhotoTypeLabel(previewPhoto.type)}</ThemedText>
                     <ThemedText type="small" themeColor="textSecondary">Fecha: {formatPhotoDate(previewPhoto.capturedAt)}</ThemedText>
                     <ThemedText type="small" themeColor="textSecondary">{revisionBodyFatAverageLabel}</ThemedText>
                   </View>
@@ -1197,22 +1167,6 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
               helper="Preseleccionada a hoy"
               onChange={(value) => setUploadCapturedAt(value)}
             />
-
-            <AppSelect
-              label="Tipo"
-              value={uploadTypeSelection}
-              options={UPLOAD_TYPE_OPTIONS}
-              onChange={(value) => setUploadTypeSelection(value as 'front' | 'back' | 'side' | 'other')}
-            />
-
-            {uploadTypeSelection === 'other' ? (
-              <AppInput
-                label="Tipo personalizado"
-                placeholder="Ejemplo: Poses, Bikini, Competición..."
-                value={uploadCustomType}
-                onChangeText={setUploadCustomType}
-              />
-            ) : null}
 
             <View style={styles.uploadActions}>
               <AppButton label="Cancelar" variant="ghost" size="compact" fullWidth={false} onPress={closeUploadModal} disabled={isUploadingPhoto} />
@@ -1747,9 +1701,3 @@ const styles = StyleSheet.create({
   },
 });
 
-const UPLOAD_TYPE_OPTIONS = [
-  { value: 'front', label: 'Frontal' },
-  { value: 'back', label: 'Espalda' },
-  { value: 'side', label: 'Lateral' },
-  { value: 'other', label: 'Otro' },
-];

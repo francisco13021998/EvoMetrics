@@ -26,7 +26,14 @@ export type UploadClientPhotoInput = {
   clientId: string;
   asset: LocalImageSource;
   revisionId?: string | null;
-  type?: string;
+  capturedAt?: string;
+};
+
+export type UploadManyClientPhotosInput = {
+  ownerId: string;
+  clientId: string;
+  assets: LocalImageSource[];
+  revisionId?: string | null;
   capturedAt?: string;
 };
 
@@ -47,7 +54,6 @@ export type UpdateClientPhotoDetailsInput = {
   ownerId: string;
   capturedAt: string;
   revisionId: string | null;
-  type: string;
 };
 
 export type ReplaceClientPhotoImageInput = {
@@ -160,7 +166,50 @@ function toDateOnlyIso(value: string) {
   return new Date(Date.UTC(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate(), 0, 0, 0, 0)).toISOString();
 }
 
+async function uploadSinglePhoto({ ownerId, clientId, asset, revisionId, capturedAt }: UploadClientPhotoInput) {
+  const fileName = buildStorageFileName(asset);
+  const storagePath = photosService.buildPath(ownerId, clientId, fileName);
+  const body = await getFileArrayBuffer(asset.uri);
+  const contentType = asset.mimeType ?? `image/${getFileExtension(asset)}`;
+
+  const { error: uploadError } = await supabase.storage.from(CLIENT_IMAGES_BUCKET).upload(storagePath, body, {
+    contentType,
+    upsert: false,
+  });
+
+  if (uploadError) {
+    throw new Error(uploadError.message);
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from(PHOTOS_TABLE)
+      .insert(mapCreatePayload({ ownerId, clientId, revisionId, storagePath, type: photosService.DEFAULT_PHOTO_TYPE, capturedAt }))
+      .select('*')
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return mapDbClientPhoto(data as DbClientPhotoRow);
+  } catch (error) {
+    await supabase.storage.from(CLIENT_IMAGES_BUCKET).remove([storagePath]);
+    throw error instanceof Error ? error : new Error('No se pudo subir la imagen.');
+  }
+}
+
+async function cleanupUploadedPhotos(photos: ClientPhoto[], ownerId: string) {
+  await Promise.allSettled(
+    photos.map(async (photo) => {
+      await photosService.remove(photo.id, ownerId);
+    })
+  );
+}
+
 export const photosService = {
+  DEFAULT_PHOTO_TYPE: 'general',
+
   buildPath(ownerId: string, clientId: string, fileName: string) {
     return `${ownerId}/${clientId}/${fileName}`;
   },
@@ -240,33 +289,39 @@ export const photosService = {
     return data ? mapDbClientPhoto(data as DbClientPhotoRow) : null;
   },
 
-  async uploadFromDevice({ ownerId, clientId, asset, revisionId, type = 'front', capturedAt }: UploadClientPhotoInput) {
-    const fileName = buildStorageFileName(asset);
-    const storagePath = this.buildPath(ownerId, clientId, fileName);
-    const body = await getFileArrayBuffer(asset.uri);
-    const contentType = asset.mimeType ?? `image/${getFileExtension(asset)}`;
-
-    const { error: uploadError } = await supabase.storage.from(CLIENT_IMAGES_BUCKET).upload(storagePath, body, {
-      contentType,
-      upsert: false,
+  async uploadFromDevice({ ownerId, clientId, asset, revisionId, capturedAt }: UploadClientPhotoInput) {
+    const uploadedPhotos = await this.uploadManyFromDevice({
+      ownerId,
+      clientId,
+      assets: [asset],
+      revisionId,
+      capturedAt,
     });
 
-    if (uploadError) {
-      throw new Error(uploadError.message);
+    return uploadedPhotos[0];
+  },
+
+  async uploadManyFromDevice({ ownerId, clientId, assets, revisionId, capturedAt }: UploadManyClientPhotosInput) {
+    if (assets.length === 0) {
+      throw new Error('No se seleccionaron imágenes para subir.');
     }
 
-    const { data, error } = await supabase
-      .from(PHOTOS_TABLE)
-      .insert(mapCreatePayload({ ownerId, clientId, revisionId, storagePath, type, capturedAt }))
-      .select('*')
-      .single();
+    const settledPhotos = await Promise.allSettled(
+      assets.map((asset) => uploadSinglePhoto({ ownerId, clientId, asset, revisionId, capturedAt }))
+    );
 
-    if (error) {
-      await supabase.storage.from(CLIENT_IMAGES_BUCKET).remove([storagePath]);
-      throw new Error(error.message);
+    const uploadedPhotos = settledPhotos
+      .filter((result): result is PromiseFulfilledResult<ClientPhoto> => result.status === 'fulfilled')
+      .map((result) => result.value);
+    const failedUploads = settledPhotos.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+
+    if (failedUploads.length > 0) {
+      await cleanupUploadedPhotos(uploadedPhotos, ownerId);
+      const firstReason = failedUploads[0]?.reason;
+      throw new Error(firstReason instanceof Error ? firstReason.message : 'No se pudieron subir todas las imágenes.');
     }
 
-    return mapDbClientPhoto(data as DbClientPhotoRow);
+    return uploadedPhotos;
   },
 
   async remove(photoId: string, ownerId: string) {
@@ -325,13 +380,12 @@ export const photosService = {
     return mapDbClientPhoto(data as DbClientPhotoRow);
   },
 
-  async updateDetails({ photoId, ownerId, capturedAt, revisionId, type }: UpdateClientPhotoDetailsInput) {
+  async updateDetails({ photoId, ownerId, capturedAt, revisionId }: UpdateClientPhotoDetailsInput) {
     const { data, error } = await supabase
       .from(PHOTOS_TABLE)
       .update({
         captured_at: toDateOnlyIso(capturedAt),
         revision_id: revisionId,
-        type,
       })
       .eq('id', photoId)
       .eq('owner_id', ownerId)

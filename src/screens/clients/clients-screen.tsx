@@ -14,9 +14,12 @@ import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
 import { clientPaymentsService } from '@/services/client-payments';
 import { clientsService } from '@/services/clients';
-import { Client, ClientPayment } from '@/types/domain';
+import { syncDeviceNotifications } from '@/services/device-notifications';
+import { revisionsService } from '@/services/revisions';
+import { Client } from '@/types/domain';
 import { formatClientAge } from '@/utils/client-age';
-import { calculateClientPaymentStatus, calculateMonthlyRevenueFromClients } from '@/utils/client-payments';
+import { buildDashboardNotifications, formatDashboardNotificationDate } from '@/utils/client-notifications';
+import { calculateMonthlyRevenueFromClients } from '@/utils/client-payments';
 
 import { ThemedText } from '@/components/themed-text';
 
@@ -26,30 +29,35 @@ function formatSex(sex: Client['sex']) {
   return '-';
 }
 
-type PaymentNotification = {
-  clientId: string;
-  clientName: string;
-  lastPaymentDate: string | null;
-  nextPaymentDate: string | null;
-};
-
-function formatNotificationDate(value: string | null) {
-  if (!value) {
-    return 'Sin pagos previos';
+function getNotificationPresentation(kind: 'payment' | 'revision') {
+  if (kind === 'payment') {
+    return {
+      icon: '💶',
+      title: 'Pago pendiente',
+      accent: '#16A34A',
+      accentSoft: '#ECFDF5',
+      border: '#BBF7D0',
+      text: '#166534',
+      background: '#F5FDF8',
+    };
   }
 
-  return new Date(value).toLocaleDateString('es-ES', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  return {
+    icon: '📅',
+    title: 'Revisión pendiente',
+    accent: '#D97706',
+    accentSoft: '#FFF7ED',
+    border: '#FED7AA',
+    text: '#9A3412',
+    background: '#FFFBF3',
+  };
 }
 
 export function ClientsScreen() {
   const { signOut, user } = useAuth();
   const theme = useTheme();
   const [clients, setClients] = useState<Client[]>([]);
-  const [paymentNotifications, setPaymentNotifications] = useState<PaymentNotification[]>([]);
+  const [notifications, setNotifications] = useState<ReturnType<typeof buildDashboardNotifications>>([]);
   const [isLoadingClients, setIsLoadingClients] = useState(true);
   const [clientsError, setClientsError] = useState<string | null>(null);
   const [isNotificationsModalOpen, setIsNotificationsModalOpen] = useState(false);
@@ -61,12 +69,12 @@ export function ClientsScreen() {
   const clinicName = (user?.user_metadata?.clinicName as string | undefined)?.trim() || null;
   const syncStatus = isLoadingClients ? 'Sincronizando...' : clientsError ? 'Requiere revision' : 'Sincronizado';
   const monthlyRevenue = calculateMonthlyRevenueFromClients(clients);
-  const pendingPaymentCount = paymentNotifications.length;
+  const pendingNotificationCount = notifications.length;
 
   const loadClients = useCallback(async () => {
     if (!user?.id) {
       setClients([]);
-      setPaymentNotifications([]);
+      setNotifications([]);
       setIsLoadingClients(false);
       return;
     }
@@ -78,33 +86,22 @@ export function ClientsScreen() {
       const nextClients = await clientsService.listByOwner(user.id);
       setClients(nextClients);
 
-      const clientPayments = await Promise.all(
+      const clientData = await Promise.all(
         nextClients.map(async (client) => ({
           client,
           payments: await clientPaymentsService.listByClient(client.id),
+          revisions: await revisionsService.listByClient(client.id),
         }))
       );
 
-      const nextNotifications = clientPayments.flatMap(({ client, payments }) => {
-        const paymentStatus = calculateClientPaymentStatus(client, payments as ClientPayment[]);
+      const nextNotifications = buildDashboardNotifications(clientData);
 
-        if (!paymentStatus.isPending) {
-          return [];
-        }
-
-        return [{
-          clientId: client.id,
-          clientName: client.name,
-          lastPaymentDate: paymentStatus.lastPaymentDate ? paymentStatus.lastPaymentDate.toISOString() : null,
-          nextPaymentDate: paymentStatus.nextPaymentDate ? paymentStatus.nextPaymentDate.toISOString() : null,
-        }];
-      });
-
-      setPaymentNotifications(nextNotifications);
+      setNotifications(nextNotifications);
+      void syncDeviceNotifications(clientData);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudieron cargar los clientes.';
       setClientsError(message);
-      setPaymentNotifications([]);
+      setNotifications([]);
     } finally {
       setIsLoadingClients(false);
     }
@@ -144,6 +141,11 @@ export function ClientsScreen() {
     router.push(`/clients/${clientId}/payments`);
   }
 
+  function goToClientProfile(clientId: string) {
+    setIsNotificationsModalOpen(false);
+    router.push(`/clients/${clientId}`);
+  }
+
   return (
     <ScreenContainer>
       <View style={styles.heroPanel}>
@@ -172,10 +174,10 @@ export function ClientsScreen() {
                 },
               ]}>
               <ThemedText type="smallBold" style={styles.notificationIcon}>🔔</ThemedText>
-              {pendingPaymentCount > 0 ? (
+              {pendingNotificationCount > 0 ? (
                 <View style={styles.notificationBadge}>
                   <ThemedText type="smallBold" style={styles.notificationBadgeText}>
-                    {pendingPaymentCount > 99 ? '99+' : pendingPaymentCount}
+                    {pendingNotificationCount > 99 ? '99+' : pendingNotificationCount}
                   </ThemedText>
                 </View>
               ) : null}
@@ -287,11 +289,11 @@ export function ClientsScreen() {
           <Pressable style={[styles.notificationsPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
             <View style={styles.notificationsHeader}>
               <View>
-                <ThemedText type="smallBold">Notificaciones de pagos</ThemedText>
+                <ThemedText type="smallBold">Notificaciones</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {pendingPaymentCount > 0
-                    ? `${pendingPaymentCount} cliente${pendingPaymentCount === 1 ? '' : 's'} necesitan revisión.`
-                    : 'No hay clientes pendientes de pago.'}
+                  {pendingNotificationCount > 0
+                    ? `${pendingNotificationCount} cliente${pendingNotificationCount === 1 ? '' : 's'} necesitan revisión o pago.`
+                    : 'No hay notificaciones pendientes.'}
                 </ThemedText>
               </View>
               <Pressable onPress={closeClientPaymentNotifications} style={styles.notificationsCloseButton}>
@@ -300,30 +302,64 @@ export function ClientsScreen() {
             </View>
 
             <View style={styles.notificationsList}>
-              {paymentNotifications.length === 0 ? (
+              {notifications.length === 0 ? (
                 <StatusBanner tone="info" message="Todo está al corriente por ahora." />
               ) : (
-                paymentNotifications.map((notification) => (
+                notifications.map((notification) => (
+                  (() => {
+                    const presentation = getNotificationPresentation(notification.kind);
+
+                    return (
                   <Pressable
-                    key={notification.clientId}
-                    onPress={() => goToClientPayments(notification.clientId)}
+                    key={`${notification.kind}-${notification.clientId}`}
+                    onPress={() => (notification.kind === 'payment' ? goToClientPayments(notification.clientId) : goToClientProfile(notification.clientId))}
                     style={({ pressed }) => [
                       styles.notificationItem,
-                      { borderColor: theme.backgroundSelected, backgroundColor: pressed ? '#F6F9FE' : '#FFFFFF' },
+                      {
+                        borderColor: presentation.border,
+                        backgroundColor: pressed ? presentation.accentSoft : presentation.background,
+                      },
                     ]}>
                     <View style={styles.notificationItemTop}>
-                      <ThemedText type="smallBold">{notification.clientName}</ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">
-                        Ver pagos
-                      </ThemedText>
+                      <View style={[styles.notificationIconBadge, { backgroundColor: presentation.accentSoft, borderColor: presentation.border }]}>
+                        <ThemedText type="smallBold" style={[styles.notificationIconEmoji, { color: presentation.accent }]}>
+                          {presentation.icon}
+                        </ThemedText>
+                      </View>
+                      <View style={styles.notificationItemCopy}>
+                        <ThemedText type="smallBold">{notification.clientName}</ThemedText>
+                        <ThemedText type="small" style={[styles.notificationKindText, { color: presentation.text }]}>
+                          {presentation.title}
+                        </ThemedText>
+                      </View>
+                      <View style={[styles.notificationTypePill, { borderColor: presentation.border, backgroundColor: presentation.accentSoft }]}>
+                        <ThemedText type="smallBold" style={[styles.notificationTypePillText, { color: presentation.text }]}>
+                          {notification.kind === 'payment' ? 'Cobro' : 'Revisión'}
+                        </ThemedText>
+                      </View>
                     </View>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      Último pago: {formatNotificationDate(notification.lastPaymentDate)}
-                    </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      Siguiente vencimiento: {formatNotificationDate(notification.nextPaymentDate)}
-                    </ThemedText>
+                    {notification.kind === 'payment' ? (
+                      <>
+                        <ThemedText type="small" themeColor="textSecondary" style={styles.notificationDetailText}>
+                          Último pago: {formatDashboardNotificationDate(notification.lastDate)}
+                        </ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary" style={styles.notificationDetailText}>
+                          Siguiente vencimiento: {formatDashboardNotificationDate(notification.nextDate)}
+                        </ThemedText>
+                      </>
+                    ) : (
+                      <>
+                        <ThemedText type="small" themeColor="textSecondary" style={styles.notificationDetailText}>
+                          Última revisión: {formatDashboardNotificationDate(notification.lastDate)}
+                        </ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary" style={styles.notificationDetailText}>
+                          Siguiente revisión: {formatDashboardNotificationDate(notification.nextDate)}
+                        </ThemedText>
+                      </>
+                    )}
                   </Pressable>
+                    );
+                  })()
                 ))
               )}
             </View>
@@ -570,12 +606,53 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: Radius.medium,
     padding: Spacing.three,
-    gap: 4,
+    gap: 8,
+    shadowColor: '#10203B',
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1,
   },
   notificationItemTop: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: Spacing.two,
+  },
+  notificationIconBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  notificationIconEmoji: {
+    fontSize: 18,
+    lineHeight: 20,
+  },
+  notificationItemCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+    paddingTop: 1,
+  },
+  notificationKindText: {
+    lineHeight: 16,
+  },
+  notificationTypePill: {
+    borderWidth: 1,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
+  },
+  notificationTypePillText: {
+    fontSize: 11,
+    lineHeight: 12,
+  },
+  notificationDetailText: {
+    lineHeight: 18,
   },
 });

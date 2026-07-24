@@ -405,8 +405,6 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   const [selectedSkinfoldProtocolId, setSelectedSkinfoldProtocolId] = useState<string>('');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [uploadCapturedAt, setUploadCapturedAt] = useState<Date | null>(new Date());
-  const [uploadTypeSelection, setUploadTypeSelection] = useState<'front' | 'back' | 'side' | 'other'>('front');
-  const [uploadCustomType, setUploadCustomType] = useState('');
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [pendingRevisionPhotoIds, setPendingRevisionPhotoIds] = useState<string[]>([]);
   const [isCompositionGuideOpen, setIsCompositionGuideOpen] = useState(false);
@@ -586,8 +584,6 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   function openUploadModal() {
     const revisionDateFallback = form.reviewedAt ? parseDateOrNow(form.reviewedAt) : new Date();
     setUploadCapturedAt(revisionDateFallback);
-    setUploadTypeSelection('front');
-    setUploadCustomType('');
     setIsUploadModalOpen(true);
   }
 
@@ -595,24 +591,8 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     setIsUploadModalOpen(false);
   }
 
-  function resolveUploadType() {
-    if (uploadTypeSelection !== 'other') {
-      return uploadTypeSelection;
-    }
-
-    const normalized = uploadCustomType.trim();
-    return normalized.length > 0 ? normalized : null;
-  }
-
   async function handleUploadPhotoFromForm() {
     if (!user?.id || !client || isUploadingPhoto) {
-      return;
-    }
-
-    const resolvedType = resolveUploadType();
-
-    if (!resolvedType) {
-      setErrorMessage('Indica un tipo personalizado para la imagen.');
       return;
     }
 
@@ -632,9 +612,10 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
+      allowsEditing: false,
+      allowsMultipleSelection: true,
       quality: 0.9,
-      selectionLimit: 1,
+      selectionLimit: 0,
     });
 
     if (result.canceled || result.assets.length === 0) {
@@ -644,17 +625,16 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     setIsUploadingPhoto(true);
 
     try {
-      const uploadedPhoto = await photosService.uploadFromDevice({
+      const uploadedPhotos = await photosService.uploadManyFromDevice({
         ownerId: user.id,
         clientId: client.id,
         revisionId: mode === 'edit' ? revisionId ?? null : null,
-        asset: result.assets[0],
-        type: resolvedType,
+        assets: result.assets,
         capturedAt: toDateOnlyIso(uploadCapturedAt),
       });
 
       if (mode === 'create') {
-        setPendingRevisionPhotoIds((currentPhotoIds) => [...currentPhotoIds, uploadedPhoto.id]);
+        setPendingRevisionPhotoIds((currentPhotoIds) => [...currentPhotoIds, ...uploadedPhotos.map((photo) => photo.id)]);
       }
 
       closeUploadModal();
@@ -1345,22 +1325,6 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
               helper="Preseleccionada a hoy"
               onChange={(value) => setUploadCapturedAt(value)}
             />
-
-            <AppSelect
-              label="Tipo"
-              value={uploadTypeSelection}
-              options={UPLOAD_TYPE_OPTIONS}
-              onChange={(value) => setUploadTypeSelection(value as 'front' | 'back' | 'side' | 'other')}
-            />
-
-            {uploadTypeSelection === 'other' ? (
-              <AppInput
-                label="Tipo personalizado"
-                placeholder="Ejemplo: Poses, Bikini, Competición..."
-                value={uploadCustomType}
-                onChangeText={setUploadCustomType}
-              />
-            ) : null}
 
             <View style={styles.modalActions}>
               <AppButton label="Cancelar" variant="ghost" size="compact" fullWidth={false} onPress={closeUploadModal} disabled={isUploadingPhoto} />
@@ -2109,9 +2073,3 @@ const styles = StyleSheet.create({
   },
 });
 
-const UPLOAD_TYPE_OPTIONS = [
-  { value: 'front', label: 'Frontal' },
-  { value: 'back', label: 'Espalda' },
-  { value: 'side', label: 'Lateral' },
-  { value: 'other', label: 'Otro' },
-];

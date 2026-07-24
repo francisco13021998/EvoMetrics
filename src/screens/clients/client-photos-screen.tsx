@@ -4,13 +4,13 @@ import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Modal, PanResponder, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
+import { captureRef } from 'react-native-view-shot';
 
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
 import { AppDateTimeInput } from '@/components/forms/app-date-time';
-import { AppInput } from '@/components/forms/app-input';
 import { AppSelect } from '@/components/forms/app-select';
 import { PageHeader } from '@/components/layout/page-header';
 import { PageSection } from '@/components/layout/page-section';
@@ -95,6 +95,7 @@ function getRevisionAverageBodyFat(client: Client, revision: Revision) {
 export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpenUpload = false }: ClientPhotosScreenProps) {
   const { user, userRole } = useAuth();
   const isAthlete = userRole === 'athlete';
+  const { width } = useWindowDimensions();
   const theme = useTheme();
   const [client, setClient] = useState<Client | null>(null);
   const [photos, setPhotos] = useState<ClientPhoto[]>([]);
@@ -103,46 +104,51 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
   const [isUploading, setIsUploading] = useState(false);
   const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [selectedFilterType, setSelectedFilterType] = useState<'all' | string>('all');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [uploadCapturedAt, setUploadCapturedAt] = useState<Date | null>(new Date());
-  const [uploadTypeSelection, setUploadTypeSelection] = useState<'front' | 'back' | 'side' | 'other'>('front');
-  const [uploadCustomType, setUploadCustomType] = useState('');
   const [uploadRevisionId, setUploadRevisionId] = useState<string>('none');
   const [previewPhoto, setPreviewPhoto] = useState<ClientPhoto | null>(null);
+  const [compareSourcePhoto, setCompareSourcePhoto] = useState<ClientPhoto | null>(null);
+  const [compareTargetPhoto, setCompareTargetPhoto] = useState<ClientPhoto | null>(null);
+  const [isComparePickerOpen, setIsComparePickerOpen] = useState(false);
+  const [compareSourceZoom, setCompareSourceZoom] = useState(1);
+  const [compareTargetZoom, setCompareTargetZoom] = useState(1);
+  const [compareSourceZoomInput, setCompareSourceZoomInput] = useState('100');
+  const [compareTargetZoomInput, setCompareTargetZoomInput] = useState('100');
+  const [isCompareSourceZoomEditing, setIsCompareSourceZoomEditing] = useState(false);
+  const [isCompareTargetZoomEditing, setIsCompareTargetZoomEditing] = useState(false);
+  const [compareSourceOffset, setCompareSourceOffset] = useState({ x: 0, y: 0 });
+  const [compareTargetOffset, setCompareTargetOffset] = useState({ x: 0, y: 0 });
   const [hasAutoOpenedUpload, setHasAutoOpenedUpload] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isDownloadingComparison, setIsDownloadingComparison] = useState(false);
   const [editPhoto, setEditPhoto] = useState<ClientPhoto | null>(null);
   const [editCapturedAt, setEditCapturedAt] = useState<Date | null>(null);
-  const [editTypeSelection, setEditTypeSelection] = useState<'front' | 'back' | 'side' | 'other'>('front');
-  const [editCustomType, setEditCustomType] = useState('');
   const [editRevisionId, setEditRevisionId] = useState<string>('none');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const comparisonExportRef = React.useRef<View>(null);
+  const compareSourceZoomHoldRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const compareTargetZoomHoldRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const compareSourceZoomHoldStartedAtRef = React.useRef<number | null>(null);
+  const compareTargetZoomHoldStartedAtRef = React.useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (compareSourceZoomHoldRef.current) {
+        clearTimeout(compareSourceZoomHoldRef.current);
+      }
+
+      if (compareTargetZoomHoldRef.current) {
+        clearTimeout(compareTargetZoomHoldRef.current);
+      }
+    };
+  }, []);
 
   const showInitialLoading = isLoading && !client;
 
-  const photoTypesForFilter = useMemo(() => {
-    const knownOrder = ['front', 'back', 'side'];
-    const fromPhotos = Array.from(new Set(
-      photos
-        .map((photo) => photo.type.trim())
-        .filter((type) => Boolean(type) && type.toLowerCase() !== 'all')
-    ));
-    const ordered = [
-      ...knownOrder.filter((type) => fromPhotos.includes(type)),
-      ...fromPhotos.filter((type) => !knownOrder.includes(type)).sort((left, right) => left.localeCompare(right, 'es-ES')),
-    ];
-
-    return ordered;
-  }, [photos]);
-
   const filteredPhotos = useMemo(() => {
-    const base = selectedFilterType === 'all'
-      ? photos
-      : photos.filter((photo) => photo.type === selectedFilterType);
-
-    return [...base].sort((left, right) => new Date(right.capturedAt).getTime() - new Date(left.capturedAt).getTime());
-  }, [photos, selectedFilterType]);
+    return [...photos].sort((left, right) => new Date(right.capturedAt).getTime() - new Date(left.capturedAt).getTime());
+  }, [photos]);
 
   const revisionById = useMemo(() => {
     return new Map(revisions.map((revision) => [revision.id, revision]));
@@ -173,6 +179,254 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
 
     return revisionById.get(uploadRevisionId) ?? null;
   }, [revisionById, uploadRevisionId]);
+
+  const compareablePhotos = useMemo(() => {
+    if (!compareSourcePhoto) {
+      return [];
+    }
+
+    return filteredPhotos.filter((photo) => photo.id !== compareSourcePhoto.id);
+  }, [compareSourcePhoto, filteredPhotos]);
+
+  const compareZoomMin = 0.4;
+  const compareZoomMax = 3;
+  const compareZoomStep = 0.01;
+  const isCompareSideBySide = width >= 780;
+  const compareImageHeight = isCompareSideBySide ? 360 : 260;
+  const comparePanelWidth = Math.round(Math.min(Math.max(width - Spacing.three * 2, 0), 900));
+  const compareExportWidth = Math.max(comparePanelWidth - Spacing.three * 2, 0);
+  const compareExportLeftWidth = Math.floor(compareExportWidth / 2);
+  const compareExportRightWidth = compareExportWidth - compareExportLeftWidth;
+  const sourceZoomPercent = Math.round(compareSourceZoom * 100);
+  const targetZoomPercent = Math.round(compareTargetZoom * 100);
+  const compareSourcePanStartRef = React.useRef({ x: 0, y: 0 });
+  const compareTargetPanStartRef = React.useRef({ x: 0, y: 0 });
+  const compareSourceOffsetRef = React.useRef(compareSourceOffset);
+  const compareTargetOffsetRef = React.useRef(compareTargetOffset);
+
+  useEffect(() => {
+    compareSourceOffsetRef.current = compareSourceOffset;
+  }, [compareSourceOffset]);
+
+  useEffect(() => {
+    compareTargetOffsetRef.current = compareTargetOffset;
+  }, [compareTargetOffset]);
+
+  useEffect(() => {
+    if (!isCompareSourceZoomEditing) {
+      setCompareSourceZoomInput(String(sourceZoomPercent));
+    }
+  }, [isCompareSourceZoomEditing, sourceZoomPercent]);
+
+  useEffect(() => {
+    if (!isCompareTargetZoomEditing) {
+      setCompareTargetZoomInput(String(targetZoomPercent));
+    }
+  }, [isCompareTargetZoomEditing, targetZoomPercent]);
+
+  const updateCompareSourceOffset = useCallback((nextOffset: { x: number; y: number }) => {
+    compareSourceOffsetRef.current = nextOffset;
+    setCompareSourceOffset(nextOffset);
+  }, []);
+
+  const updateCompareTargetOffset = useCallback((nextOffset: { x: number; y: number }) => {
+    compareTargetOffsetRef.current = nextOffset;
+    setCompareTargetOffset(nextOffset);
+  }, []);
+
+  const compareSourcePanResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponderCapture: () => true,
+        onMoveShouldSetPanResponder: (_event, gestureState) => Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2,
+        onPanResponderGrant: () => {
+          compareSourcePanStartRef.current = compareSourceOffsetRef.current;
+        },
+        onPanResponderMove: (_event, gestureState) => {
+          updateCompareSourceOffset({
+            x: compareSourcePanStartRef.current.x + gestureState.dx,
+            y: compareSourcePanStartRef.current.y + gestureState.dy,
+          });
+        },
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderRelease: () => null,
+        onPanResponderTerminate: () => null,
+      }),
+    [updateCompareSourceOffset]
+  );
+
+  const compareTargetPanResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponderCapture: () => true,
+        onMoveShouldSetPanResponder: (_event, gestureState) => Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2,
+        onPanResponderGrant: () => {
+          compareTargetPanStartRef.current = compareTargetOffsetRef.current;
+        },
+        onPanResponderMove: (_event, gestureState) => {
+          updateCompareTargetOffset({
+            x: compareTargetPanStartRef.current.x + gestureState.dx,
+            y: compareTargetPanStartRef.current.y + gestureState.dy,
+          });
+        },
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderRelease: () => null,
+        onPanResponderTerminate: () => null,
+      }),
+    [updateCompareTargetOffset]
+  );
+
+  function clampCompareZoom(value: number) {
+    return Math.max(compareZoomMin, Math.min(compareZoomMax, value));
+  }
+
+  function setSourceCompareZoom(nextZoom: number) {
+    setCompareSourceZoom(clampCompareZoom(nextZoom));
+  }
+
+  function setTargetCompareZoom(nextZoom: number) {
+    setCompareTargetZoom(clampCompareZoom(nextZoom));
+  }
+
+  function resetCompareZoom() {
+    setCompareSourceZoom(1);
+    setCompareTargetZoom(1);
+    setCompareSourceZoomInput('100');
+    setCompareTargetZoomInput('100');
+  }
+
+  function resetCompareOffsets() {
+    updateCompareSourceOffset({ x: 0, y: 0 });
+    updateCompareTargetOffset({ x: 0, y: 0 });
+  }
+
+  function adjustSourceCompareZoom(delta: number) {
+    setCompareSourceZoom((currentZoom) => clampCompareZoom(currentZoom + delta));
+  }
+
+  function adjustTargetCompareZoom(delta: number) {
+    setCompareTargetZoom((currentZoom) => clampCompareZoom(currentZoom + delta));
+  }
+
+  function commitSourceZoomInput(nextValue: string) {
+    const trimmedValue = nextValue.trim();
+
+    if (trimmedValue === '') {
+      setCompareSourceZoomInput(String(sourceZoomPercent));
+      return;
+    }
+
+    const parsedZoom = Number(trimmedValue.replace(',', '.'));
+
+    if (Number.isNaN(parsedZoom)) {
+      setCompareSourceZoomInput(String(sourceZoomPercent));
+      return;
+    }
+
+    setSourceCompareZoom(parsedZoom / 100);
+  }
+
+  function commitTargetZoomInput(nextValue: string) {
+    const trimmedValue = nextValue.trim();
+
+    if (trimmedValue === '') {
+      setCompareTargetZoomInput(String(targetZoomPercent));
+      return;
+    }
+
+    const parsedZoom = Number(trimmedValue.replace(',', '.'));
+
+    if (Number.isNaN(parsedZoom)) {
+      setCompareTargetZoomInput(String(targetZoomPercent));
+      return;
+    }
+
+    setTargetCompareZoom(parsedZoom / 100);
+  }
+
+  function handleSourceZoomTextChange(nextValue: string) {
+    setCompareSourceZoomInput(nextValue);
+  }
+
+  function handleTargetZoomTextChange(nextValue: string) {
+    setCompareTargetZoomInput(nextValue);
+  }
+
+  function handleSourceZoomInputBlur() {
+    setIsCompareSourceZoomEditing(false);
+    commitSourceZoomInput(compareSourceZoomInput);
+  }
+
+  function handleTargetZoomInputBlur() {
+    setIsCompareTargetZoomEditing(false);
+    commitTargetZoomInput(compareTargetZoomInput);
+  }
+
+  function scheduleCompareZoomHold(direction: 1 | -1, target: 'source' | 'target') {
+    const startedAtRef = target === 'source' ? compareSourceZoomHoldStartedAtRef : compareTargetZoomHoldStartedAtRef;
+    const holdRef = target === 'source' ? compareSourceZoomHoldRef : compareTargetZoomHoldRef;
+    const adjustZoom = target === 'source' ? adjustSourceCompareZoom : adjustTargetCompareZoom;
+
+    if (!startedAtRef.current) {
+      return;
+    }
+
+    const elapsedMs = Date.now() - startedAtRef.current;
+
+    let delay = 140;
+
+    if (elapsedMs >= 2200) {
+      delay = 40;
+    } else if (elapsedMs >= 1500) {
+      delay = 55;
+    } else if (elapsedMs >= 900) {
+      delay = 70;
+    } else if (elapsedMs >= 450) {
+      delay = 95;
+    }
+
+    holdRef.current = setTimeout(() => {
+      adjustZoom(direction * compareZoomStep);
+      scheduleCompareZoomHold(direction, target);
+    }, delay);
+  }
+
+  function startCompareZoomHold(direction: 1 | -1, target: 'source' | 'target') {
+    stopCompareZoomHold(target);
+
+    if (target === 'source') {
+      compareSourceZoomHoldStartedAtRef.current = Date.now();
+      adjustSourceCompareZoom(direction * compareZoomStep);
+      scheduleCompareZoomHold(direction, target);
+      return;
+    }
+
+    compareTargetZoomHoldStartedAtRef.current = Date.now();
+    adjustTargetCompareZoom(direction * compareZoomStep);
+    scheduleCompareZoomHold(direction, target);
+  }
+
+  function stopCompareZoomHold(target?: 'source' | 'target') {
+    if (!target || target === 'source') {
+      if (compareSourceZoomHoldRef.current) {
+        clearTimeout(compareSourceZoomHoldRef.current);
+        compareSourceZoomHoldRef.current = null;
+      }
+
+      compareSourceZoomHoldStartedAtRef.current = null;
+    }
+
+    if (!target || target === 'target') {
+      if (compareTargetZoomHoldRef.current) {
+        clearTimeout(compareTargetZoomHoldRef.current);
+        compareTargetZoomHoldRef.current = null;
+      }
+
+      compareTargetZoomHoldStartedAtRef.current = null;
+    }
+  }
 
   async function handleDownloadPhoto(photo: ClientPhoto) {
     try {
@@ -208,37 +462,84 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
     }
   }
 
+  async function handleDownloadComparison() {
+    if (!comparisonExportRef.current || !compareSourcePhoto || !compareTargetPhoto || isDownloadingComparison) {
+      return;
+    }
+
+    try {
+      setIsDownloadingComparison(true);
+
+      const { status } = await MediaLibrary.requestPermissionsAsync(true);
+      if (status !== 'granted' && status !== 'limited') {
+        Alert.alert('Permiso denegado', 'Activa el permiso de galería en los ajustes del dispositivo para descargar imágenes.');
+        return;
+      }
+
+      const captureUri = await captureRef(comparisonExportRef, {
+        format: 'png',
+        quality: 1,
+        result: 'tmpfile',
+      });
+
+      await MediaLibrary.saveToLibraryAsync(captureUri);
+      Alert.alert('Descarga completada', 'La comparación se ha guardado en tu galería.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo descargar la comparación.';
+      Alert.alert('Error', message);
+    } finally {
+      setIsDownloadingComparison(false);
+    }
+  }
+
   function openEditModal(photo: ClientPhoto) {
-    const isKnownType = ['front', 'back', 'side'].includes(photo.type);
     setEditCapturedAt(parseIsoDateOrNow(photo.capturedAt));
-    setEditTypeSelection(isKnownType ? (photo.type as 'front' | 'back' | 'side') : 'other');
-    setEditCustomType(isKnownType ? '' : photo.type);
     setEditRevisionId(photo.revisionId ?? 'none');
     setEditPhoto(photo);
     setPreviewPhoto(null);
+  }
+
+  function openComparePicker(photo: ClientPhoto) {
+    setCompareSourcePhoto(photo);
+    setCompareTargetPhoto(null);
+    setPreviewPhoto(null);
+    resetCompareZoom();
+    resetCompareOffsets();
+    setIsComparePickerOpen(true);
+  }
+
+  function closeComparePicker() {
+    setIsComparePickerOpen(false);
+    setCompareSourcePhoto(null);
+    setCompareTargetPhoto(null);
+    resetCompareZoom();
+    resetCompareOffsets();
+  }
+
+  function openCompareView(photo: ClientPhoto) {
+    setCompareTargetPhoto(photo);
+    setIsComparePickerOpen(false);
+    setCompareTargetZoom(1);
+    setCompareSourceZoom(1);
+    setCompareSourceZoomInput('100');
+    setCompareTargetZoomInput('100');
+    resetCompareOffsets();
+  }
+
+  function closeCompareView() {
+    setCompareSourcePhoto(null);
+    setCompareTargetPhoto(null);
+    resetCompareZoom();
+    resetCompareOffsets();
+    stopCompareZoomHold();
   }
 
   function closeEditModal() {
     setEditPhoto(null);
   }
 
-  function resolveEditType() {
-    if (editTypeSelection !== 'other') {
-      return editTypeSelection;
-    }
-    const normalized = editCustomType.trim();
-    return normalized.length > 0 ? normalized : null;
-  }
-
   async function handleSaveEdit() {
     if (!user?.id || !editPhoto || isSavingEdit) {
-      return;
-    }
-
-    const resolvedType = resolveEditType();
-
-    if (!resolvedType) {
-      Alert.alert('Tipo requerido', 'Indica un tipo personalizado para la imagen.');
       return;
     }
 
@@ -255,7 +556,6 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
         ownerId: user.id,
         capturedAt: toDateOnlyIso(editCapturedAt),
         revisionId: editRevisionId === 'none' ? null : editRevisionId,
-        type: resolvedType,
       });
 
       setPhotos((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
@@ -269,21 +569,11 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
     }
   }
 
-  function getPhotoTypeLabel(type: string) {
-    if (type === 'front') return 'Frontal';
-    if (type === 'back') return 'Espalda';
-    if (type === 'side') return 'Lateral';
-
-    return type;
-  }
-
   function resetUploadForm() {
     const hasDefaultRevision = Boolean(initialRevisionId && revisions.some((revision) => revision.id === initialRevisionId));
     const defaultRevision = hasDefaultRevision ? revisions.find((revision) => revision.id === initialRevisionId) ?? null : null;
 
     setUploadCapturedAt(defaultRevision ? parseIsoDateOrNow(defaultRevision.reviewedAt) : new Date());
-    setUploadTypeSelection('front');
-    setUploadCustomType('');
     setUploadRevisionId(hasDefaultRevision ? initialRevisionId! : 'none');
   }
 
@@ -294,15 +584,6 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
 
   function closeUploadModal() {
     setIsUploadModalOpen(false);
-  }
-
-  function resolveUploadType() {
-    if (uploadTypeSelection !== 'other') {
-      return uploadTypeSelection;
-    }
-
-    const normalized = uploadCustomType.trim();
-    return normalized.length > 0 ? normalized : null;
   }
 
   const loadContent = useCallback(async () => {
@@ -339,20 +620,13 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
       setPhotos(nextPhotos);
       setRevisions(nextRevisions);
 
-      if (selectedFilterType !== 'all') {
-        const stillExists = nextPhotos.some((photo) => photo.type === selectedFilterType);
-
-        if (!stillExists) {
-          setSelectedFilterType('all');
-        }
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo cargar la galeria del cliente.';
       setErrorMessage(message);
     } finally {
       setIsLoading(false);
     }
-  }, [clientId, selectedFilterType, user?.id]);
+  }, [clientId, user?.id]);
 
   useEffect(() => {
     void loadContent();
@@ -367,8 +641,6 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
     const defaultRevision = hasDefaultRevision ? revisions.find((revision) => revision.id === initialRevisionId) ?? null : null;
 
     setUploadCapturedAt(defaultRevision ? parseIsoDateOrNow(defaultRevision.reviewedAt) : new Date());
-    setUploadTypeSelection('front');
-    setUploadCustomType('');
     setUploadRevisionId(hasDefaultRevision ? initialRevisionId! : 'none');
     setIsUploadModalOpen(true);
     setHasAutoOpenedUpload(true);
@@ -376,13 +648,6 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
 
   async function handleUploadFromModal() {
     if (!user?.id || !client || isUploading) {
-      return;
-    }
-
-    const resolvedType = resolveUploadType();
-
-    if (!resolvedType) {
-      setErrorMessage('Indica un tipo personalizado para la imagen.');
       return;
     }
 
@@ -402,9 +667,10 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
+      allowsEditing: false,
+      allowsMultipleSelection: true,
       quality: 0.9,
-      selectionLimit: 1,
+      selectionLimit: 0,
     });
 
     if (result.canceled || result.assets.length === 0) {
@@ -416,16 +682,15 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
     try {
       const resolvedRevisionId = uploadRevisionId === 'none' ? null : uploadRevisionId;
 
-      const newPhoto = await photosService.uploadFromDevice({
+      const uploadedPhotos = await photosService.uploadManyFromDevice({
         ownerId: user.id,
         clientId: client.id,
-        asset: result.assets[0],
+        assets: result.assets,
         revisionId: resolvedRevisionId,
-        type: resolvedType,
         capturedAt: toDateOnlyIso(uploadCapturedAt),
       });
 
-      setPhotos((prev) => [newPhoto, ...prev].sort((a, b) => new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime()));
+      setPhotos((prev) => [...uploadedPhotos, ...prev].sort((a, b) => new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime()));
       closeUploadModal();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo subir la imagen.';
@@ -433,6 +698,10 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
     } finally {
       setIsUploading(false);
     }
+  }
+
+  function getPhotoDateLabel(photo: ClientPhoto) {
+    return formatRevisionDate(photo.revisionId ? (revisionById.get(photo.revisionId)?.reviewedAt ?? photo.capturedAt) : photo.capturedAt);
   }
 
   function handleDeletePhoto(photo: ClientPhoto) {
@@ -459,9 +728,6 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
               await photosService.remove(photo.id, user.id);
               setPhotos((prev) => {
                 const next = prev.filter((p) => p.id !== photo.id);
-                if (selectedFilterType !== 'all' && next.every((p) => p.type !== selectedFilterType)) {
-                  setSelectedFilterType('all');
-                }
                 return next;
               });
             } catch (error) {
@@ -531,38 +797,10 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
         {isLoading ? <StatusBanner tone="info" loading message="Actualizando galería..." /> : null}
         {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
 
-        <View style={styles.filterRow}>
-          <Pressable
-            onPress={() => setSelectedFilterType('all')}
-            style={[
-              styles.filterChip,
-              {
-                backgroundColor: selectedFilterType === 'all' ? Accent.primary : '#FFFFFF',
-                borderColor: selectedFilterType === 'all' ? Accent.primary : theme.backgroundSelected,
-              },
-            ]}>
-            <ThemedText type="smallBold" style={{ color: selectedFilterType === 'all' ? '#FFFFFF' : '#10203B' }}>Todos</ThemedText>
-          </Pressable>
-          {photoTypesForFilter.map((type) => (
-            <Pressable
-              key={type}
-              onPress={() => setSelectedFilterType(type)}
-              style={[
-                styles.filterChip,
-                {
-                  backgroundColor: selectedFilterType === type ? Accent.primary : '#FFFFFF',
-                  borderColor: selectedFilterType === type ? Accent.primary : theme.backgroundSelected,
-                },
-              ]}>
-              <ThemedText type="smallBold" style={{ color: selectedFilterType === type ? '#FFFFFF' : '#10203B' }}>{getPhotoTypeLabel(type)}</ThemedText>
-            </Pressable>
-          ))}
-        </View>
-
         {filteredPhotos.length === 0 ? (
           <EmptyState
             title="Galería vacía"
-            description={photos.length === 0 ? (isAthlete ? 'Aún no hay imágenes en tu galería.' : 'Sube la primera imagen del cliente.') : 'No hay imágenes para el tipo seleccionado.'}
+            description={photos.length === 0 ? (isAthlete ? 'Aún no hay imágenes en tu galería.' : 'Sube la primera imagen del cliente.') : 'No hay imágenes disponibles.'}
             actionLabel={isAthlete ? undefined : 'Subir imagen'}
             actionVariant="primary"
             onAction={isAthlete ? undefined : openUploadModal}
@@ -580,11 +818,6 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
                   contentFit="cover"
                   transition={150}
                 />
-                <View style={styles.tileBadge}>
-                  <ThemedText type="smallBold" style={styles.tileBadgeText} numberOfLines={1}>
-                    {getPhotoTypeLabel(photo.type)}
-                  </ThemedText>
-                </View>
               </Pressable>
             ))}
           </View>
@@ -610,13 +843,6 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
                 onChange={(value) => setUploadCapturedAt(value)}
               />
 
-              <AppSelect
-                label="Tipo"
-                value={uploadTypeSelection}
-                options={UPLOAD_TYPE_OPTIONS}
-                onChange={(value) => setUploadTypeSelection(value as 'front' | 'back' | 'side' | 'other')}
-              />
-
               <View style={[styles.revisionAssignWrap, { borderColor: theme.backgroundSelected }]}>
                 <AppSelect
                   label="Asociar a revisión (opcional)"
@@ -639,15 +865,6 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
                 </ThemedText>
               </View>
 
-              {uploadTypeSelection === 'other' ? (
-                <AppInput
-                  label="Tipo personalizado"
-                  placeholder="Ejemplo: Poses, Bikini, Competición..."
-                  value={uploadCustomType}
-                  onChangeText={setUploadCustomType}
-                />
-              ) : null}
-
               <View style={styles.modalActions}>
                 <AppButton label="Cancelar" variant="ghost" size="compact" fullWidth={false} onPress={closeUploadModal} disabled={isUploading} />
                 <AppButton label="Seleccionar y subir" size="compact" fullWidth={false} onPress={() => void handleUploadFromModal()} loading={isUploading} />
@@ -664,9 +881,6 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
               <>
                 <View style={styles.viewerHeader}>
                   <View style={styles.viewerHeaderCopy}>
-                    <ThemedText type="smallBold" style={styles.viewerHeaderTitle}>
-                      {getPhotoTypeLabel(previewPhoto.type)}
-                    </ThemedText>
                     <ThemedText type="small" style={styles.viewerHeaderMeta}>
                       {formatRevisionDate(previewPhoto.revisionId ? (revisionById.get(previewPhoto.revisionId)?.reviewedAt ?? previewPhoto.capturedAt) : previewPhoto.capturedAt)}
                       {previewPhoto.revisionId && revisionBodyFatById.get(previewPhoto.revisionId) !== undefined
@@ -691,6 +905,13 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
                     fullWidth={false}
                     loading={isDownloading}
                     onPress={() => void handleDownloadPhoto(previewPhoto)}
+                  />
+                  <AppButton
+                    label="Comparar"
+                    variant="surface"
+                    size="compact"
+                    fullWidth={false}
+                    onPress={() => openComparePicker(previewPhoto)}
                   />
                   {!isAthlete && (
                     <AppButton
@@ -718,6 +939,260 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
         </Pressable>
       </Modal>
 
+      <Modal transparent visible={isComparePickerOpen} animationType="fade" onRequestClose={closeComparePicker}>
+        <Pressable style={styles.viewerBackdrop} onPress={closeComparePicker}>
+          <Pressable style={[styles.comparePickerPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
+            <View style={styles.modalHeader}>
+              <View style={styles.viewerHeaderCopy}>
+                <ThemedText type="smallBold" style={styles.comparePickerTitle}>Comparar imagen</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary" style={styles.comparePickerSubtitle}>
+                  Selecciona otra imagen de la galería para abrir la comparación.
+                </ThemedText>
+              </View>
+              <Pressable onPress={closeComparePicker} style={styles.modalCloseButton}>
+                <ThemedText type="smallBold" style={styles.modalCloseText}>×</ThemedText>
+              </Pressable>
+            </View>
+
+            {compareSourcePhoto ? (
+              compareablePhotos.length > 0 ? (
+                <ScrollView style={styles.comparePickerScroll} contentContainerStyle={styles.comparePickerGrid} showsVerticalScrollIndicator={false}>
+                  {compareablePhotos.map((photo) => (
+                    <Pressable
+                      key={photo.id}
+                      onPress={() => openCompareView(photo)}
+                      style={({ pressed }) => [styles.comparePickerTile, { opacity: pressed ? 0.88 : 1 }]}>
+                      <Image source={{ uri: photo.imageUrl }} style={styles.comparePickerImage} contentFit="cover" transition={150} />
+                      <View style={styles.comparePickerTileCopy}>
+                        <ThemedText type="smallBold" numberOfLines={1}>Seleccionar</ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                          {getPhotoDateLabel(photo)}
+                        </ThemedText>
+                      </View>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              ) : (
+                <EmptyState
+                  title="No hay otra imagen"
+                  description="La comparación necesita al menos dos imágenes en la galería de este cliente."
+                  actionLabel="Cerrar"
+                  onAction={closeComparePicker}
+                />
+              )
+            ) : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal transparent visible={Boolean(compareSourcePhoto && compareTargetPhoto)} animationType="fade" onRequestClose={closeCompareView}>
+        <Pressable style={styles.viewerBackdrop} onPress={closeCompareView}>
+          <View style={[styles.comparePanel, { borderColor: theme.backgroundSelected }]}>
+            {compareSourcePhoto && compareTargetPhoto ? (
+              <>
+                <View style={styles.modalHeader}>
+                  <View style={styles.viewerHeaderCopy}>
+                    <ThemedText type="smallBold" style={styles.comparePickerTitle}>Comparación de imágenes</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.comparePickerSubtitle}>
+                      Visualiza ambas imágenes a la vez.
+                    </ThemedText>
+                  </View>
+                  <Pressable onPress={closeCompareView} style={styles.modalCloseButton}>
+                    <ThemedText type="smallBold" style={styles.modalCloseText}>×</ThemedText>
+                  </Pressable>
+                </View>
+
+                <View style={styles.compareCaptureArea}>
+                  <View style={styles.compareGrid}>
+                  <View style={styles.compareCard}>
+                    <ThemedText type="smallBold" style={styles.compareCardLabel}>Imagen original</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.compareCardMeta}>
+                      {getPhotoDateLabel(compareSourcePhoto)}
+                    </ThemedText>
+                    <View style={[styles.compareImageViewport, { height: compareImageHeight }]} {...compareSourcePanResponder.panHandlers}>
+                      <View
+                        style={[
+                          styles.compareImageCanvas,
+                          {
+                            transform: [
+                              { scale: compareSourceZoom },
+                              { translateX: compareSourceOffset.x },
+                              { translateY: compareSourceOffset.y },
+                            ],
+                          },
+                        ]}>
+                        <Image
+                          source={{ uri: compareSourcePhoto.imageUrl }}
+                          style={styles.compareImage}
+                          contentFit="contain"
+                          transition={150}
+                        />
+                      </View>
+                    </View>
+                    <View style={styles.compareCardControls}>
+                      <View style={styles.compareZoomStepper}>
+                        <Pressable
+                          onPressIn={() => startCompareZoomHold(-1, 'source')}
+                          onPressOut={() => stopCompareZoomHold('source')}
+                          style={({ pressed }) => [styles.compareZoomButton, pressed && styles.compareZoomButtonPressed]}>
+                          <ThemedText type="smallBold" style={styles.compareZoomButtonLabel}>−</ThemedText>
+                        </Pressable>
+                        <TextInput
+                          value={compareSourceZoomInput}
+                          onFocus={() => setIsCompareSourceZoomEditing(true)}
+                          onChangeText={handleSourceZoomTextChange}
+                          onBlur={handleSourceZoomInputBlur}
+                          onSubmitEditing={handleSourceZoomInputBlur}
+                          keyboardType="numeric"
+                          maxLength={3}
+                          returnKeyType="done"
+                          selectTextOnFocus
+                          style={styles.compareZoomControlInput}
+                          placeholderTextColor="#7A9CC4"
+                        />
+                        <ThemedText type="smallBold" style={styles.compareZoomControlUnit}>%</ThemedText>
+                        <Pressable
+                          onPressIn={() => startCompareZoomHold(1, 'source')}
+                          onPressOut={() => stopCompareZoomHold('source')}
+                          style={({ pressed }) => [styles.compareZoomButton, pressed && styles.compareZoomButtonPressed]}>
+                          <ThemedText type="smallBold" style={styles.compareZoomButtonLabel}>+</ThemedText>
+                        </Pressable>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={styles.compareCard}>
+                    <ThemedText type="smallBold" style={styles.compareCardLabel}>Imagen seleccionada</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.compareCardMeta}>
+                      {getPhotoDateLabel(compareTargetPhoto)}
+                    </ThemedText>
+                    <View style={[styles.compareImageViewport, { height: compareImageHeight }]} {...compareTargetPanResponder.panHandlers}>
+                      <View
+                        style={[
+                          styles.compareImageCanvas,
+                          {
+                            transform: [
+                              { scale: compareTargetZoom },
+                              { translateX: compareTargetOffset.x },
+                              { translateY: compareTargetOffset.y },
+                            ],
+                          },
+                        ]}>
+                        <Image
+                          source={{ uri: compareTargetPhoto.imageUrl }}
+                          style={styles.compareImage}
+                          contentFit="contain"
+                          transition={150}
+                        />
+                      </View>
+                    </View>
+                    <View style={styles.compareCardControls}>
+                      <View style={styles.compareZoomStepper}>
+                        <Pressable
+                          onPressIn={() => startCompareZoomHold(-1, 'target')}
+                          onPressOut={() => stopCompareZoomHold('target')}
+                          style={({ pressed }) => [styles.compareZoomButton, pressed && styles.compareZoomButtonPressed]}>
+                          <ThemedText type="smallBold" style={styles.compareZoomButtonLabel}>−</ThemedText>
+                        </Pressable>
+                        <TextInput
+                          value={compareTargetZoomInput}
+                          onFocus={() => setIsCompareTargetZoomEditing(true)}
+                          onChangeText={handleTargetZoomTextChange}
+                          onBlur={handleTargetZoomInputBlur}
+                          onSubmitEditing={handleTargetZoomInputBlur}
+                          keyboardType="numeric"
+                          maxLength={3}
+                          returnKeyType="done"
+                          selectTextOnFocus
+                          style={styles.compareZoomControlInput}
+                          placeholderTextColor="#7A9CC4"
+                        />
+                        <ThemedText type="smallBold" style={styles.compareZoomControlUnit}>%</ThemedText>
+                        <Pressable
+                          onPressIn={() => startCompareZoomHold(1, 'target')}
+                          onPressOut={() => stopCompareZoomHold('target')}
+                          style={({ pressed }) => [styles.compareZoomButton, pressed && styles.compareZoomButtonPressed]}>
+                          <ThemedText type="smallBold" style={styles.compareZoomButtonLabel}>+</ThemedText>
+                        </Pressable>
+                      </View>
+                    </View>
+                  </View>
+                  </View>
+
+                  <ThemedText type="small" themeColor="textSecondary" style={styles.compareHelpText}>
+                    Arrastra cada imagen para centrarla y usa + / - para ajustar el zoom.
+                  </ThemedText>
+                </View>
+
+                <View style={styles.compareFooter}>
+                  <AppButton
+                    label="Descargar comparación"
+                    variant="surface"
+                    size="compact"
+                    fullWidth={false}
+                    onPress={() => void handleDownloadComparison()}
+                    loading={isDownloadingComparison}
+                  />
+                  <AppButton label="Cerrar" variant="surface" size="compact" fullWidth={false} onPress={closeCompareView} />
+                </View>
+
+                <View ref={comparisonExportRef} collapsable={false} pointerEvents="none" style={[styles.comparisonExportHost, { width: compareExportWidth }]}>
+                  <View style={styles.compareExportCaptureArea}>
+                    <View style={styles.compareExportGrid}>
+                      <View style={[styles.compareExportCard, { width: compareExportLeftWidth }]}>
+                        <View style={[styles.compareExportImageViewport, { height: compareImageHeight }]}>
+                          <View
+                            style={[
+                              styles.compareExportImageCanvas,
+                              {
+                                transform: [
+                                  { scale: compareSourceZoom },
+                                  { translateX: compareSourceOffset.x },
+                                  { translateY: compareSourceOffset.y },
+                                ],
+                              },
+                            ]}>
+                            <Image
+                              source={{ uri: compareSourcePhoto.imageUrl }}
+                              style={styles.compareExportImage}
+                              contentFit="contain"
+                              transition={150}
+                            />
+                          </View>
+                        </View>
+                      </View>
+
+                      <View style={[styles.compareExportCard, { width: compareExportRightWidth }]}>
+                        <View style={[styles.compareExportImageViewport, { height: compareImageHeight }]}>
+                          <View
+                            style={[
+                              styles.compareExportImageCanvas,
+                              {
+                                transform: [
+                                  { scale: compareTargetZoom },
+                                  { translateX: compareTargetOffset.x },
+                                  { translateY: compareTargetOffset.y },
+                                ],
+                              },
+                            ]}>
+                            <Image
+                              source={{ uri: compareTargetPhoto.imageUrl }}
+                              style={styles.compareExportImage}
+                              contentFit="contain"
+                              transition={150}
+                            />
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              </>
+            ) : null}
+          </View>
+        </Pressable>
+      </Modal>
+
       <Modal transparent visible={Boolean(editPhoto)} animationType="fade" onRequestClose={closeEditModal}>
         <Pressable style={styles.modalBackdrop} onPress={closeEditModal}>
           <Pressable style={[styles.modalPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
@@ -736,13 +1211,6 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
                 onChange={(value) => setEditCapturedAt(value)}
               />
 
-              <AppSelect
-                label="Tipo"
-                value={editTypeSelection}
-                options={UPLOAD_TYPE_OPTIONS}
-                onChange={(value) => setEditTypeSelection(value as 'front' | 'back' | 'side' | 'other')}
-              />
-
               <View style={[styles.revisionAssignWrap, { borderColor: theme.backgroundSelected }]}>
                 <AppSelect
                   label="Asociar a revisión (opcional)"
@@ -759,15 +1227,6 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
                 />
               </View>
 
-              {editTypeSelection === 'other' ? (
-                <AppInput
-                  label="Tipo personalizado"
-                  placeholder="Ejemplo: Poses, Bikini, Competición..."
-                  value={editCustomType}
-                  onChangeText={setEditCustomType}
-                />
-              ) : null}
-
               <View style={styles.modalActions}>
                 <AppButton label="Cancelar" variant="ghost" size="compact" fullWidth={false} onPress={closeEditModal} disabled={isSavingEdit} />
                 <AppButton label="Guardar cambios" size="compact" fullWidth={false} onPress={() => void handleSaveEdit()} loading={isSavingEdit} />
@@ -780,25 +1239,7 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
   );
 }
 
-const UPLOAD_TYPE_OPTIONS = [
-  { value: 'front', label: 'Frontal' },
-  { value: 'back', label: 'Espalda' },
-  { value: 'side', label: 'Lateral' },
-  { value: 'other', label: 'Otro' },
-];
-
 const styles = StyleSheet.create({
-  filterRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.one,
-  },
-  filterChip: {
-    borderWidth: 1,
-    borderRadius: Radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -813,20 +1254,6 @@ const styles = StyleSheet.create({
   preview: {
     aspectRatio: 1,
     width: '100%',
-  },
-  tileBadge: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(13, 26, 51, 0.58)',
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-  },
-  tileBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    lineHeight: 13,
   },
   modalBackdrop: {
     flex: 1,
@@ -937,10 +1364,211 @@ const styles = StyleSheet.create({
   },
   viewerFooter: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'flex-end',
+    gap: Spacing.two,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
     borderTopWidth: 1,
     borderTopColor: '#1C2E50',
+  },
+  comparePickerPanel: {
+    borderWidth: 1,
+    borderRadius: Radius.large,
+    backgroundColor: '#0D1A33',
+    padding: Spacing.three,
+    gap: Spacing.three,
+    maxWidth: 760,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  comparePickerTitle: {
+    color: '#FFFFFF',
+  },
+  comparePickerSubtitle: {
+    color: '#7A9CC4',
+  },
+  comparePickerScroll: {
+    maxHeight: 520,
+  },
+  comparePickerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  comparePickerTile: {
+    width: '48%',
+    borderRadius: Radius.medium,
+    overflow: 'hidden',
+    backgroundColor: '#15294D',
+  },
+  comparePickerImage: {
+    width: '100%',
+    aspectRatio: 1,
+    backgroundColor: '#15294D',
+  },
+  comparePickerTileCopy: {
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
+    gap: 2,
+  },
+  comparePanel: {
+    borderWidth: 1,
+    borderRadius: Radius.large,
+    backgroundColor: '#0D1A33',
+    padding: Spacing.three,
+    gap: Spacing.three,
+    maxWidth: 900,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  compareCaptureArea: {
+    gap: Spacing.three,
+    overflow: 'hidden',
+    borderRadius: Radius.medium,
+    backgroundColor: '#0D1A33',
+  },
+  compareExportCaptureArea: {
+    gap: 0,
+    overflow: 'hidden',
+    borderRadius: 0,
+    backgroundColor: '#0D1A33',
+    padding: 0,
+  },
+  compareExportGrid: {
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    gap: 0,
+    alignItems: 'stretch',
+  },
+  compareExportCard: {
+    flexShrink: 0,
+    minWidth: 0,
+    gap: 0,
+    padding: 0,
+    margin: 0,
+    backgroundColor: '#0D1A33',
+  },
+  compareExportImageViewport: {
+    borderRadius: 0,
+    overflow: 'hidden',
+    backgroundColor: '#0D1A33',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  compareExportImageCanvas: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  compareExportImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#0D1A33',
+  },
+  comparisonExportHost: {
+    position: 'absolute',
+    left: -10000,
+    top: 0,
+    opacity: 1,
+  },
+  compareHelpText: {
+    color: '#7A9CC4',
+    textAlign: 'center',
+    paddingHorizontal: Spacing.two,
+  },
+  compareGrid: {
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    gap: Spacing.two,
+    alignItems: 'stretch',
+  },
+  compareCard: {
+    flex: 1,
+    minWidth: 0,
+    gap: Spacing.one,
+  },
+  compareImageViewport: {
+    height: 360,
+    borderRadius: Radius.medium,
+    overflow: 'hidden',
+    backgroundColor: '#15294D',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  compareImageCanvas: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  compareCardLabel: {
+    color: '#FFFFFF',
+  },
+  compareCardMeta: {
+    color: '#7A9CC4',
+  },
+  compareImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#15294D',
+  },
+  compareCardControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
+  },
+  compareZoomStepper: {
+    minWidth: 156,
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingHorizontal: 3,
+    borderRadius: Radius.small,
+    borderWidth: 1,
+    borderColor: '#2B4A77',
+    backgroundColor: '#15294D',
+  },
+  compareZoomButton: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    backgroundColor: '#1C3760',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  compareZoomButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.98 }],
+  },
+  compareZoomButtonLabel: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    lineHeight: 15,
+  },
+  compareZoomControlInput: {
+    minWidth: 32,
+    color: '#FFFFFF',
+    fontSize: 12,
+    lineHeight: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+    includeFontPadding: false,
+  },
+  compareZoomControlUnit: {
+    color: '#7A9CC4',
+    fontSize: 11,
+    lineHeight: 12,
+  },
+  compareFooter: {
+    flexDirection: 'row',
+    justifyContent: 'center',
   },
 });

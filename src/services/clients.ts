@@ -1,6 +1,6 @@
 import { DEFAULT_ATHLETE_LEVEL, normalizeAthleteLevel } from '@/constants/athlete-level';
 import { supabase } from '@/lib/supabase';
-import { AthleteLevel, BillingFrequency, Client, ClientSex } from '@/types/domain';
+import { AthleteLevel, BillingFrequency, Client, ClientSex, RevisionFrequencyUnit } from '@/types/domain';
 
 export const CLIENTS_TABLE = 'clients';
 
@@ -18,6 +18,8 @@ type DbClientRow = {
   coaching_price: number | null;
   billing_frequency: string | null;
   force_payment_pending: boolean | null;
+  revision_frequency_value: number | null;
+  revision_frequency_unit: RevisionFrequencyUnit | null;
   created_at: string;
 };
 
@@ -28,6 +30,8 @@ export type CreateClientInput = {
   athleteLevel?: AthleteLevel;
   heightCm?: number | null;
   birthDate?: string | null;
+  revisionFrequencyValue?: number | null;
+  revisionFrequencyUnit?: RevisionFrequencyUnit | null;
 };
 
 export type UpdateClientInput = {
@@ -39,6 +43,8 @@ export type UpdateClientInput = {
   coachingPrice?: number | null;
   billingFrequency?: BillingFrequency;
   forcePaymentPending?: boolean;
+  revisionFrequencyValue?: number | null;
+  revisionFrequencyUnit?: RevisionFrequencyUnit | null;
 };
 
 function normalizeClientSex(value: DbClientSex | null): ClientSex | null {
@@ -103,6 +109,8 @@ function mapDbClient(row: DbClientRow): Client {
     coachingPrice: row.coaching_price ?? 0,
     billingFrequency: (row.billing_frequency ?? 'one_time') as BillingFrequency,
     forcePaymentPending: row.force_payment_pending ?? false,
+    revisionFrequencyValue: row.revision_frequency_value,
+    revisionFrequencyUnit: row.revision_frequency_unit,
     createdAt: row.created_at,
   };
 }
@@ -118,6 +126,8 @@ function mapCreatePayload(payload: CreateClientInput, preferSpanishSex = false) 
     coaching_price: 0,
     billing_frequency: 'one_time',
     force_payment_pending: false,
+    revision_frequency_value: payload.revisionFrequencyValue ?? null,
+    revision_frequency_unit: payload.revisionFrequencyUnit ?? null,
   };
 }
 
@@ -131,6 +141,8 @@ function mapUpdatePayload(payload: UpdateClientInput, preferSpanishSex = false) 
     ...(payload.coachingPrice !== undefined ? { coaching_price: payload.coachingPrice } : {}),
     ...(payload.billingFrequency !== undefined ? { billing_frequency: payload.billingFrequency } : {}),
     ...(payload.forcePaymentPending !== undefined ? { force_payment_pending: payload.forcePaymentPending } : {}),
+    ...(payload.revisionFrequencyValue !== undefined ? { revision_frequency_value: payload.revisionFrequencyValue } : {}),
+    ...(payload.revisionFrequencyUnit !== undefined ? { revision_frequency_unit: payload.revisionFrequencyUnit } : {}),
   };
 }
 

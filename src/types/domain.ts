@@ -24,6 +24,8 @@ export type AthleteLevel = 'beginner' | 'intermediate' | 'advanced';
 
 export type BillingFrequency = 'one_time' | 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly';
 
+export type RevisionFrequencyUnit = 'week' | 'month';
+
 export type Client = {
   id: string;
   ownerId: string;
@@ -36,6 +38,8 @@ export type Client = {
   coachingPrice: number;
   billingFrequency: BillingFrequency;
   forcePaymentPending: boolean;
+  revisionFrequencyValue: number | null;
+  revisionFrequencyUnit: RevisionFrequencyUnit | null;
   createdAt: string;
 };
 

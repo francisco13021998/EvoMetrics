@@ -6,6 +6,9 @@ import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
+import { AppCheckbox } from '@/components/forms/app-checkbox';
+import { AppInput } from '@/components/forms/app-input';
+import { AppSelect } from '@/components/forms/app-select';
 import { PageHeader } from '@/components/layout/page-header';
 import { PageSection } from '@/components/layout/page-section';
 import { ScreenContainer } from '@/components/layout/screen-container';
@@ -18,9 +21,10 @@ import { useTheme } from '@/hooks/use-theme';
 import { clientPaymentsService } from '@/services/client-payments';
 import { clientsService } from '@/services/clients';
 import { revisionsService } from '@/services/revisions';
-import { Client, ClientPayment, Revision } from '@/types/domain';
+import { Client, ClientPayment, Revision, RevisionFrequencyUnit } from '@/types/domain';
 import { formatClientAge } from '@/utils/client-age';
 import { calculateClientPaymentStatus } from '@/utils/client-payments';
+import { INACTIVE_REVISION_FREQUENCY_VALUE, calculateClientRevisionStatus, isRevisionFrequencyActive } from '@/utils/client-revisions';
 
 type ClientDetailScreenProps = {
   clientId: string;
@@ -30,6 +34,23 @@ function formatSex(sex: Client['sex']) {
   if (sex === 'female') return 'Mujer';
   if (sex === 'male') return 'Hombre';
   return '-';
+}
+
+const REVISION_FREQUENCY_UNIT_OPTIONS = [
+  { label: 'Semanas', value: 'week' },
+  { label: 'Meses', value: 'month' },
+];
+
+function formatRevisionFrequencyLabel(value: number, unit: RevisionFrequencyUnit) {
+  const label = unit === 'week' ? 'semana' : 'mes';
+
+  return `${value} ${label}${value === 1 ? '' : 's'}`;
+}
+
+function normalizeRevisionFrequencyValue(value: string) {
+  const parsed = Number(value);
+
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
@@ -43,6 +64,11 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [payments, setPayments] = useState<ClientPayment[]>([]);
   const [isClientMenuOpen, setIsClientMenuOpen] = useState(false);
+  const [isRevisionSettingsOpen, setIsRevisionSettingsOpen] = useState(false);
+  const [isSavingRevisionSettings, setIsSavingRevisionSettings] = useState(false);
+  const [revisionFrequencyEnabled, setRevisionFrequencyEnabled] = useState(false);
+  const [revisionFrequencyValueInput, setRevisionFrequencyValueInput] = useState('4');
+  const [revisionFrequencyUnit, setRevisionFrequencyUnit] = useState<RevisionFrequencyUnit>('week');
 
   const showInitialLoading = isLoading && !client;
 
@@ -61,6 +87,11 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
         ? await clientsService.getByIdForViewer(clientId)
         : await clientsService.getById(clientId, user.id!);
       setClient(nextClient);
+      if (nextClient) {
+        setRevisionFrequencyEnabled(isRevisionFrequencyActive(nextClient.revisionFrequencyValue, nextClient.revisionFrequencyUnit));
+        setRevisionFrequencyValueInput(isRevisionFrequencyActive(nextClient.revisionFrequencyValue, nextClient.revisionFrequencyUnit) ? String(nextClient.revisionFrequencyValue) : '0');
+        setRevisionFrequencyUnit(nextClient.revisionFrequencyUnit ?? 'week');
+      }
 
       if (nextClient) {
         const [nextRevisions, nextPayments] = await Promise.all([
@@ -91,6 +122,62 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
     () => calculateClientPaymentStatus(client, payments),
     [client, payments]
   );
+
+  const revisionStatus = useMemo(
+    () => calculateClientRevisionStatus(client, revisions),
+    [client, revisions]
+  );
+
+  const hasRevisionFrequency = isRevisionFrequencyActive(client?.revisionFrequencyValue, client?.revisionFrequencyUnit);
+
+  const revisionFrequencySummary = hasRevisionFrequency
+    ? formatRevisionFrequencyLabel(client.revisionFrequencyValue, client.revisionFrequencyUnit)
+    : 'Sin frecuencia de revisiones';
+
+  function openRevisionSettings() {
+    if (!client || isAthlete) {
+      return;
+    }
+
+    setRevisionFrequencyEnabled(isRevisionFrequencyActive(client.revisionFrequencyValue, client.revisionFrequencyUnit));
+    setRevisionFrequencyValueInput(isRevisionFrequencyActive(client.revisionFrequencyValue, client.revisionFrequencyUnit) ? String(client.revisionFrequencyValue) : '0');
+    setRevisionFrequencyUnit(client.revisionFrequencyUnit ?? 'week');
+    setIsRevisionSettingsOpen(true);
+  }
+
+  function closeRevisionSettings() {
+    setIsRevisionSettingsOpen(false);
+  }
+
+  async function handleSaveRevisionSettings() {
+    if (!client || !user?.id || isAthlete || isSavingRevisionSettings) {
+      return;
+    }
+
+    const parsedValue = normalizeRevisionFrequencyValue(revisionFrequencyValueInput);
+
+    if (revisionFrequencyEnabled && !parsedValue) {
+      setErrorMessage('El numero de revisiones debe ser un entero mayor que cero.');
+      return;
+    }
+
+    setIsSavingRevisionSettings(true);
+    setErrorMessage(null);
+
+    try {
+      await clientsService.update(client.id, user.id, {
+        revisionFrequencyValue: revisionFrequencyEnabled ? parsedValue : INACTIVE_REVISION_FREQUENCY_VALUE,
+        revisionFrequencyUnit: revisionFrequencyEnabled ? revisionFrequencyUnit : 'week',
+      });
+      await loadClient();
+      closeRevisionSettings();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo guardar la frecuencia de revisiones.';
+      setErrorMessage(message);
+    } finally {
+      setIsSavingRevisionSettings(false);
+    }
+  }
 
   async function confirmDelete() {
     if (!client || !user?.id || isDeleting) return;
@@ -291,11 +378,49 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
 
       <View style={[styles.section, { borderColor: theme.backgroundSelected }]}>
         <View style={styles.sectionHeader}>
-          <ThemedText type="headline">Revisiones</ThemedText>
-          <View style={styles.revisionHeaderActions}>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.revisionCountText}>
-              {revisions.length} {revisions.length === 1 ? 'revisión' : 'revisiones'}
+          <View style={styles.revisionHeaderCopy}>
+            <ThemedText type="headline">Revisiones</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.revisionFrequencyText}>
+              {revisionFrequencySummary}
             </ThemedText>
+          </View>
+          <View style={styles.revisionHeaderActions}>
+            {revisionStatus.isConfigured ? (
+              <View
+                style={[
+                  styles.revisionStatusPill,
+                  { backgroundColor: revisionStatus.isPending ? '#FFF7E8' : '#ECF9F3' },
+                ]}>
+                <ThemedText
+                  type="smallBold"
+                  style={[
+                    styles.revisionStatusIcon,
+                    { color: revisionStatus.isPending ? Accent.warning : Accent.success },
+                  ]}>
+                  {revisionStatus.isPending ? '!' : '✓'}
+                </ThemedText>
+                <ThemedText
+                  type="smallBold"
+                  style={{ color: revisionStatus.isPending ? Accent.warning : Accent.success }}>
+                  {revisionStatus.isPending ? 'Pendiente' : 'Al día'}
+                </ThemedText>
+              </View>
+            ) : null}
+            {!isAthlete ? (
+              <Pressable
+                onPress={openRevisionSettings}
+                accessibilityLabel="Configurar frecuencia de revisiones"
+                style={({ pressed }) => [
+                  styles.revisionSettingsButton,
+                  {
+                    borderColor: theme.backgroundSelected,
+                    backgroundColor: pressed ? '#F6F9FE' : '#FFFFFF',
+                    opacity: pressed ? 0.92 : 1,
+                  },
+                ]}>
+                <ThemedText type="smallBold" style={styles.revisionSettingsIcon}>⚙</ThemedText>
+              </Pressable>
+            ) : null}
           </View>
         </View>
 
@@ -354,6 +479,73 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
             </View>
           )}
         </View>
+
+        <Modal transparent visible={isRevisionSettingsOpen} animationType="fade" onRequestClose={closeRevisionSettings}>
+          <Pressable style={styles.menuBackdrop} onPress={closeRevisionSettings}>
+            <Pressable style={[styles.menuPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
+              <View style={styles.revisionSettingsHeader}>
+                <View>
+                  <ThemedText type="smallBold">Frecuencia de revisiones</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Define cada cuánto debe volver este cliente a revisión.
+                  </ThemedText>
+                </View>
+                <Pressable onPress={closeRevisionSettings} style={styles.revisionSettingsCloseButton}>
+                  <ThemedText type="smallBold" style={styles.revisionSettingsCloseText}>×</ThemedText>
+                </Pressable>
+              </View>
+
+              <AppInput
+                label="Numero"
+                placeholder="4"
+                keyboardType="number-pad"
+                inputMode="numeric"
+                value={revisionFrequencyValueInput}
+                onChangeText={setRevisionFrequencyValueInput}
+                containerStyle={styles.revisionSettingsField}
+              />
+              <AppCheckbox
+                label="Usar frecuencia de revisiones"
+                checked={revisionFrequencyEnabled}
+                onChange={setRevisionFrequencyEnabled}
+                helper="Desmárcalo para quitar la frecuencia guardada."
+              />
+              {revisionFrequencyEnabled ? (
+                <>
+                  <AppSelect
+                    label="Unidad"
+                    value={revisionFrequencyUnit}
+                    options={REVISION_FREQUENCY_UNIT_OPTIONS}
+                    onChange={(value) => setRevisionFrequencyUnit(value as RevisionFrequencyUnit)}
+                    containerStyle={styles.revisionSettingsField}
+                  />
+                  <View style={styles.revisionSettingsPreview}>
+                    <ThemedText type="small" themeColor="textSecondary">Configuración actual</ThemedText>
+                    <ThemedText type="smallBold">{formatRevisionFrequencyLabel(Number(revisionFrequencyValueInput) || 0, revisionFrequencyUnit)}</ThemedText>
+                  </View>
+                </>
+              ) : (
+                <StatusBanner tone="info" message="Al guardar, la frecuencia quedará desactivada para este cliente." />
+              )}
+
+              <View style={styles.revisionSettingsActions}>
+                <AppButton
+                  label="Cancelar"
+                  variant="ghost"
+                  size="compact"
+                  fullWidth={false}
+                  onPress={closeRevisionSettings}
+                  disabled={isSavingRevisionSettings}
+                />
+                <AppButton
+                  label="Guardar"
+                  onPress={() => void handleSaveRevisionSettings()}
+                  loading={isSavingRevisionSettings}
+                />
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
       </View>
 
     </ScreenContainer>
@@ -577,8 +769,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.two,
   },
-  revisionCountText: {
-    color: '#10203B',
+  revisionHeaderCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  revisionStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  revisionStatusIcon: {
+    fontSize: 12,
+    lineHeight: 14,
+  },
+  revisionSettingsButton: {
+    width: 32,
+    height: 32,
+    borderWidth: 1,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  revisionSettingsIcon: {
+    color: Accent.primary,
+    fontSize: 16,
+    lineHeight: 16,
+    marginTop: -1,
+  },
+  revisionFrequencyText: {
+    lineHeight: 18,
   },
   actionsBlock: {
     borderWidth: 1,
@@ -615,6 +838,43 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: Radius.small,
     borderWidth: 1,
+  },
+  revisionSettingsHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  revisionSettingsCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FBFF',
+  },
+  revisionSettingsCloseText: {
+    color: Accent.primary,
+    lineHeight: 20,
+  },
+  revisionSettingsField: {
+    minHeight: 56,
+    borderRadius: Radius.medium,
+  },
+  revisionSettingsPreview: {
+    borderWidth: 1,
+    borderColor: '#D9E6FB',
+    borderRadius: Radius.medium,
+    backgroundColor: '#F8FBFF',
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 10,
+    gap: 2,
+  },
+  revisionSettingsActions: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
   },
   timerDot: {
     width: 8,

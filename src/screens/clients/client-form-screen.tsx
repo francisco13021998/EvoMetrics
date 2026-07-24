@@ -5,6 +5,7 @@ import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
+import { AppCheckbox } from '@/components/forms/app-checkbox';
 import { AppDateTimeInput } from '@/components/forms/app-date-time';
 import { AppInput } from '@/components/forms/app-input';
 import { AppSelect } from '@/components/forms/app-select';
@@ -17,8 +18,9 @@ import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
 import { clientsService } from '@/services/clients';
-import { Client, ClientSex } from '@/types/domain';
+import { Client, ClientSex, RevisionFrequencyUnit } from '@/types/domain';
 import { calculateAgeFromBirthDate, formatDateOnly, parseDateOnly } from '@/utils/client-age';
+import { INACTIVE_REVISION_FREQUENCY_VALUE, isRevisionFrequencyActive } from '@/utils/client-revisions';
 
 
 type ClientFormScreenProps = {
@@ -31,6 +33,11 @@ const SEX_OPTIONS: { label: string; value: ClientSex }[] = [
   { label: 'Hombre', value: 'male' },
 ];
 
+const REVISION_FREQUENCY_UNIT_OPTIONS: { label: string; value: RevisionFrequencyUnit }[] = [
+  { label: 'Semanas', value: 'week' },
+  { label: 'Meses', value: 'month' },
+];
+
 export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
   const { user } = useAuth();
   const theme = useTheme();
@@ -41,6 +48,9 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
   const [athleteLevel, setAthleteLevel] = useState(DEFAULT_ATHLETE_LEVEL);
   const [heightCm, setHeightCm] = useState('');
   const [birthDate, setBirthDate] = useState<Date | null>(mode === 'create' ? new Date(2000, 0, 1) : null);
+  const [revisionFrequencyEnabled, setRevisionFrequencyEnabled] = useState(false);
+  const [revisionFrequencyValue, setRevisionFrequencyValue] = useState('4');
+  const [revisionFrequencyUnit, setRevisionFrequencyUnit] = useState<RevisionFrequencyUnit>('week');
   const [isLoading, setIsLoading] = useState(mode === 'edit');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -66,6 +76,9 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
         setAthleteLevel(nextClient.athleteLevel);
         setHeightCm(nextClient.heightCm ? String(nextClient.heightCm) : '');
         setBirthDate(parseDateOnly(nextClient.birthDate));
+        setRevisionFrequencyEnabled(isRevisionFrequencyActive(nextClient.revisionFrequencyValue, nextClient.revisionFrequencyUnit));
+        setRevisionFrequencyValue(isRevisionFrequencyActive(nextClient.revisionFrequencyValue, nextClient.revisionFrequencyUnit) ? String(nextClient.revisionFrequencyValue) : '0');
+        setRevisionFrequencyUnit(nextClient.revisionFrequencyUnit ?? 'week');
       })
       .catch((error) => {
         const message = error instanceof Error ? error.message : 'No se pudo cargar el cliente.';
@@ -90,6 +103,14 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
       return;
     }
 
+    const parsedRevisionFrequencyValue = Number(revisionFrequencyValue);
+
+    if (revisionFrequencyEnabled && (!Number.isInteger(parsedRevisionFrequencyValue) || parsedRevisionFrequencyValue <= 0)) {
+      setErrorMessage('La frecuencia de revisiones debe ser un numero entero mayor que cero.');
+      setIsSubmitting(false);
+      return;
+    }
+
     if (mode === 'create' && !resolvedBirthDate) {
       setErrorMessage('La fecha de nacimiento es obligatoria para crear el cliente.');
       setIsSubmitting(false);
@@ -105,6 +126,8 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
           athleteLevel,
           heightCm: parsedHeight,
           birthDate: resolvedBirthDate,
+          revisionFrequencyValue: revisionFrequencyEnabled ? parsedRevisionFrequencyValue : INACTIVE_REVISION_FREQUENCY_VALUE,
+          revisionFrequencyUnit: revisionFrequencyEnabled ? revisionFrequencyUnit : 'week',
         });
         router.replace(`/clients/${createdClient.id}`);
         return;
@@ -118,6 +141,8 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
         athleteLevel,
         heightCm: parsedHeight,
         birthDate: resolvedBirthDate,
+        revisionFrequencyValue: revisionFrequencyEnabled ? parsedRevisionFrequencyValue : INACTIVE_REVISION_FREQUENCY_VALUE,
+        revisionFrequencyUnit: revisionFrequencyEnabled ? revisionFrequencyUnit : 'week',
       });
       router.replace(`/clients/${updatedClient.id}`);
     } catch (error) {
@@ -250,6 +275,44 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
               />
             </View>
           </View>
+
+          <View style={[styles.revisionFrequencyCard, { borderColor: theme.backgroundSelected }]}>
+            <AppCheckbox
+              label="Usar frecuencia de revisiones"
+              checked={revisionFrequencyEnabled}
+              onChange={setRevisionFrequencyEnabled}
+              helper="Activa esta opción si quieres automatizar la próxima revisión del cliente."
+            />
+
+            {revisionFrequencyEnabled ? (
+              <View style={[styles.formRow, !isWide && styles.formRowStacked]}>
+                <View style={styles.formCell}>
+                  <AppInput
+                    label="Numero"
+                    placeholder="4"
+                    keyboardType="number-pad"
+                    inputMode="numeric"
+                    value={revisionFrequencyValue}
+                    onChangeText={setRevisionFrequencyValue}
+                    containerStyle={styles.formField}
+                  />
+                </View>
+                <View style={styles.formCell}>
+                  <AppSelect
+                    label="Unidad"
+                    value={revisionFrequencyUnit}
+                    options={REVISION_FREQUENCY_UNIT_OPTIONS}
+                    onChange={(value) => setRevisionFrequencyUnit(value as RevisionFrequencyUnit)}
+                    containerStyle={styles.formField}
+                  />
+                </View>
+              </View>
+            ) : (
+              <ThemedText type="small" themeColor="textSecondary">
+                Al guardar, la frecuencia quedará desactivada para este cliente.
+              </ThemedText>
+            )}
+          </View>
         </View>
 
         <View style={[styles.actions, { borderColor: theme.backgroundSelected }]}>
@@ -337,6 +400,13 @@ const styles = StyleSheet.create({
   },
   formCell: {
     flex: 1,
+  },
+  revisionFrequencyCard: {
+    borderWidth: 1,
+    borderRadius: Radius.medium,
+    backgroundColor: '#F8FBFF',
+    padding: Spacing.three,
+    gap: Spacing.two,
   },
   actions: {
     gap: 10,

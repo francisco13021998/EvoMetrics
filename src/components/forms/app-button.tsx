@@ -9,6 +9,8 @@ import { ThemedText } from '@/components/themed-text';
 type AppButtonProps = {
   label?: string;
   onPress?: () => void;
+  onPressIn?: () => void;
+  onPressOut?: () => void;
   variant?: 'primary' | 'secondary' | 'surface' | 'ghost' | 'danger';
   fullWidth?: boolean;
   disabled?: boolean;
@@ -21,6 +23,8 @@ type AppButtonProps = {
 export function AppButton({
   label,
   onPress,
+  onPressIn,
+  onPressOut,
   variant = 'primary',
   fullWidth = true,
   disabled = false,
@@ -64,6 +68,8 @@ export function AppButton({
   return (
     <Pressable
       onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
       disabled={disabled || loading}
       accessibilityLabel={accessibilityLabel ?? label}
       style={({ pressed }) => [
