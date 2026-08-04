@@ -72,11 +72,12 @@ export function calculateClientRevisionStatus(
   const normalizedReference = startOfDay(referenceDate);
   const latestRevision = revisions?.[0] ?? null;
   const latestRevisionDate = toLocalDate(latestRevision?.reviewedAt ?? null);
-  const isConfigured = Boolean(isRevisionFrequencyActive(client?.revisionFrequencyValue, client?.revisionFrequencyUnit) && latestRevisionDate);
+  const fallbackStartDate = toLocalDate(client?.createdAt ?? null) ?? normalizedReference;
+  const isConfigured = Boolean(isRevisionFrequencyActive(client?.revisionFrequencyValue, client?.revisionFrequencyUnit));
   const nextRevisionDate = isConfigured
-    ? calculateNextRevisionDate(latestRevisionDate!, client!.revisionFrequencyValue!, client!.revisionFrequencyUnit!)
+    ? calculateNextRevisionDate(latestRevisionDate ?? fallbackStartDate, client!.revisionFrequencyValue!, client!.revisionFrequencyUnit!)
     : null;
-  const isPending = isConfigured && nextRevisionDate !== null ? normalizedReference > nextRevisionDate : false;
+  const isPending = isConfigured && nextRevisionDate !== null ? normalizedReference >= nextRevisionDate : false;
 
   return {
     isConfigured,

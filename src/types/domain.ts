@@ -38,6 +38,7 @@ export type Client = {
   coachingPrice: number;
   billingFrequency: BillingFrequency;
   forcePaymentPending: boolean;
+  estado: 'activo' | 'baja';
   revisionFrequencyValue: number | null;
   revisionFrequencyUnit: RevisionFrequencyUnit | null;
   createdAt: string;

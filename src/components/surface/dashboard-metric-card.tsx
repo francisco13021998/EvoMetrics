@@ -11,6 +11,7 @@ type DashboardMetricCardProps = {
   helper?: string;
   tone?: 'primary' | 'neutral';
   variant?: 'metric' | 'placeholder';
+  icon?: React.ReactNode;
 };
 
 export function DashboardMetricCard({
@@ -19,10 +20,26 @@ export function DashboardMetricCard({
   helper,
   tone = 'neutral',
   variant = 'metric',
+  icon,
 }: DashboardMetricCardProps) {
   const theme = useTheme();
   const isPlaceholder = variant === 'placeholder';
   const isPrimary = tone === 'primary';
+
+  if (icon !== undefined) {
+    return (
+      <View style={[styles.cardIconBase, { borderColor: theme.backgroundSelected }]}>
+        <View style={styles.iconCircle}>{icon}</View>
+        <ThemedText adjustsFontSizeToFit numberOfLines={2} minimumFontScale={0.5} style={styles.iconLabel}>
+          {label}
+        </ThemedText>
+        <ThemedText adjustsFontSizeToFit numberOfLines={1} minimumFontScale={0.5} style={styles.iconValue}>
+          {value}
+        </ThemedText>
+        <View style={styles.iconDivider} />
+      </View>
+    );
+  }
 
   return (
     <View
@@ -88,6 +105,52 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     backgroundColor: '#FFFFFF',
     gap: 8,
+  },
+  cardIconBase: {
+    flex: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    borderRadius: Radius.medium,
+    borderWidth: 1,
+    backgroundColor: '#FFFFFF',
+    gap: 4,
+    overflow: 'hidden',
+  },
+  cardIcon: {
+    minHeight: 100,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  iconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Accent.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+  },
+  iconLabel: {
+    fontSize: 9,
+    letterSpacing: 0.2,
+    textTransform: 'uppercase',
+    color: '#4A5E81',
+    lineHeight: 12,
+  },
+  iconValue: {
+    color: '#10203B',
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+  iconDivider: {
+    width: 20,
+    height: 3,
+    borderRadius: Radius.pill,
+    backgroundColor: Accent.primary,
+    marginTop: 'auto',
   },
   cardPrimary: {
     backgroundColor: '#F5FAFF',

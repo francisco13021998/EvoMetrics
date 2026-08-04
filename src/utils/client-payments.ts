@@ -121,7 +121,7 @@ export function calculateClientPaymentStatus(
   const fallbackStartDate = toLocalDate(client?.createdAt ?? null) ?? normalizedReference;
   const startDate = latestPaymentDate ?? fallbackStartDate;
   const nextPaymentDate = client?.billingFrequency ? calculateNextPaymentDate(startDate, client.billingFrequency) : null;
-  const isPending = Boolean(client?.forcePaymentPending) || (nextPaymentDate !== null ? normalizedReference > nextPaymentDate : false);
+  const isPending = Boolean(client?.forcePaymentPending) || (nextPaymentDate !== null ? normalizedReference >= nextPaymentDate : false);
 
   return {
     label: isPending ? 'Pendiente de pago' : 'Al corriente',

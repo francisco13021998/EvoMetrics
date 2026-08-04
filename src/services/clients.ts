@@ -18,6 +18,7 @@ type DbClientRow = {
   coaching_price: number | null;
   billing_frequency: string | null;
   force_payment_pending: boolean | null;
+  estado: string | null;
   revision_frequency_value: number | null;
   revision_frequency_unit: RevisionFrequencyUnit | null;
   created_at: string;
@@ -43,6 +44,7 @@ export type UpdateClientInput = {
   coachingPrice?: number | null;
   billingFrequency?: BillingFrequency;
   forcePaymentPending?: boolean;
+  estado?: 'activo' | 'baja';
   revisionFrequencyValue?: number | null;
   revisionFrequencyUnit?: RevisionFrequencyUnit | null;
 };
@@ -97,6 +99,8 @@ function isSexConstraintError(error: unknown) {
 }
 
 function mapDbClient(row: DbClientRow): Client {
+  const normalizedEstado = row.estado?.trim().toLowerCase();
+
   return {
     id: row.id,
     ownerId: row.owner_id,
@@ -109,6 +113,7 @@ function mapDbClient(row: DbClientRow): Client {
     coachingPrice: row.coaching_price ?? 0,
     billingFrequency: (row.billing_frequency ?? 'one_time') as BillingFrequency,
     forcePaymentPending: row.force_payment_pending ?? false,
+    estado: normalizedEstado === 'baja' ? 'baja' : 'activo',
     revisionFrequencyValue: row.revision_frequency_value,
     revisionFrequencyUnit: row.revision_frequency_unit,
     createdAt: row.created_at,
@@ -126,6 +131,7 @@ function mapCreatePayload(payload: CreateClientInput, preferSpanishSex = false) 
     coaching_price: 0,
     billing_frequency: 'one_time',
     force_payment_pending: false,
+    estado: 'activo',
     revision_frequency_value: payload.revisionFrequencyValue ?? null,
     revision_frequency_unit: payload.revisionFrequencyUnit ?? null,
   };
@@ -141,6 +147,7 @@ function mapUpdatePayload(payload: UpdateClientInput, preferSpanishSex = false) 
     ...(payload.coachingPrice !== undefined ? { coaching_price: payload.coachingPrice } : {}),
     ...(payload.billingFrequency !== undefined ? { billing_frequency: payload.billingFrequency } : {}),
     ...(payload.forcePaymentPending !== undefined ? { force_payment_pending: payload.forcePaymentPending } : {}),
+    ...(payload.estado !== undefined ? { estado: payload.estado } : {}),
     ...(payload.revisionFrequencyValue !== undefined ? { revision_frequency_value: payload.revisionFrequencyValue } : {}),
     ...(payload.revisionFrequencyUnit !== undefined ? { revision_frequency_unit: payload.revisionFrequencyUnit } : {}),
   };

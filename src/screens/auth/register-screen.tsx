@@ -49,7 +49,7 @@ export function RegisterScreen() {
         return;
       }
 
-      router.replace('/clients');
+      router.replace('/(tabs)');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo crear la cuenta.';
       setErrorMessage(message);

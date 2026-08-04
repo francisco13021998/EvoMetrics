@@ -56,6 +56,8 @@ async function configureNotificationHandler() {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
       shouldPlaySound: false,
       shouldSetBadge: false,
     }),
@@ -116,6 +118,8 @@ function getWeeklyTriggerFromDate(value: Date) {
   triggerDate.setHours(REMINDER_HOUR, REMINDER_MINUTE, 0, 0);
 
   return {
+    type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+    channelId: NOTIFICATION_CHANNEL_ID,
     weekday,
     hour: triggerDate.getHours(),
     minute: triggerDate.getMinutes(),

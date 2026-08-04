@@ -3,6 +3,8 @@ import { router } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
 
+import { Ionicons } from '@expo/vector-icons';
+
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
@@ -61,6 +63,7 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [payments, setPayments] = useState<ClientPayment[]>([]);
   const [isClientMenuOpen, setIsClientMenuOpen] = useState(false);
@@ -128,10 +131,12 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
     [client, revisions]
   );
 
-  const hasRevisionFrequency = isRevisionFrequencyActive(client?.revisionFrequencyValue, client?.revisionFrequencyUnit);
+  const hasRevisionFrequency = client
+    ? isRevisionFrequencyActive(client.revisionFrequencyValue, client.revisionFrequencyUnit)
+    : false;
 
-  const revisionFrequencySummary = hasRevisionFrequency
-    ? formatRevisionFrequencyLabel(client.revisionFrequencyValue, client.revisionFrequencyUnit)
+  const revisionFrequencySummary = client && hasRevisionFrequency
+    ? formatRevisionFrequencyLabel(client.revisionFrequencyValue!, client.revisionFrequencyUnit!)
     : 'Sin frecuencia de revisiones';
 
   function openRevisionSettings() {
@@ -176,6 +181,27 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
       setErrorMessage(message);
     } finally {
       setIsSavingRevisionSettings(false);
+    }
+  }
+
+  async function handleToggleClientStatus() {
+    if (!client || !user?.id || isAthlete || isUpdatingStatus) {
+      return;
+    }
+
+    setIsUpdatingStatus(true);
+    setErrorMessage(null);
+
+    try {
+      await clientsService.update(client.id, user.id, {
+        estado: client.estado === 'activo' ? 'baja' : 'activo',
+      });
+      await loadClient();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo cambiar el estado del cliente.';
+      setErrorMessage(message);
+    } finally {
+      setIsUpdatingStatus(false);
     }
   }
 
@@ -246,6 +272,10 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
     );
   }
 
+  const clientStatusLabel = client.estado === 'activo' ? 'Activo' : 'Baja';
+  const clientStatusIcon = client.estado === 'activo' ? 'checkmark-circle' : 'remove-circle';
+  const clientStatusColor = client.estado === 'activo' ? Accent.success : Accent.warning;
+
   const summaryItems = [
     { label: 'Sexo', value: formatSex(client.sex) },
     { label: 'Edad', value: formatClientAge(client) },
@@ -299,6 +329,24 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
           <ThemedText type="label" style={styles.heroEyebrow}>Perfil activo</ThemedText>
           <View style={styles.heroTitleRow}>
             <ThemedText type="headline" style={styles.heroTitle}>{client.name}</ThemedText>
+            <Pressable
+              onPress={() => { void handleToggleClientStatus(); }}
+              disabled={isAthlete || isUpdatingStatus}
+              accessibilityRole="button"
+              accessibilityLabel={client.estado === 'activo' ? 'Marcar cliente como baja' : 'Marcar cliente como activo'}
+              style={({ pressed }) => [
+                styles.statusToggleButton,
+                {
+                  borderColor: client.estado === 'activo' ? '#BBF7D0' : '#FED7AA',
+                  backgroundColor: client.estado === 'activo' ? '#F0FDF4' : '#FFFBF3',
+                  opacity: pressed && !isAthlete ? 0.92 : 1,
+                },
+              ]}>
+              <Ionicons name={clientStatusIcon} size={16} color={clientStatusColor} />
+              <ThemedText type="smallBold" style={[styles.statusToggleText, { color: clientStatusColor }]}>
+                {isUpdatingStatus ? 'Guardando...' : clientStatusLabel}
+              </ThemedText>
+            </Pressable>
           </View>
         </View>
 
@@ -617,6 +665,19 @@ const styles = StyleSheet.create({
     color: '#10203B',
     fontSize: 32,
     lineHeight: 36,
+  },
+  statusToggleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginLeft: 8,
+  },
+  statusToggleText: {
+    lineHeight: 16,
   },
   backButton: {
     flexDirection: 'row',

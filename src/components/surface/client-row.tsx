@@ -8,12 +8,13 @@ import { ThemedText } from '@/components/themed-text';
 
 type ClientRowProps = {
   name: string;
-  meta: string;
+  meta?: string;
   onPress: () => void;
   last?: boolean;
+  compact?: boolean;
 };
 
-export function ClientRow({ name, meta, onPress, last = false }: ClientRowProps) {
+export function ClientRow({ name, meta, onPress, last = false, compact = false }: ClientRowProps) {
   const theme = useTheme();
 
   return (
@@ -21,20 +22,23 @@ export function ClientRow({ name, meta, onPress, last = false }: ClientRowProps)
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
+        compact && styles.rowCompact,
         { backgroundColor: '#FFFFFF', borderColor: theme.backgroundSelected },
         !last && styles.rowSpacing,
         { opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.997 : 1 }] },
       ]}>
-      <View style={[styles.avatar, { backgroundColor: Accent.primaryMuted }]}>
+      <View style={[styles.avatar, compact && styles.avatarCompact, { backgroundColor: Accent.primaryMuted }]}>
         <ThemedText type="smallBold" style={{ color: Accent.primary }}>
           {name.charAt(0).toUpperCase()}
         </ThemedText>
       </View>
-      <View style={styles.info}>
+      <View style={[styles.info, !meta && styles.infoCentered]}>
         <ThemedText type="smallBold" style={styles.nameText}>{name}</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-          {meta}
-        </ThemedText>
+        {meta ? (
+          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+            {meta}
+          </ThemedText>
+        ) : null}
       </View>
       <ThemedText type="small" themeColor="textSecondary" style={styles.arrow}>
         Ver
@@ -53,8 +57,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     gap: Spacing.two,
   },
+  rowCompact: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    gap: 10,
+  },
   rowSpacing: {
-    marginBottom: Spacing.two,
+    marginBottom: 6,
   },
   avatar: {
     width: 42,
@@ -66,13 +75,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#CFE0FA',
   },
+  avatarCompact: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+  },
   info: {
     flex: 1,
     gap: 2,
     minWidth: 0,
   },
+  infoCentered: {
+    justifyContent: 'center',
+  },
   nameText: {
-    flex: 1,
     color: '#112746',
   },
   arrow: {

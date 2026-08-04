@@ -45,7 +45,7 @@ export function LoginScreen() {
       const credentials = resolveSignInCredentials({ email, password });
 
       await signIn(credentials);
-      router.replace('/clients');
+      router.replace('/(tabs)');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo iniciar sesión.';
       setErrorMessage(message);

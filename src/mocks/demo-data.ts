@@ -23,6 +23,9 @@ export const demoClients: Client[] = [
     coachingPrice: 0,
     billingFrequency: 'one_time',
     forcePaymentPending: false,
+    estado: 'activo',
+    revisionFrequencyValue: null,
+    revisionFrequencyUnit: null,
     createdAt: '2026-02-10T09:00:00.000Z',
   },
   {
@@ -37,6 +40,9 @@ export const demoClients: Client[] = [
     coachingPrice: 0,
     billingFrequency: 'one_time',
     forcePaymentPending: false,
+    estado: 'activo',
+    revisionFrequencyValue: null,
+    revisionFrequencyUnit: null,
     createdAt: '2026-01-25T13:00:00.000Z',
   },
   {
@@ -51,6 +57,9 @@ export const demoClients: Client[] = [
     coachingPrice: 0,
     billingFrequency: 'one_time',
     forcePaymentPending: false,
+    estado: 'activo',
+    revisionFrequencyValue: null,
+    revisionFrequencyUnit: null,
     createdAt: '2026-04-17T10:15:00.000Z',
   },
 ];

@@ -14,5 +14,5 @@ export default function IndexRoute() {
     return <Redirect href="/login" />;
   }
 
-  return <Redirect href={userRole === 'athlete' ? '/athlete' : '/clients'} />;
+  return <Redirect href={userRole === 'athlete' ? '/athlete' : '/(tabs)'} />;
 }
