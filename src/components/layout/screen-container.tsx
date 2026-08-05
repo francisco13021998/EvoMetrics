@@ -9,9 +9,9 @@ import {
     View,
     ViewStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { MaxContentWidth, Spacing, SystemChromeInset } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 type ScreenContainerProps = {
@@ -26,6 +26,7 @@ export function ScreenContainer({
   contentStyle,
 }: ScreenContainerProps) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const shouldAvoidKeyboard = Platform.OS === 'ios';
 
@@ -51,6 +52,8 @@ export function ScreenContainer({
     <View
       style={[
         styles.content,
+        { backgroundColor: theme.background },
+        { paddingTop: Spacing.three },
         { paddingBottom: Spacing.six + keyboardHeight },
         contentStyle,
       ]}>
@@ -59,10 +62,11 @@ export function ScreenContainer({
   );
 
   const container = (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safeArea} edges={[]}>
+      <View style={[styles.topInset, { height: insets.top, backgroundColor: SystemChromeInset }]} />
       {scrollable ? (
         <ScrollView
-          style={styles.scrollView}
+          style={[styles.scrollView, { backgroundColor: theme.background }]}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           automaticallyAdjustKeyboardInsets={shouldAvoidKeyboard}
@@ -96,6 +100,10 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
+  topInset: {
+    width: '100%',
+    backgroundColor: SystemChromeInset,
+  },
   scrollView: {
     flex: 1,
   },
@@ -111,7 +119,7 @@ const styles = StyleSheet.create({
     maxWidth: MaxContentWidth,
     alignSelf: 'center',
     paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
+    paddingTop: 0,
     paddingBottom: Spacing.six,
     gap: 0,
   },

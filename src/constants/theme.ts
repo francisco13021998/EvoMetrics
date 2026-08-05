@@ -32,6 +32,8 @@ export const Accent = {
   ink: '#0F1B33',
 } as const;
 
+export const SystemChromeInset = '#111318';
+
 export const Fonts = Platform.select({
   ios: {
     sans: 'system-ui',

@@ -62,6 +62,10 @@ function getDateKey(value: Date) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
 }
 
+function startOfDay(value: Date) {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0);
+}
+
 function startOfMonth(value: Date) {
   return new Date(value.getFullYear(), value.getMonth(), 1, 0, 0, 0, 0);
 }
@@ -70,14 +74,10 @@ function shiftMonth(value: Date, offset: number) {
   return new Date(value.getFullYear(), value.getMonth() + offset, 1, 0, 0, 0, 0);
 }
 
-function startOfDay(value: Date) {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0);
-}
-
 function formatSpanishLongDate(value: Date) {
   return new Intl.DateTimeFormat('es-ES', {
     weekday: 'long',
-    day: '2-digit',
+    day: 'numeric',
     month: 'long',
     year: 'numeric',
   })
@@ -86,7 +86,7 @@ function formatSpanishLongDate(value: Date) {
 }
 
 export function ClientsScreen() {
-  const { signOut, user } = useAuth();
+  const { user } = useAuth();
   const theme = useTheme();
   const [clients, setClients] = useState<Client[]>([]);
   const [clientData, setClientData] = useState<ClientDashboardData[]>([]);
@@ -450,38 +450,21 @@ export function ClientsScreen() {
 
         <View style={styles.calendarCard}>
           <View style={styles.calendarHeader}>
-            <View style={styles.calendarHeaderCopy}>
-              <ThemedText type="label" style={styles.calendarLabel}>
-                Calendario
-              </ThemedText>
-              <ThemedText style={styles.calendarTitle}>Pagos y revisiones próximas</ThemedText>
-            </View>
-            <View style={styles.calendarControls}>
-              <Pressable onPress={handlePreviousMonth} style={styles.calendarNavButton} accessibilityLabel="Mes anterior">
-                <Ionicons name="chevron-back" size={16} color={Accent.primary} />
-              </Pressable>
-              <ThemedText type="smallBold" style={styles.calendarMonthLabel}>
-                {calendarMonthLabel}
-              </ThemedText>
-              <Pressable onPress={handleNextMonth} style={styles.calendarNavButton} accessibilityLabel="Mes siguiente">
-                <Ionicons name="chevron-forward" size={16} color={Accent.primary} />
-              </Pressable>
-            </View>
+            <ThemedText type="label" style={styles.calendarLabel}>
+              Calendario
+            </ThemedText>
           </View>
 
-          <View style={styles.calendarLegend}>
-            <View style={styles.calendarLegendItem}>
-              <View style={[styles.calendarLegendDot, styles.calendarLegendPaymentDot]} />
-              <ThemedText type="small" themeColor="textSecondary">
-                Pago próximo
-              </ThemedText>
-            </View>
-            <View style={styles.calendarLegendItem}>
-              <View style={[styles.calendarLegendDot, styles.calendarLegendRevisionDot]} />
-              <ThemedText type="small" themeColor="textSecondary">
-                Revisión próxima
-              </ThemedText>
-            </View>
+          <View style={styles.calendarControlsRow}>
+            <Pressable onPress={handlePreviousMonth} style={styles.calendarNavButton} accessibilityLabel="Mes anterior">
+              <Ionicons name="chevron-back" size={16} color={Accent.primary} />
+            </Pressable>
+            <ThemedText type="smallBold" style={styles.calendarMonthLabel}>
+              {calendarMonthLabel}
+            </ThemedText>
+            <Pressable onPress={handleNextMonth} style={styles.calendarNavButton} accessibilityLabel="Mes siguiente">
+              <Ionicons name="chevron-forward" size={16} color={Accent.primary} />
+            </Pressable>
           </View>
 
           <View style={styles.calendarWeekRow}>
@@ -507,6 +490,8 @@ export function ClientsScreen() {
               const dayInfo = calendarDays.get(getDateKey(currentDate));
               const hasPayment = Boolean(dayInfo?.paymentCount);
               const hasRevision = Boolean(dayInfo?.revisionCount);
+              const hasBoth = hasPayment && hasRevision;
+              const totalEvents = (dayInfo?.paymentCount ?? 0) + (dayInfo?.revisionCount ?? 0);
 
               return (
                 <Pressable
@@ -521,6 +506,7 @@ export function ClientsScreen() {
                     type="smallBold"
                     style={[
                       styles.calendarDayLabel,
+                      hasBoth ? styles.calendarDayLabelCombined : null,
                       isToday && styles.calendarDayLabelToday,
                       !hasPayment && !hasRevision ? styles.calendarDayLabelMuted : null,
                     ]}>
@@ -528,7 +514,14 @@ export function ClientsScreen() {
                   </ThemedText>
 
                   <View style={styles.calendarCellMarkers}>
-                    {hasPayment ? (
+                    {hasBoth ? (
+                      <View style={styles.calendarMarkerRow}>
+                        <View style={[styles.calendarMarkerDot, styles.calendarMarkerCombined]} />
+                        <ThemedText type="small" style={styles.calendarMarkerCount}>
+                          {totalEvents}
+                        </ThemedText>
+                      </View>
+                    ) : hasPayment ? (
                       <View style={styles.calendarMarkerRow}>
                         <View style={[styles.calendarMarkerDot, styles.calendarMarkerPayment]} />
                         {dayInfo!.paymentCount > 1 ? (
@@ -537,8 +530,7 @@ export function ClientsScreen() {
                           </ThemedText>
                         ) : null}
                       </View>
-                    ) : null}
-                    {hasRevision ? (
+                    ) : hasRevision ? (
                       <View style={styles.calendarMarkerRow}>
                         <View style={[styles.calendarMarkerDot, styles.calendarMarkerRevision]} />
                         {dayInfo!.revisionCount > 1 ? (
@@ -592,13 +584,10 @@ export function ClientsScreen() {
                         <ThemedText type="smallBold" style={styles.calendarDetailClientName}>
                           {item.clientName}
                         </ThemedText>
-                        <ThemedText type="small" style={[styles.calendarDetailKind, { color: presentation.text }]}>
-                          {presentation.title}
+                        <ThemedText type="small" themeColor="textSecondary" style={styles.calendarDetailItemDate}>
+                          {formatDashboardNotificationDate(item.date.toISOString())}
                         </ThemedText>
                       </View>
-                      <ThemedText type="small" themeColor="textSecondary" style={styles.calendarDetailItemDate}>
-                        {formatDashboardNotificationDate(item.date.toISOString())}
-                      </ThemedText>
                     </View>
                   );
                 })
@@ -611,20 +600,6 @@ export function ClientsScreen() {
       <Modal transparent visible={isNotificationsModalOpen} animationType="fade" onRequestClose={closeClientPaymentNotifications}>
         <Pressable style={styles.notificationsBackdrop} onPress={closeClientPaymentNotifications}>
           <Pressable style={[styles.notificationsPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
-            <View style={styles.notificationsHeader}>
-              <View>
-                <ThemedText type="smallBold">Notificaciones</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {pendingNotificationCount > 0
-                    ? `${pendingNotificationCount} cliente${pendingNotificationCount === 1 ? '' : 's'} necesitan revisión o pago.`
-                    : 'No hay notificaciones pendientes.'}
-                </ThemedText>
-              </View>
-              <Pressable onPress={closeClientPaymentNotifications} style={styles.notificationsCloseButton}>
-                <ThemedText type="smallBold" style={styles.notificationsCloseText}>×</ThemedText>
-              </Pressable>
-            </View>
-
             <View style={styles.notificationsList}>
               {notifications.length === 0 ? (
                 <StatusBanner tone="info" message="Todo está al corriente por ahora." />
@@ -813,6 +788,7 @@ const styles = StyleSheet.create({
     borderColor: '#D9E5F5',
     backgroundColor: '#FAFCFF',
     padding: 12,
+    paddingBottom: 18,
     gap: 10,
     shadowColor: '#10203B',
     shadowOpacity: 0.05,
@@ -821,29 +797,19 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   calendarHeader: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calendarLabel: {
+    color: Accent.primary,
+    textAlign: 'center',
+  },
+  calendarControlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
-  },
-  calendarHeaderCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  calendarLabel: {
-    color: Accent.primary,
-  },
-  calendarTitle: {
-    color: '#10203B',
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: '700',
-    letterSpacing: 0.1,
-  },
-  calendarControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    marginTop: 6,
   },
   calendarNavButton: {
     width: 30,
@@ -856,60 +822,44 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   calendarMonthLabel: {
+    flex: 1,
+    textAlign: 'center',
     color: '#27406A',
     textTransform: 'capitalize',
   },
-  calendarLegend: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  calendarLegendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  calendarLegendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: Radius.pill,
-  },
-  calendarLegendPaymentDot: {
-    backgroundColor: '#16A34A',
-  },
-  calendarLegendRevisionDot: {
-    backgroundColor: '#D97706',
-  },
   calendarWeekRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 1,
+    justifyContent: 'flex-start',
+    gap: 4,
+    marginTop: 12,
+    marginBottom: 8,
   },
   calendarWeekLabel: {
-    width: '13.5%',
+    width: '13%',
     textAlign: 'center',
-    lineHeight: 16,
   },
   calendarGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
+    gap: 4,
     rowGap: 6,
   },
   calendarCellSpacer: {
-    width: '13.5%',
+    width: '13%',
     aspectRatio: 1,
   },
   calendarCell: {
-    width: '13.5%',
+    width: '13%',
     aspectRatio: 1,
     borderWidth: 1,
-    borderColor: '#E3EBF7',
-    borderRadius: Radius.medium,
+    borderColor: '#E5ECF7',
+    borderRadius: 16,
     backgroundColor: '#FFFFFF',
     padding: 6,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    gap: 4,
   },
   calendarCellPressable: {
     flex: 1,
@@ -919,33 +869,38 @@ const styles = StyleSheet.create({
     backgroundColor: '#F4F8FE',
   },
   calendarCellBusy: {
-    backgroundColor: '#FBFDFF',
+    backgroundColor: '#FAFCFF',
   },
   calendarDayLabel: {
     color: '#112746',
     lineHeight: 16,
     textAlign: 'center',
   },
+  calendarDayLabelCombined: {
+    marginTop: 2,
+  },
+  calendarDayLabelBusy: {
+    fontSize: 12,
+    lineHeight: 14,
+  },
   calendarDayLabelToday: {
     color: Accent.primary,
   },
   calendarDayLabelMuted: {
-    color: '#60738F',
+    color: '#9DB0D1',
   },
   calendarCellMarkers: {
-    gap: 3,
-    alignSelf: 'stretch',
-    alignItems: 'center',
+    gap: 4,
   },
   calendarMarkerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
   },
   calendarMarkerDot: {
-    width: 7,
-    height: 7,
-    borderRadius: Radius.pill,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   calendarMarkerPayment: {
     backgroundColor: '#16A34A',
@@ -953,13 +908,17 @@ const styles = StyleSheet.create({
   calendarMarkerRevision: {
     backgroundColor: '#D97706',
   },
+  calendarMarkerCombined: {
+    backgroundColor: Accent.primary,
+  },
   calendarMarkerCount: {
-    color: '#4A5E81',
-    lineHeight: 12,
+    color: '#60738F',
+    fontSize: 9,
+    lineHeight: 10,
   },
   calendarDetailBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(16, 32, 59, 0.18)',
+    marginBottom: 12,
     justifyContent: 'center',
     paddingHorizontal: Spacing.three,
   },

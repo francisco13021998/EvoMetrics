@@ -4,7 +4,7 @@ import React from 'react';
 import { Platform, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Accent } from '@/constants/theme';
+import { Accent, SystemChromeInset } from '@/constants/theme';
 
 const ACTIVE_COLOR = Accent.primary;
 const INACTIVE_COLOR = '#9DB0D1';
@@ -33,7 +33,7 @@ function TabBarBackground({ bottomInset }: { bottomInset: number }) {
     <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
       <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />
       {bottomInset > 0 && (
-        <View style={{ height: bottomInset, backgroundColor: '#F0F3FA' }} />
+        <View style={{ height: bottomInset, backgroundColor: SystemChromeInset }} />
       )}
     </View>
   );
@@ -52,11 +52,11 @@ export default function TabsLayout() {
         tabBarSafeAreaInsets: { bottom: 0 },
         tabBarStyle: {
           backgroundColor: 'transparent',
-          borderTopColor: '#E3EBF6',
+          borderTopColor: '#FFFFFF',
           borderTopWidth: 1,
-          height: Platform.OS === 'ios' ? 84 : 56 + bottomInset,
-          paddingTop: 8,
-          paddingBottom: Platform.OS === 'ios' ? 28 : 8 + bottomInset,
+          height: Platform.OS === 'ios' ? 88 : 66 + bottomInset,
+          paddingTop: 6,
+          paddingBottom: Platform.OS === 'ios' ? 24 : 12 + bottomInset,
           elevation: 8,
           shadowColor: '#000',
           shadowOffset: { width: 0, height: -2 },
@@ -68,6 +68,13 @@ export default function TabsLayout() {
           fontSize: 11,
           fontWeight: '500',
           marginTop: 2,
+          paddingBottom: 0,
+          marginBottom: 0,
+        },
+        tabBarItemStyle: {
+          justifyContent: 'flex-start',
+          paddingTop: 4,
+          paddingBottom: 0,
         },
       }}>
       <Tabs.Screen

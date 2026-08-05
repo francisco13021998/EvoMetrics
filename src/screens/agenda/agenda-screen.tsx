@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
 
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { ScreenContainer } from '@/components/layout/screen-container';
@@ -76,6 +76,17 @@ function formatShortDay(value: Date) {
 
 function formatDayNumber(value: Date) {
   return String(value.getDate());
+}
+
+function formatSpanishLongDate(value: Date) {
+  return new Intl.DateTimeFormat('es-ES', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+    .format(value)
+    .replace(/^(.)/, (match) => match.toUpperCase());
 }
 
 function getWeekStart(value: Date) {
@@ -190,10 +201,11 @@ export function AgendaScreen() {
   const { user } = useAuth();
   const [clientData, setClientData] = useState<AgendaClientData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedMode, setSelectedMode] = useState<AgendaMode>('week');
+  const [selectedMode, setSelectedMode] = useState<AgendaMode>('day');
   const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()));
   const [weekStartDate, setWeekStartDate] = useState(() => startOfWeekMonday(startOfDay(new Date())));
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1, 0, 0, 0, 0));
+  const [selectedCalendarDateKey, setSelectedCalendarDateKey] = useState<string | null>(null);
 
   const loadAgenda = useCallback(async () => {
     if (!user?.id) {
@@ -287,6 +299,33 @@ export function AgendaScreen() {
 
     return monthMap;
   }, [agendaEvents, calendarMonth]);
+  const selectedCalendarDate = useMemo(() => {
+    if (!selectedCalendarDateKey) {
+      return null;
+    }
+
+    const [yearString, monthString, dayString] = selectedCalendarDateKey.split('-');
+    const year = Number(yearString);
+    const month = Number(monthString);
+    const day = Number(dayString);
+
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+      return null;
+    }
+
+    return new Date(year, month - 1, day, 0, 0, 0, 0);
+  }, [selectedCalendarDateKey]);
+  const selectedCalendarItems = useMemo(() => {
+    if (!selectedCalendarDate) {
+      return [] as AgendaEvent[];
+    }
+
+    const dateKey = getDateKey(selectedCalendarDate);
+
+    return agendaEvents
+      .filter((event) => getDateKey(event.date) === dateKey)
+      .sort((left, right) => left.timeLabel.localeCompare(right.timeLabel));
+  }, [agendaEvents, selectedCalendarDate]);
   const weekStart = weekStartDate;
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart]);
   const selectedDayWeekStart = useMemo(() => getWeekStart(selectedDate), [selectedDate]);
@@ -303,7 +342,21 @@ export function AgendaScreen() {
     [agendaEvents, weekStart]
   );
   const monthGrid = useMemo(() => buildMonthGrid(selectedDate), [selectedDate]);
-  const timeSlots = ['08:00', '09:00', '10:00', '11:00', '12:00', '14:00', '16:00', '18:00', '20:00'];
+  const timeSlots = useMemo(() => {
+    const earliestEventHour = weekEvents.reduce((minimumHour, event) => {
+      const eventHour = Number(event.timeLabel.split(':')[0]);
+
+      if (!Number.isFinite(eventHour)) {
+        return minimumHour;
+      }
+
+      return Math.min(minimumHour, eventHour);
+    }, 8);
+
+    const startHour = Math.min(8, earliestEventHour);
+
+    return Array.from({ length: 24 - startHour }, (_, hourOffset) => `${String(startHour + hourOffset).padStart(2, '0')}:00`);
+  }, [weekEvents]);
 
   function handlePreviousWeek() {
     setWeekStartDate((currentWeekStart) => addDays(currentWeekStart, -7));
@@ -327,6 +380,14 @@ export function AgendaScreen() {
 
   function handleNextMonth() {
     setCalendarMonth((currentMonth) => new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1, 0, 0, 0, 0));
+  }
+
+  function openCalendarDayDetail(date: Date) {
+    setSelectedCalendarDateKey(getDateKey(date));
+  }
+
+  function closeCalendarDayDetail() {
+    setSelectedCalendarDateKey(null);
   }
 
   function goToNewEvent() {
@@ -421,12 +482,13 @@ export function AgendaScreen() {
               <View key={slot} style={styles.timelineRow}>
                 <View style={styles.timelineTimeCell}>
                   <ThemedText type="small" themeColor="textSecondary" style={styles.timelineTimeText}>
-                    {slot.split(':')[0]}
+                    {slot}
                   </ThemedText>
                 </View>
                 {weekDays.map((day) => {
                   const dayKey = getDateKey(day);
-                  const slotEvents = weekEvents.filter((event) => getDateKey(event.date) === dayKey && event.timeLabel === slot);
+                  const slotHour = slot.split(':')[0];
+                  const slotEvents = weekEvents.filter((event) => getDateKey(event.date) === dayKey && event.timeLabel.startsWith(`${slotHour}:`));
 
                   return (
                     <View key={`${dayKey}-${slot}`} style={styles.timelineCell}>
@@ -454,37 +516,21 @@ export function AgendaScreen() {
       {selectedMode === 'month' ? (
         <View style={styles.calendarCard}>
           <View style={styles.calendarHeader}>
-            <View style={styles.calendarHeaderCopy}>
-              <ThemedText type="label" style={styles.calendarLabel}>
-                Calendario
-              </ThemedText>
-            </View>
-            <View style={styles.calendarControls}>
-              <Pressable onPress={handlePreviousMonth} style={styles.calendarNavButton} accessibilityLabel="Mes anterior">
-                <Ionicons name="chevron-back" size={16} color={Accent.primary} />
-              </Pressable>
-              <ThemedText type="smallBold" style={styles.calendarMonthLabel}>
-                {calendarMonthLabel}
-              </ThemedText>
-              <Pressable onPress={handleNextMonth} style={styles.calendarNavButton} accessibilityLabel="Mes siguiente">
-                <Ionicons name="chevron-forward" size={16} color={Accent.primary} />
-              </Pressable>
-            </View>
+            <ThemedText type="label" style={styles.calendarLabel}>
+              Calendario
+            </ThemedText>
           </View>
 
-          <View style={styles.calendarLegend}>
-            <View style={styles.calendarLegendItem}>
-              <View style={[styles.calendarLegendDot, styles.calendarLegendPaymentDot]} />
-              <ThemedText type="small" themeColor="textSecondary">
-                Pago próximo
-              </ThemedText>
-            </View>
-            <View style={styles.calendarLegendItem}>
-              <View style={[styles.calendarLegendDot, styles.calendarLegendRevisionDot]} />
-              <ThemedText type="small" themeColor="textSecondary">
-                Revisión próxima
-              </ThemedText>
-            </View>
+          <View style={styles.calendarControlsRow}>
+            <Pressable onPress={handlePreviousMonth} style={styles.calendarNavButton} accessibilityLabel="Mes anterior">
+              <Ionicons name="chevron-back" size={16} color={Accent.primary} />
+            </Pressable>
+            <ThemedText type="smallBold" style={styles.calendarMonthLabel}>
+              {calendarMonthLabel}
+            </ThemedText>
+            <Pressable onPress={handleNextMonth} style={styles.calendarNavButton} accessibilityLabel="Mes siguiente">
+              <Ionicons name="chevron-forward" size={16} color={Accent.primary} />
+            </Pressable>
           </View>
 
           <View style={styles.calendarWeekRow}>
@@ -513,7 +559,7 @@ export function AgendaScreen() {
               return (
                 <Pressable
                   key={`day-${day}`}
-                  onPress={() => null}
+                  onPress={() => openCalendarDayDetail(currentDate)}
                   style={[
                     styles.calendarCell,
                     isToday && styles.calendarCellToday,
@@ -523,6 +569,7 @@ export function AgendaScreen() {
                     type="smallBold"
                     style={[
                       styles.calendarDayLabel,
+                      hasPayment || hasRevision ? styles.calendarDayLabelBusy : null,
                       isToday && styles.calendarDayLabelToday,
                       !hasPayment && !hasRevision ? styles.calendarDayLabelMuted : null,
                     ]}>
@@ -557,6 +604,58 @@ export function AgendaScreen() {
           </View>
         </View>
       ) : null}
+
+      <Modal transparent visible={selectedCalendarDate !== null} animationType="fade" onRequestClose={closeCalendarDayDetail}>
+        <Pressable style={styles.calendarDetailBackdrop} onPress={closeCalendarDayDetail}>
+          <Pressable style={styles.calendarDetailPanel} onPress={() => null}>
+            <View style={styles.calendarDetailHeader}>
+              <View style={styles.calendarDetailHeaderCopy}>
+                <ThemedText type="label" style={styles.calendarDetailLabel}>
+                  Detalle del día
+                </ThemedText>
+                <ThemedText style={styles.calendarDetailTitle}>
+                  {selectedCalendarDate ? formatSpanishLongDate(selectedCalendarDate) : 'Día'}
+                </ThemedText>
+              </View>
+              <Pressable onPress={closeCalendarDayDetail} style={styles.calendarDetailCloseButton}>
+                <ThemedText type="smallBold" style={styles.calendarDetailCloseText}>
+                  ×
+                </ThemedText>
+              </Pressable>
+            </View>
+
+            <View style={styles.calendarDetailList}>
+              {selectedCalendarItems.length === 0 ? (
+                <StatusBanner tone="info" message="Ese día no tiene eventos programados." />
+              ) : (
+                selectedCalendarItems.map((event) => (
+                  <Pressable key={event.id} onPress={() => openClient(event.clientId)} style={styles.calendarDetailItem}>
+                    <View style={[styles.calendarDetailMarker, { backgroundColor: `${event.color}18`, borderColor: `${event.color}30` }]}>
+                      <ThemedText type="smallBold" style={[styles.calendarDetailMarkerText, { color: event.color }]}>
+                        {event.kind === 'payment' ? 'P' : 'R'}
+                      </ThemedText>
+                    </View>
+                    <View style={styles.calendarDetailItemCopy}>
+                      <ThemedText type="smallBold" style={styles.calendarDetailClientName}>
+                        {event.clientName}
+                      </ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary" style={styles.calendarDetailKind}>
+                        {event.title}
+                      </ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary" style={styles.calendarDetailKind}>
+                        {event.subtitle}
+                      </ThemedText>
+                    </View>
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.calendarDetailItemDate}>
+                      {event.timeLabel} · {event.statusLabel}
+                    </ThemedText>
+                  </Pressable>
+                ))
+              )}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {selectedMode === 'day' ? (
         <View style={styles.dayContainer}>
@@ -833,16 +932,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E3EAF5',
     backgroundColor: '#FFFFFF',
-    padding: 6,
-    gap: 8,
+    padding: 2,
+    gap: 2,
   },
   timelineHeaderRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    paddingBottom: 6,
+    paddingBottom: 1,
   },
   timelineDayLabelsSpacer: {
-    width: 32,
+    width: 40,
   },
   timelineDayLabelCell: {
     flex: 1,
@@ -853,131 +952,116 @@ const styles = StyleSheet.create({
     color: '#6A7891',
   },
   timelineBody: {
-    gap: 6,
+    gap: 0,
   },
   timelineRow: {
     flexDirection: 'row',
-    minHeight: 48,
+    minHeight: 18,
   },
   timelineTimeCell: {
-    width: 32,
+    width: 28,
     alignItems: 'flex-end',
-    paddingRight: 4,
-    paddingTop: 1,
+    paddingRight: 3,
+    paddingTop: 0,
   },
   timelineTimeText: {
-    fontSize: 12,
-    lineHeight: 14,
+    fontSize: 8,
+    lineHeight: 9,
   },
   timelineCell: {
     flex: 1,
-    minHeight: 48,
+    minHeight: 18,
     borderLeftWidth: 1,
     borderLeftColor: '#F0F4FA',
-    paddingHorizontal: 4,
-    paddingVertical: 4,
-    gap: 3,
+    paddingHorizontal: 1,
+    paddingVertical: 0,
+    gap: 0,
     justifyContent: 'center',
   },
   timelineEvent: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 10,
     paddingHorizontal: 0,
     paddingVertical: 0,
     alignSelf: 'center',
-    width: 16,
-    height: 16,
+    width: 8,
+    height: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
   timelineEventDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 2,
+    height: 2,
+    borderRadius: 1,
   },
   calendarCard: {
     marginTop: 12,
-    borderRadius: 24,
+    borderRadius: Radius.large,
     borderWidth: 1,
-    borderColor: '#E3EAF5',
-    backgroundColor: '#FFFFFF',
-    padding: 14,
+    borderColor: '#D9E5F5',
+    backgroundColor: '#FAFCFF',
+    padding: 12,
+    gap: 10,
+    shadowColor: '#10203B',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1,
   },
   calendarHeader: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
-  },
-  calendarHeaderCopy: {
-    flex: 1,
-    alignItems: 'flex-start',
+    justifyContent: 'center',
   },
   calendarLabel: {
     color: Accent.primary,
-    marginBottom: 0,
+    textAlign: 'center',
   },
-  calendarControls: {
+  calendarControlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
+    marginTop: 4,
   },
   calendarNavButton: {
-    width: 32,
-    height: 32,
+    width: 30,
+    height: 30,
     borderRadius: Radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F7FAFF',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D4E3FA',
   },
   calendarMonthLabel: {
-    color: '#10203B',
+    flex: 1,
+    textAlign: 'center',
+    color: '#27406A',
     textTransform: 'capitalize',
-  },
-  calendarLegend: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-    marginTop: 16,
-    marginBottom: 10,
-  },
-  calendarLegendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  calendarLegendDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  calendarLegendPaymentDot: {
-    backgroundColor: '#16A34A',
-  },
-  calendarLegendRevisionDot: {
-    backgroundColor: '#D97706',
   },
   calendarWeekRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
+    justifyContent: 'flex-start',
+    gap: 4,
+    marginTop: 14,
+    marginBottom: 12,
   },
   calendarWeekLabel: {
-    width: '13.5%',
+    width: '13%',
     textAlign: 'center',
   },
   calendarGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 6,
+    justifyContent: 'flex-start',
+    gap: 4,
   },
   calendarCellSpacer: {
-    width: '13.5%',
+    width: '13%',
     aspectRatio: 1,
   },
   calendarCell: {
-    width: '13.5%',
+    width: '13%',
     aspectRatio: 1,
     borderRadius: 16,
     borderWidth: 1,
@@ -985,16 +1069,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
+    gap: 6,
   },
   calendarCellBusy: {
     backgroundColor: '#FAFCFF',
+    justifyContent: 'flex-start',
+    paddingTop: 10,
   },
   calendarCellToday: {
     borderColor: Accent.primary,
   },
   calendarDayLabel: {
     color: '#112746',
+  },
+  calendarDayLabelBusy: {
+    fontSize: 11,
+    lineHeight: 13,
   },
   calendarDayLabelMuted: {
     color: '#9DB0D1',
@@ -1003,12 +1093,12 @@ const styles = StyleSheet.create({
     color: Accent.primary,
   },
   calendarCellMarkers: {
-    gap: 4,
+    gap: 6,
   },
   calendarMarkerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
   },
   calendarMarkerDot: {
     width: 6,
@@ -1022,9 +1112,104 @@ const styles = StyleSheet.create({
     backgroundColor: '#D97706',
   },
   calendarMarkerCount: {
-    color: '#5F6E87',
+    color: '#60738F',
     fontSize: 11,
     lineHeight: 12,
+  },
+  calendarDetailBackdrop: {
+    flex: 1,
+    marginBottom: 12,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.three,
+  },
+  calendarDetailPanel: {
+    borderWidth: 1,
+    borderRadius: Radius.large,
+    backgroundColor: '#FFFFFF',
+    padding: Spacing.three,
+    gap: Spacing.three,
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
+    shadowColor: '#10203B',
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
+  },
+  calendarDetailHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  calendarDetailHeaderCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  calendarDetailLabel: {
+    color: Accent.primary,
+  },
+  calendarDetailTitle: {
+    color: '#10203B',
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '700',
+    textTransform: 'capitalize',
+  },
+  calendarDetailCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FBFF',
+  },
+  calendarDetailCloseText: {
+    color: Accent.primary,
+    lineHeight: 20,
+  },
+  calendarDetailList: {
+    gap: 8,
+  },
+  calendarDetailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#E3EBF7',
+    borderRadius: Radius.medium,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    backgroundColor: '#FBFDFF',
+  },
+  calendarDetailMarker: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  calendarDetailMarkerText: {
+    fontSize: 11,
+    lineHeight: 12,
+  },
+  calendarDetailItemCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  calendarDetailClientName: {
+    color: '#112746',
+  },
+  calendarDetailKind: {
+    lineHeight: 16,
+  },
+  calendarDetailItemDate: {
+    flexShrink: 0,
+    lineHeight: 16,
   },
   sectionCard: {
     marginTop: 12,

@@ -2,11 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { StatusBanner } from '@/components/feedback/status-banner';
+import { AppButton } from '@/components/forms/app-button';
 import { ScreenContainer } from '@/components/layout/screen-container';
 import { ThemedText } from '@/components/themed-text';
 import { Accent, Shadows, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
+import { scheduleTestDeviceNotification } from '@/services/device-notifications';
 import { router } from 'expo-router';
 
 type MenuItemProps = {
@@ -45,6 +48,12 @@ export default function MasTab() {
   const { user, signOut } = useAuth();
   const theme = useTheme();
   const [isSigningOut, setIsSigningOut] = React.useState(false);
+  const [isSendingTestNotification, setIsSendingTestNotification] = React.useState(false);
+  const [testNotificationFeedback, setTestNotificationFeedback] = React.useState<{
+    tone: 'info' | 'success' | 'warning' | 'danger';
+    title: string;
+    message: string;
+  } | null>(null);
 
   const userName = (user?.user_metadata?.fullName as string | undefined)?.trim() || user?.email?.split('@')[0] || 'Usuario';
   const clinicName = (user?.user_metadata?.clinicName as string | undefined)?.trim() || 'EvoMetrics Studio';
@@ -63,6 +72,29 @@ export default function MasTab() {
       router.replace('/login');
     } finally {
       setIsSigningOut(false);
+    }
+  }
+
+  async function handleTestNotification() {
+    setIsSendingTestNotification(true);
+    setTestNotificationFeedback(null);
+
+    try {
+      await scheduleTestDeviceNotification();
+      setTestNotificationFeedback({
+        tone: 'success',
+        title: 'Notificación programada',
+        message: 'Llegará en 1 minuto. Si el móvil está bloqueado, también debería mostrarse ahí.',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo programar la notificación de prueba.';
+      setTestNotificationFeedback({
+        tone: 'danger',
+        title: 'No se pudo programar',
+        message,
+      });
+    } finally {
+      setIsSendingTestNotification(false);
     }
   }
 
@@ -100,7 +132,38 @@ export default function MasTab() {
         </SectionCard>
 
         <SectionCard title="Aplicación">
-          <MenuItem icon={<Ionicons name="notifications-outline" size={22} color={Accent.primary} />} title="Notificaciones" subtitle="Configura alertas y recordatorios" />
+          <View style={styles.notificationTestCard}>
+            <View style={styles.notificationTestCopy}>
+              <View style={styles.menuIcon}>
+                <Ionicons name="notifications-outline" size={22} color={Accent.primary} />
+              </View>
+              <View style={styles.menuCopy}>
+                <ThemedText type="smallBold" style={styles.menuTitle} numberOfLines={1}>
+                  Notificaciones
+                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary" style={styles.menuSubtitle} numberOfLines={3}>
+                  Genera una alerta local de prueba para comprobar en el dispositivo si el sistema de notificaciones está funcionando.
+                </ThemedText>
+              </View>
+            </View>
+            <AppButton
+              label="Probar en 1 min"
+              variant="secondary"
+              size="compact"
+              fullWidth={false}
+              onPress={() => { void handleTestNotification(); }}
+              loading={isSendingTestNotification}
+              leadingIcon={<Ionicons name="alarm-outline" size={16} color={Accent.primary} />}
+            />
+          </View>
+          {testNotificationFeedback ? (
+            <StatusBanner
+              tone={testNotificationFeedback.tone}
+              title={testNotificationFeedback.title}
+              message={testNotificationFeedback.message}
+              loading={isSendingTestNotification}
+            />
+          ) : null}
           <MenuItem icon={<Ionicons name="moon-outline" size={22} color={Accent.primary} />} title="Apariencia" subtitle="Tema claro, idioma y más" />
           <MenuItem icon={<Ionicons name="extension-puzzle-outline" size={22} color={Accent.primary} />} title="Integraciones" subtitle="Conecta con tus herramientas favoritas" />
           <MenuItem icon={<Ionicons name="download-outline" size={22} color={Accent.primary} />} title="Exportar datos" subtitle="Descarga tu información" />
@@ -216,6 +279,17 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: '#FFFFFF',
+  },
+  notificationTestCard: {
+    gap: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF3FA',
+  },
+  notificationTestCopy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
   },
   menuItem: {
     flexDirection: 'row',

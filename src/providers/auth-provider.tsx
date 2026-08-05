@@ -1,4 +1,5 @@
 import { Session, User } from '@supabase/supabase-js';
+import * as Network from 'expo-network';
 import { router } from 'expo-router';
 import React, { createContext, ReactNode, useEffect, useMemo, useState } from 'react';
 
@@ -196,6 +197,59 @@ export function AuthProvider({ children }: AuthProviderProps) {
       subscription?.remove();
     };
   }, []);
+
+  useEffect(() => {
+    if (!supportsDeviceNotifications()) {
+      return;
+    }
+
+    let isMounted = true;
+    let lastWasOffline = false;
+
+    async function syncNotificationsWhenOnline() {
+      if (!user?.id) {
+        return;
+      }
+
+      const networkState = await Network.getNetworkStateAsync().catch(() => null);
+      const isOnline = Boolean(networkState?.isConnected && networkState?.isInternetReachable !== false);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (!isOnline) {
+        lastWasOffline = true;
+        return;
+      }
+
+      lastWasOffline = false;
+      await syncDeviceNotificationsForUser(user.id).catch(() => {});
+    }
+
+    void syncNotificationsWhenOnline();
+
+    const subscription = Network.addNetworkStateListener((networkState) => {
+      const isOnline = Boolean(networkState.isConnected && networkState.isInternetReachable !== false);
+
+      if (!isOnline) {
+        lastWasOffline = true;
+        return;
+      }
+
+      if (!user?.id || !lastWasOffline) {
+        return;
+      }
+
+      lastWasOffline = false;
+      void syncDeviceNotificationsForUser(user.id).catch(() => {});
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.remove();
+    };
+  }, [session?.user, user?.id]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

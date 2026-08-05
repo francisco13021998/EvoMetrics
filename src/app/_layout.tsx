@@ -3,7 +3,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 
-import { Colors } from '@/constants/theme';
+import { Colors, SystemChromeInset } from '@/constants/theme';
 import { AuthProvider } from '@/providers/auth-provider';
 
 const palette = Colors.light;
@@ -23,7 +23,7 @@ export default function TabLayout() {
             primary: palette.text,
           },
         }}>
-        <StatusBar style="dark" />
+        <StatusBar style="light" backgroundColor={SystemChromeInset} translucent={false} />
         <Stack
           screenOptions={{
             headerShown: false,

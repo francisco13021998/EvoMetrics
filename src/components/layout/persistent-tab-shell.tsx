@@ -5,7 +5,7 @@ import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
-import { Accent } from '@/constants/theme';
+import { Accent, SystemChromeInset } from '@/constants/theme';
 
 type TabId = 'home' | 'clients' | 'agenda' | 'pagos' | 'mas';
 
@@ -40,7 +40,7 @@ export function PersistentTabShell({ children, activeTab }: PersistentTabShellPr
     <View style={styles.wrapper}>
       <View style={styles.content}>{children}</View>
 
-      <View style={[styles.tabBar, { paddingBottom: Platform.OS === 'ios' ? 28 : 8 + bottomInset, height: Platform.OS === 'ios' ? 84 : 56 + bottomInset }]}>
+      <View style={[styles.tabBar, { paddingBottom: Platform.OS === 'ios' ? 24 : 12 + bottomInset, height: Platform.OS === 'ios' ? 88 : 66 + bottomInset }]}>
         <View style={styles.tabBarBackground}>
           <View style={styles.tabBarBase} />
           {bottomInset > 0 ? <View style={[styles.tabBarInset, { height: bottomInset }]} /> : null}
@@ -77,12 +77,12 @@ const styles = StyleSheet.create({
   tabBar: {
     position: 'relative',
     borderTopWidth: 1,
-    borderTopColor: '#E3EBF6',
+    borderTopColor: '#FFFFFF',
     backgroundColor: 'transparent',
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-around',
-    paddingTop: 8,
+    paddingTop: 6,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.06,
@@ -97,19 +97,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   tabBarInset: {
-    backgroundColor: '#F0F3FA',
+    backgroundColor: SystemChromeInset,
   },
   tabItem: {
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     gap: 2,
     minWidth: 54,
+    paddingTop: 4,
+    paddingBottom: 0,
   },
   tabLabel: {
     fontSize: 11,
     lineHeight: 13,
     color: '#9DB0D1',
     marginTop: 2,
+    paddingBottom: 0,
+    marginBottom: 0,
   },
   tabLabelActiveText: {
     color: Accent.primary,

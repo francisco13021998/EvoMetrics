@@ -58,7 +58,7 @@ async function configureNotificationHandler() {
       shouldShowAlert: true,
       shouldShowBanner: true,
       shouldShowList: true,
-      shouldPlaySound: false,
+      shouldPlaySound: true,
       shouldSetBadge: false,
     }),
   });
@@ -118,7 +118,7 @@ function getWeeklyTriggerFromDate(value: Date) {
   triggerDate.setHours(REMINDER_HOUR, REMINDER_MINUTE, 0, 0);
 
   return {
-    type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+    type: 'weekly',
     channelId: NOTIFICATION_CHANNEL_ID,
     weekday,
     hour: triggerDate.getHours(),
@@ -143,6 +143,20 @@ function getNotificationScheduleBaseDate(nextDate: string | null) {
   return parsedNextDate > now ? parsedNextDate : now;
 }
 
+function shouldSendOverdueNotification(notification: DashboardNotificationItem, referenceDate: Date) {
+  if (!notification.nextDate) {
+    return false;
+  }
+
+  const nextDate = new Date(notification.nextDate);
+
+  if (Number.isNaN(nextDate.getTime())) {
+    return false;
+  }
+
+  return nextDate < referenceDate;
+}
+
 function getNotificationContent(notification: DashboardNotificationItem): NotificationContentInput {
   const isPayment = notification.kind === 'payment';
 
@@ -152,6 +166,7 @@ function getNotificationContent(notification: DashboardNotificationItem): Notifi
       ? `${notification.clientName} tiene un pago pendiente.`
       : `${notification.clientName} tiene una revisión pendiente.`,
     sound: 'default',
+    priority: 'high',
     data: {
       kind: notification.kind,
       clientId: notification.clientId,
@@ -168,14 +183,86 @@ async function scheduleNotification(notification: DashboardNotificationItem) {
   }
 
   const baseDate = getNotificationScheduleBaseDate(notification.nextDate);
+  const shouldSendNow = shouldSendOverdueNotification(notification, new Date());
 
   await Notifications.scheduleNotificationAsync({
     content: getNotificationContent(notification),
-    trigger: getWeeklyTriggerFromDate(baseDate),
+    trigger: shouldSendNow
+      ? {
+          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+          seconds: 1,
+          repeats: false,
+          channelId: NOTIFICATION_CHANNEL_ID,
+        }
+      : getWeeklyTriggerFromDate(baseDate),
+  });
+}
+
+export async function scheduleTestDeviceNotification() {
+  if (!supportsDeviceNotifications()) {
+    throw new Error('Las notificaciones no están disponibles en este entorno.');
+  }
+
+  const hasPermission = await ensureDeviceNotificationsPermission();
+
+  if (!hasPermission) {
+    throw new Error('No hay permiso para mostrar notificaciones en este dispositivo.');
+  }
+
+  const Notifications = await loadNotificationsModule();
+
+  if (!Notifications) {
+    throw new Error('No se pudo cargar el módulo de notificaciones.');
+  }
+
+  return Notifications.scheduleNotificationAsync({
+    content: {
+      title: 'Notificación de prueba',
+      body: 'Si ves este mensaje, las notificaciones funcionan en tu dispositivo.',
+      sound: 'default',
+      priority: 'high',
+      data: {
+        kind: 'test',
+      },
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+      seconds: 60,
+      repeats: false,
+      channelId: NOTIFICATION_CHANNEL_ID,
+    },
   });
 }
 
 export async function syncDeviceNotifications(clientData: ClientDashboardData[]) {
+  if (!supportsDeviceNotifications()) {
+    return false;
+  }
+
+  const hasPermission = await ensureDeviceNotificationsPermission();
+
+  if (!hasPermission) {
+    return false;
+  }
+
+  const Notifications = await loadNotificationsModule();
+
+  if (!Notifications) {
+    return false;
+  }
+
+  await Notifications.cancelAllScheduledNotificationsAsync();
+
+  const notifications = buildDashboardNotifications(clientData);
+
+  for (const notification of notifications) {
+    await scheduleNotification(notification);
+  }
+
+  return true;
+}
+
+export async function resyncDeviceNotificationsIfNeeded(clientData: ClientDashboardData[]) {
   if (!supportsDeviceNotifications()) {
     return false;
   }

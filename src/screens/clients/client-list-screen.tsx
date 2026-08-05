@@ -24,7 +24,7 @@ type ClientListItem = {
 
 type ClientStatus = {
   label: string;
-  tone: 'active' | 'revision' | 'pending' | 'inactive';
+  tone: 'active' | 'revision' | 'payment' | 'inactive';
 };
 
 function startOfDay(value: Date) {
@@ -55,43 +55,45 @@ function getClientStatus(client: Client, payments: ClientPayment[], revisions: R
   const revisionStatus = calculateClientRevisionStatus(client, revisions, referenceDate);
   const today = startOfDay(referenceDate);
 
-  if (revisionStatus.nextRevisionDate) {
-    const revisionDate = startOfDay(revisionStatus.nextRevisionDate);
+  const pendingCandidates: { kind: 'payment' | 'revision'; date: Date }[] = [];
 
-    if (revisionDate.getTime() === today.getTime()) {
-      return { label: 'Revisión hoy', tone: 'revision' };
-    }
+  if (paymentStatus.isPending && paymentStatus.nextPaymentDate) {
+    pendingCandidates.push({ kind: 'payment', date: startOfDay(paymentStatus.nextPaymentDate) });
   }
 
-  if (paymentStatus.nextPaymentDate) {
-    const paymentDate = startOfDay(paymentStatus.nextPaymentDate);
-
-    if (paymentDate.getTime() === today.getTime()) {
-      return { label: 'Pago hoy', tone: 'pending' };
-    }
+  if (revisionStatus.isPending && revisionStatus.nextRevisionDate) {
+    pendingCandidates.push({ kind: 'revision', date: startOfDay(revisionStatus.nextRevisionDate) });
   }
 
-  if (paymentStatus.isPending || revisionStatus.isPending) {
-    return { label: 'Pendiente', tone: 'pending' };
+  if (pendingCandidates.length > 0) {
+    pendingCandidates.sort((left, right) => left.date.getTime() - right.date.getTime());
+    const selected = pendingCandidates[0];
+    const isToday = selected.date.getTime() === today.getTime();
+
+    if (selected.kind === 'payment') {
+      return { label: isToday ? 'Pago hoy' : 'Pago pendiente', tone: 'payment' };
+    }
+
+    return { label: 'revision', tone: 'revision' };
   }
 
   return { label: 'Activo', tone: 'active' };
 }
 
 function getStatusStyles(tone: ClientStatus['tone']) {
-  if (tone === 'revision') {
+  if (tone === 'payment') {
     return {
-      backgroundColor: '#EAF1FF',
-      textColor: '#2F61D5',
-      borderColor: '#D8E5FF',
+      backgroundColor: '#ECFDF5',
+      textColor: '#166534',
+      borderColor: '#BBF7D0',
     };
   }
 
-  if (tone === 'pending') {
+  if (tone === 'revision') {
     return {
-      backgroundColor: '#F3F4F6',
-      textColor: '#5A6273',
-      borderColor: '#E7EAF0',
+      backgroundColor: '#FFF7ED',
+      textColor: '#9A3412',
+      borderColor: '#FED7AA',
     };
   }
 
@@ -104,9 +106,9 @@ function getStatusStyles(tone: ClientStatus['tone']) {
   }
 
   return {
-    backgroundColor: '#EAF8EF',
-    textColor: '#2C7A3F',
-    borderColor: '#D5F0DD',
+    backgroundColor: '#EAF1FF',
+    textColor: '#2F61D5',
+    borderColor: '#D8E5FF',
   };
 }
 

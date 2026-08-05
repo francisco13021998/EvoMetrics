@@ -238,7 +238,7 @@ function SummaryMetricCard({ icon, iconColor, iconBackground, label, value }: {
   value: string;
 }) {
   return (
-    <View style={[styles.metricCard, { borderColor: '#E3EBF6' }]}>
+    <View style={[styles.metricCard, { borderColor: '#EDF3FB' }]}>
       <View style={[styles.metricIcon, { backgroundColor: iconBackground }]}>
         {icon}
       </View>
@@ -741,7 +741,7 @@ export function PaymentsScreen() {
 
 const styles = StyleSheet.create({
   screenContent: {
-    gap: Spacing.three,
+    gap: 18,
     alignItems: 'center',
   },
   headerRow: {
@@ -749,15 +749,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.three,
     width: '100%',
+    paddingBottom: 4,
   },
   headerCopy: {
     flex: 1,
-    gap: 2,
+    gap: 4,
   },
   title: {
     color: '#10203B',
-    fontSize: 24,
-    lineHeight: 28,
+    fontSize: 26,
+    lineHeight: 30,
     fontWeight: '700',
     letterSpacing: -0.4,
   },
@@ -782,26 +783,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: 8,
+    gap: 10,
     width: '100%',
   },
   metricCard: {
     flex: 1,
     minWidth: 104,
-    minHeight: 124,
-    borderRadius: 20,
+    minHeight: 136,
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: '#FFFFFF',
-    backgroundColor: '#FFFFFF',
-    padding: 12,
-    gap: 6,
+    borderColor: '#EDF3FB',
+    backgroundColor: '#FCFDFF',
+    padding: 14,
+    gap: 8,
     alignItems: 'center',
     ...Shadows.card,
   },
   metricIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -811,7 +812,7 @@ const styles = StyleSheet.create({
   },
   metricValue: {
     fontSize: 18,
-    lineHeight: 22,
+    lineHeight: 24,
     fontWeight: '700',
     letterSpacing: -0.2,
     textAlign: 'center',
@@ -822,11 +823,11 @@ const styles = StyleSheet.create({
   },
   trendCard: {
     borderWidth: 1,
-    borderColor: '#FFFFFF',
+    borderColor: '#EDF3FB',
     borderRadius: 24,
-    backgroundColor: '#FFFFFF',
-    padding: 12,
-    gap: 12,
+    backgroundColor: '#FCFDFF',
+    padding: 16,
+    gap: 14,
     width: '100%',
     ...Shadows.card,
   },
@@ -865,11 +866,11 @@ const styles = StyleSheet.create({
   },
   sectionCard: {
     borderWidth: 1,
-    borderColor: '#FFFFFF',
+    borderColor: '#EDF3FB',
     borderRadius: 24,
-    backgroundColor: '#FFFFFF',
-    padding: 12,
-    gap: 12,
+    backgroundColor: '#FCFDFF',
+    padding: 16,
+    gap: 14,
     width: '100%',
     ...Shadows.card,
   },
@@ -892,7 +893,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: Accent.primary,
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 18,
     fontWeight: '700',
     textTransform: 'uppercase',
   },
@@ -905,8 +906,8 @@ const styles = StyleSheet.create({
   historyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingVertical: 10,
+    gap: 12,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#EEF3FA',
   },
@@ -915,17 +916,17 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
   },
   avatarCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: '#EAF2FF',
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarCircleSmall: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#EAF2FF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -946,12 +947,12 @@ const styles = StyleSheet.create({
   rowTitle: {
     color: '#10203B',
     fontSize: 14,
-    lineHeight: 18,
+    lineHeight: 19,
   },
   rowTitleSmall: {
     color: '#10203B',
-    fontSize: 13,
-    lineHeight: 16,
+    fontSize: 14,
+    lineHeight: 18,
   },
   rowMeta: {
     alignItems: 'flex-end',
@@ -962,7 +963,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   rowDate: {
-    lineHeight: 15,
+    lineHeight: 16,
     fontSize: 12,
   },
   rowAmount: {
@@ -987,30 +988,30 @@ const styles = StyleSheet.create({
     color: '#2E9A50',
   },
   dualGrid: {
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'flex-start',
+    flexDirection: 'column',
+    gap: 14,
+    alignItems: 'stretch',
     width: '100%',
   },
   sectionCardHalf: {
-    flex: 1,
+    width: '100%',
     borderWidth: 1,
-    borderColor: '#FFFFFF',
+    borderColor: '#EDF3FB',
     borderRadius: 24,
-    backgroundColor: '#FFFFFF',
-    padding: 12,
-    gap: 12,
+    backgroundColor: '#FCFDFF',
+    padding: 16,
+    gap: 14,
     minWidth: 0,
     ...Shadows.card,
   },
   compactList: {
-    gap: 10,
+    gap: 12,
   },
   compactRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingVertical: 8,
+    gap: 12,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#EEF3FA',
   },
@@ -1031,7 +1032,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
-    marginTop: 4,
+    marginTop: 8,
   },
   paginationButton: {
     minWidth: 104,
