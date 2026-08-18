@@ -163,7 +163,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-        const data = response.notification.request.content.data as { kind?: string; clientId?: string } | undefined;
+        const data = response.notification.request.content.data as { kind?: string; clientId?: string; occurrenceId?: string } | undefined;
+
+        if (data?.kind === 'event' && data.occurrenceId) {
+          router.push(`/events/occurrences/${data.occurrenceId}`);
+          return;
+        }
 
         if (!data?.clientId || (data.kind !== 'payment' && data.kind !== 'revision')) {
           return;
@@ -178,7 +183,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       });
 
       void Notifications.getLastNotificationResponseAsync().then((response) => {
-        const data = response?.notification.request.content.data as { kind?: string; clientId?: string } | undefined;
+        const data = response?.notification.request.content.data as { kind?: string; clientId?: string; occurrenceId?: string } | undefined;
+
+        if (data?.kind === 'event' && data.occurrenceId) {
+          router.push(`/events/occurrences/${data.occurrenceId}`);
+          return;
+        }
 
         if (!data?.clientId || (data.kind !== 'payment' && data.kind !== 'revision')) {
           return;

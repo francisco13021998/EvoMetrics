@@ -98,22 +98,22 @@ export function DashboardMetricCard({
 const styles = StyleSheet.create({
   card: {
     flex: 1,
-    minHeight: 136,
-    paddingHorizontal: 12,
+    minHeight: 140,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderRadius: Radius.medium,
+    borderWidth: 1,
+    backgroundColor: '#FFFFFF',
+    gap: 10,
+  },
+  cardIconBase: {
+    flex: 1,
+    paddingHorizontal: 10,
     paddingVertical: 12,
     borderRadius: Radius.medium,
     borderWidth: 1,
     backgroundColor: '#FFFFFF',
-    gap: 8,
-  },
-  cardIconBase: {
-    flex: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 10,
-    borderRadius: Radius.medium,
-    borderWidth: 1,
-    backgroundColor: '#FFFFFF',
-    gap: 4,
+    gap: 6,
     overflow: 'hidden',
   },
   cardIcon: {
@@ -132,11 +132,11 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   iconLabel: {
-    fontSize: 9,
+    fontSize: 10,
     letterSpacing: 0.2,
     textTransform: 'uppercase',
     color: '#4A5E81',
-    lineHeight: 12,
+    lineHeight: 13,
   },
   iconValue: {
     color: '#10203B',
@@ -165,7 +165,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
-    minHeight: 26,
+    minHeight: 24,
   },
   accent: {
     width: 8,
@@ -184,7 +184,7 @@ const styles = StyleSheet.create({
   label: {
     letterSpacing: 0.3,
     color: '#4A5E81',
-    lineHeight: 17,
+    lineHeight: 16,
     fontSize: 12,
   },
   labelPrimary: {
@@ -196,12 +196,12 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     justifyContent: 'center',
-    gap: 9,
+    gap: 8,
   },
   value: {
     color: '#10203B',
-    fontSize: 29,
-    lineHeight: 34,
+    fontSize: 28,
+    lineHeight: 32,
     fontWeight: '700',
     letterSpacing: -0.4,
   },
@@ -228,7 +228,7 @@ const styles = StyleSheet.create({
   },
   helper: {
     marginTop: 'auto',
-    lineHeight: 17,
+    lineHeight: 16,
     fontSize: 13,
     color: '#5C6B86',
   },

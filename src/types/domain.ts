@@ -49,6 +49,7 @@ export type ClientPayment = {
   clientId: string;
   amount: number;
   paymentDate: string;
+  dueDate: string;
   createdAt: string;
 };
 
@@ -101,4 +102,54 @@ export type ClientPhoto = {
   type: string;
   capturedAt: string;
   createdAt: string;
+};
+
+export type EventKind = 'call' | 'meeting' | 'visit' | 'training' | 'other';
+
+export type EventRecurrenceFrequency = 'daily' | 'weekly' | 'monthly';
+
+export type EventRecurrenceEndType = 'never' | 'until' | 'count';
+
+export type EventOccurrenceStatus = 'scheduled' | 'completed' | 'cancelled' | 'rescheduled';
+
+export type Event = {
+  id: string;
+  ownerId: string;
+  clientId: string | null;
+  title: string;
+  description: string | null;
+  location: string | null;
+  kind: EventKind;
+  startDate: string;
+  startTime: string;
+  durationMinutes: number;
+  timezone: string;
+  allDay: boolean;
+  recurrenceEnabled: boolean;
+  recurrenceFrequency: EventRecurrenceFrequency | null;
+  recurrenceInterval: number | null;
+  recurrenceWeekdays: number[] | null;
+  recurrenceMonthDay: number | null;
+  recurrenceEndType: EventRecurrenceEndType | null;
+  recurrenceEndDate: string | null;
+  recurrenceCount: number | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EventOccurrence = {
+  id: string;
+  eventId: string;
+  ownerId: string;
+  clientId: string | null;
+  plannedStartAt: string;
+  plannedEndAt: string;
+  status: EventOccurrenceStatus;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  rescheduledFromOccurrenceId: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
 };

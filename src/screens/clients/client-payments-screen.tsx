@@ -17,7 +17,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { clientPaymentsService } from '@/services/client-payments';
 import { clientsService } from '@/services/clients';
 import { BillingFrequency, Client, ClientPayment } from '@/types/domain';
-import { BILLING_FREQUENCY_OPTIONS, calculateClientPaymentStatus, calculateNextPaymentDate, formatBillingFrequencyLabel } from '@/utils/client-payments';
+import { BILLING_FREQUENCY_OPTIONS, calculateClientPaymentStatus, formatBillingFrequencyLabel } from '@/utils/client-payments';
 
 type ClientPaymentsScreenProps = {
   clientId: string;
@@ -61,6 +61,7 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
   const [isSavingPayment, setIsSavingPayment] = useState(false);
   const [isDeletingPayment, setIsDeletingPayment] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [isRegisterPaymentModalOpen, setIsRegisterPaymentModalOpen] = useState(false);
   const [isPaymentActionsModalOpen, setIsPaymentActionsModalOpen] = useState(false);
   const [isPaymentEditModalOpen, setIsPaymentEditModalOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<ClientPayment | null>(null);
@@ -114,11 +115,15 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
     [client, payments]
   );
 
-  const canRegisterPayment = Boolean(client && !isAthlete && paymentStatus.isPending && user?.id);
+  const canRegisterPayment = Boolean(client && !isAthlete && user?.id);
 
   function closePaymentActionsModal() {
     setIsPaymentActionsModalOpen(false);
     setSelectedPayment(null);
+  }
+
+  function closeRegisterPaymentModal() {
+    setIsRegisterPaymentModalOpen(false);
   }
 
   function closePaymentEditModal() {
@@ -140,6 +145,16 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
     setPaymentDateInput(parsePaymentDate(selectedPayment.paymentDate));
     setIsPaymentActionsModalOpen(false);
     setIsPaymentEditModalOpen(true);
+  }
+
+  function openRegisterPaymentModal() {
+    if (!client || isAthlete) {
+      return;
+    }
+
+    setPaymentAmountInput(String(client.coachingPrice));
+    setPaymentDateInput(paymentStatus.nextPaymentDate ?? new Date());
+    setIsRegisterPaymentModalOpen(true);
   }
 
   async function confirmDeletePayment(payment: ClientPayment) {
@@ -242,15 +257,14 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
   }
 
   async function handleRegisterPayment() {
-    if (!user?.id || !client || !canRegisterPayment || isRegisteringPayment) {
+    if (!user?.id || !client || !paymentDateInput || isRegisteringPayment) {
       return;
     }
 
-    const paymentDateReference = lastPayment ? parsePaymentDate(lastPayment.paymentDate) : new Date();
-    const nextPaymentDate = calculateNextPaymentDate(paymentDateReference, client.billingFrequency);
+    const parsedAmount = paymentAmountInput.trim() ? Number(paymentAmountInput.replace(',', '.')) : NaN;
 
-    if (!nextPaymentDate) {
-      setErrorMessage('No se pudo calcular la fecha del siguiente pago.');
+    if (Number.isNaN(parsedAmount) || parsedAmount < 0) {
+      setErrorMessage('El importe debe ser un valor valido.');
       return;
     }
 
@@ -259,12 +273,12 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
 
     try {
       await clientPaymentsService.create({
-        ownerId: user.id,
         clientId: client.id,
-        amount: client.coachingPrice,
-        paymentDate: nextPaymentDate.toISOString(),
+        amount: parsedAmount,
+        paymentDate: paymentDateInput.toISOString(),
       });
-      await loadContent();
+      closeRegisterPaymentModal();
+      void loadContent();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo registrar el pago.';
       setErrorMessage(message);
@@ -327,6 +341,8 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
         }
       />
 
+      {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
+
       <PageSection first style={styles.sectionSpacing}>
         <View style={[styles.statusCard, { borderColor: theme.backgroundSelected, backgroundColor: paymentStatus.isPending ? '#FFF7E8' : '#ECF9F3' }]}>
           <View style={styles.statusTopRow}>
@@ -377,13 +393,13 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
             <View style={styles.statusActions}>
               <AppButton
                 label="Pago realizado"
-                onPress={() => void handleRegisterPayment()}
+                onPress={openRegisterPaymentModal}
                 disabled={!canRegisterPayment}
                 loading={isRegisteringPayment}
               />
               {paymentStatus.isPending ? (
                 <ThemedText type="small" themeColor="textSecondary" style={styles.statusHint}>
-                  Se registrará un pago por {formatAmount(client.coachingPrice)} con fecha de hoy.
+                  Se puede registrar un pago aunque la fecha prevista de cobro siga siendo futura.
                 </ThemedText>
               ) : null}
             </View>
@@ -410,12 +426,14 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
                 ]}>
                 <View style={styles.paymentRowInfo}>
                   <ThemedText type="smallBold">{formatAmount(payment.amount)}</ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">{formatPaymentDate(payment.paymentDate)}</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Fecha de pago: {formatPaymentDate(payment.paymentDate)}
+                  </ThemedText>
                 </View>
                 <View style={styles.paymentRowActions}>
                   <View style={styles.paymentDatePill}>
                     <ThemedText type="small" style={styles.paymentDatePillText}>
-                      {payment.paymentDate}
+                      Pago {formatPaymentDate(payment.paymentDate)}
                     </ThemedText>
                   </View>
                   {!isAthlete ? (
@@ -453,7 +471,10 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
               <View style={styles.paymentActionsSummary}>
                 <ThemedText type="smallBold">{formatAmount(selectedPayment.amount)}</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  {formatPaymentDate(selectedPayment.paymentDate)}
+                  Registrado el {formatPaymentDate(selectedPayment.createdAt)}
+                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Fecha de pago: {formatPaymentDate(selectedPayment.paymentDate)}
                 </ThemedText>
               </View>
             ) : null}
@@ -481,20 +502,22 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
         </Pressable>
       </Modal>
 
-      <Modal transparent visible={isPaymentEditModalOpen} animationType="fade" onRequestClose={closePaymentEditModal}>
-        <Pressable style={styles.modalBackdrop} onPress={closePaymentEditModal}>
+      <Modal transparent visible={isRegisterPaymentModalOpen} animationType="fade" onRequestClose={closeRegisterPaymentModal}>
+        <Pressable style={styles.modalBackdrop} onPress={closeRegisterPaymentModal}>
           <Pressable style={[styles.configModalPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
             <View style={styles.configModalHeader}>
               <View>
-                <ThemedText type="smallBold">Editar pago</ThemedText>
+                <ThemedText type="smallBold">Registrar pago</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Cambia el importe o la fecha del registro.
+                  Registra el pago con la fecha de pago habitual. La fecha de registro se guarda sola.
                 </ThemedText>
               </View>
-              <Pressable onPress={closePaymentEditModal} style={styles.configModalCloseButton}>
+              <Pressable onPress={closeRegisterPaymentModal} style={styles.configModalCloseButton}>
                 <ThemedText type="smallBold" style={styles.configModalCloseText}>×</ThemedText>
               </Pressable>
             </View>
+
+            {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
 
             <AppInput
               label="Importe"
@@ -507,7 +530,63 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
               containerStyle={styles.configField}
             />
             <AppDateTimeInput
-              label="Fecha del pago"
+              label="Fecha de pago"
+              value={paymentDateInput}
+              mode="date"
+              allowYearSelection
+              minYear={1940}
+              onChange={setPaymentDateInput}
+              shellStyle={styles.configField}
+            />
+
+            <View style={styles.configModalActions}>
+              <AppButton
+                label="Cancelar"
+                variant="ghost"
+                size="compact"
+                fullWidth={false}
+                onPress={closeRegisterPaymentModal}
+                disabled={isRegisteringPayment}
+              />
+              <AppButton
+                label="Guardar pago"
+                onPress={() => void handleRegisterPayment()}
+                loading={isRegisteringPayment}
+              />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal transparent visible={isPaymentEditModalOpen} animationType="fade" onRequestClose={closePaymentEditModal}>
+        <Pressable style={styles.modalBackdrop} onPress={closePaymentEditModal}>
+          <Pressable style={[styles.configModalPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
+            <View style={styles.configModalHeader}>
+              <View>
+                <ThemedText type="smallBold">Editar pago</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Cambia el importe o la fecha de pago.
+                </ThemedText>
+              </View>
+              <Pressable onPress={closePaymentEditModal} style={styles.configModalCloseButton}>
+                <ThemedText type="smallBold" style={styles.configModalCloseText}>×</ThemedText>
+              </Pressable>
+            </View>
+
+            {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
+
+            <AppInput
+              label="Importe"
+              placeholder="0"
+              keyboardType="decimal-pad"
+              inputMode="decimal"
+              value={paymentAmountInput}
+              onChangeText={setPaymentAmountInput}
+              unit="€"
+              containerStyle={styles.configField}
+            />
+            <AppDateTimeInput
+              label="Fecha de pago"
               value={paymentDateInput}
               mode="date"
               allowYearSelection

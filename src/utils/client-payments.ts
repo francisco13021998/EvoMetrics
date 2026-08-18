@@ -118,8 +118,9 @@ export function calculateClientPaymentStatus(
   const normalizedReference = startOfDay(referenceDate);
   const latestPayment = payments?.[0] ?? null;
   const latestPaymentDate = toLocalDate(latestPayment?.paymentDate ?? null);
+  const latestDueDate = toLocalDate(latestPayment?.dueDate ?? null);
   const fallbackStartDate = toLocalDate(client?.createdAt ?? null) ?? normalizedReference;
-  const startDate = latestPaymentDate ?? fallbackStartDate;
+  const startDate = latestDueDate ?? latestPaymentDate ?? fallbackStartDate;
   const nextPaymentDate = client?.billingFrequency ? calculateNextPaymentDate(startDate, client.billingFrequency) : null;
   const isPending = Boolean(client?.forcePaymentPending) || (nextPaymentDate !== null ? normalizedReference >= nextPaymentDate : false);
 

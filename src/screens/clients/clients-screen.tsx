@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Image, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Modal, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
@@ -15,14 +15,23 @@ import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
 import { clientPaymentsService } from '@/services/client-payments';
 import { clientsService } from '@/services/clients';
-import { syncDeviceNotifications } from '@/services/device-notifications';
+import { syncDeviceNotificationsForUser } from '@/services/device-notifications';
+import { eventsService } from '@/services/events';
 import { revisionsService } from '@/services/revisions';
 import { Client } from '@/types/domain';
-import { ClientDashboardData, buildDashboardNotifications, formatDashboardNotificationDate } from '@/utils/client-notifications';
+import {
+    buildDashboardNotifications,
+    ClientDashboardData,
+    DashboardNotificationItem,
+    formatDashboardNotificationDate,
+} from '@/utils/client-notifications';
 import { calculateClientPaymentStatus, calculateMonthlyRevenueFromClients } from '@/utils/client-payments';
 import { calculateClientRevisionStatus } from '@/utils/client-revisions';
+import { buildEventNotifications, EventNotificationItem, formatEventNotificationDate } from '@/utils/event-notifications';
 
-function getNotificationPresentation(kind: 'payment' | 'revision') {
+type DashboardNotification = DashboardNotificationItem | EventNotificationItem;
+
+function getNotificationPresentation(kind: 'payment' | 'revision' | 'event') {
   if (kind === 'payment') {
     return {
       icon: '💶',
@@ -35,14 +44,26 @@ function getNotificationPresentation(kind: 'payment' | 'revision') {
     };
   }
 
+  if (kind === 'revision') {
+    return {
+      icon: '📅',
+      title: 'Revisión pendiente',
+      accent: '#D97706',
+      accentSoft: '#FFF7ED',
+      border: '#FED7AA',
+      text: '#9A3412',
+      background: '#FFFBF3',
+    };
+  }
+
   return {
-    icon: '📅',
-    title: 'Revisión pendiente',
-    accent: '#D97706',
-    accentSoft: '#FFF7ED',
-    border: '#FED7AA',
-    text: '#9A3412',
-    background: '#FFFBF3',
+    icon: '🗓️',
+    title: 'Evento próximo',
+    accent: '#2563EB',
+    accentSoft: '#EFF6FF',
+    border: '#BFDBFE',
+    text: '#1D4ED8',
+    background: '#F8FBFF',
   };
 }
 
@@ -88,6 +109,7 @@ function formatSpanishLongDate(value: Date) {
 export function ClientsScreen() {
   const { user } = useAuth();
   const theme = useTheme();
+  const { width } = useWindowDimensions();
   const [clients, setClients] = useState<Client[]>([]);
   const [clientData, setClientData] = useState<ClientDashboardData[]>([]);
   const [notifications, setNotifications] = useState<ReturnType<typeof buildDashboardNotifications>>([]);
@@ -102,6 +124,7 @@ export function ClientsScreen() {
   const userName = (user?.user_metadata?.fullName as string | undefined)?.trim() || user?.email?.split('@')[0] || 'Usuario';
   const clinicName = (user?.user_metadata?.clinicName as string | undefined)?.trim() || null;
   const syncStatus = isLoadingClients ? 'Sincronizando...' : clientsError ? 'Requiere revisión' : 'Sincronizado';
+  const isCompactWidth = width < 390;
   const activeClients = clients.filter((client) => client.estado === 'activo');
   const monthlyRevenue = calculateMonthlyRevenueFromClients(activeClients);
   const pendingNotificationCount = notifications.length;
@@ -252,11 +275,29 @@ export function ClientsScreen() {
         }))
       );
 
-      const nextNotifications = buildDashboardNotifications(nextClientData);
+      const nextEvents = await eventsService.listByOwner(user.id);
+      const horizonStart = startOfDay(new Date());
+      const horizonEnd = new Date(horizonStart);
+      horizonEnd.setDate(horizonEnd.getDate() + 90);
+      const nextOccurrences = await eventsService.syncOccurrencesForOwner(user.id, horizonStart, horizonEnd);
+
+      const nextNotifications: DashboardNotification[] = [
+        ...buildDashboardNotifications(nextClientData),
+        ...buildEventNotifications({
+          clients: nextClients,
+          events: nextEvents,
+          occurrences: nextOccurrences,
+        }),
+      ].sort((left, right) => {
+        const leftDate = new Date(left.nextDate ?? left.lastDate ?? '').getTime();
+        const rightDate = new Date(right.nextDate ?? right.lastDate ?? '').getTime();
+
+        return leftDate - rightDate;
+      });
 
       setClientData(nextClientData);
       setNotifications(nextNotifications);
-      void syncDeviceNotifications(nextClientData);
+      void syncDeviceNotificationsForUser(user.id);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudieron cargar los clientes.';
       setClientsError(message);
@@ -306,6 +347,11 @@ export function ClientsScreen() {
     router.push(`/clients/${clientId}`);
   }
 
+  function goToEventOccurrence(occurrenceId: string) {
+    setIsNotificationsModalOpen(false);
+    router.push(`/events/occurrences/${occurrenceId}`);
+  }
+
   function goToClientsList() {
     router.push('/clientes');
   }
@@ -330,7 +376,7 @@ export function ClientsScreen() {
   return (
     <ScreenContainer>
       <View style={styles.heroPanel}>
-        <View style={styles.brandStrip}>
+        <View style={[styles.brandStrip, isCompactWidth && styles.brandStripCompact]}>
           <View style={styles.brandBadge}>
             <Image source={require('../../../assets/branding/logo-evometrics.png')} style={styles.brandLogo} resizeMode="contain" />
           </View>
@@ -342,7 +388,7 @@ export function ClientsScreen() {
               Control de clientes EvoMetrics
             </ThemedText>
           </View>
-          <View style={styles.brandActions}>
+          <View style={[styles.brandActions, isCompactWidth && styles.brandActionsCompact]}>
             <Pressable
               onPress={openClientPaymentNotifications}
               accessibilityLabel="Notificaciones de pagos"
@@ -380,7 +426,7 @@ export function ClientsScreen() {
           </ThemedText>
           <View style={styles.heroIdentity}>
             <ThemedText style={styles.heroTitle}>{userName}</ThemedText>
-            <View style={styles.heroMetaRow}>
+            <View style={[styles.heroMetaRow, isCompactWidth && styles.heroMetaRowCompact]}>
               <ThemedText type="small" themeColor="textSecondary" style={styles.heroSubtitle}>
                 {clinicName || 'Centro o marca pendiente'}
               </ThemedText>
@@ -408,7 +454,7 @@ export function ClientsScreen() {
           />
         </View>
 
-        <View style={styles.recentCard}>
+        <View style={[styles.recentCard, isCompactWidth && styles.recentCardCompact]}>
           <View style={styles.recentCardHeader}>
             <ThemedText type="label" style={styles.recentCardTitle}>
               Clientes recientes
@@ -448,14 +494,14 @@ export function ClientsScreen() {
           </View>
         </View>
 
-        <View style={styles.calendarCard}>
+        <View style={[styles.calendarCard, isCompactWidth && styles.calendarCardCompact]}>
           <View style={styles.calendarHeader}>
             <ThemedText type="label" style={styles.calendarLabel}>
               Calendario
             </ThemedText>
           </View>
 
-          <View style={styles.calendarControlsRow}>
+          <View style={[styles.calendarControlsRow, isCompactWidth && styles.calendarControlsRowCompact]}>
             <Pressable onPress={handlePreviousMonth} style={styles.calendarNavButton} accessibilityLabel="Mes anterior">
               <Ionicons name="chevron-back" size={16} color={Accent.primary} />
             </Pressable>
@@ -467,7 +513,7 @@ export function ClientsScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.calendarWeekRow}>
+          <View style={[styles.calendarWeekRow, isCompactWidth && styles.calendarWeekRowCompact]}>
             {calendarWeekdayLabels.map((label) => (
               <ThemedText key={label} type="small" themeColor="textSecondary" style={styles.calendarWeekLabel}>
                 {label}
@@ -475,7 +521,7 @@ export function ClientsScreen() {
             ))}
           </View>
 
-          <View style={styles.calendarGrid}>
+          <View style={[styles.calendarGrid, isCompactWidth && styles.calendarGridCompact]}>
             {calendarGrid.map((day, index) => {
               if (day === null) {
                 return <View key={`empty-${index}`} style={styles.calendarCellSpacer} />;
@@ -550,7 +596,7 @@ export function ClientsScreen() {
       </View>
 
       <Modal transparent visible={isCalendarDetailOpen} animationType="fade" onRequestClose={closeCalendarDayDetail}>
-        <Pressable style={styles.calendarDetailBackdrop} onPress={closeCalendarDayDetail}>
+        <Pressable style={[styles.calendarDetailBackdrop, isCompactWidth && styles.calendarDetailBackdropCompact]} onPress={closeCalendarDayDetail}>
           <Pressable style={[styles.calendarDetailPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
             <View style={styles.calendarDetailHeader}>
               <View style={styles.calendarDetailHeaderCopy}>
@@ -598,7 +644,7 @@ export function ClientsScreen() {
       </Modal>
 
       <Modal transparent visible={isNotificationsModalOpen} animationType="fade" onRequestClose={closeClientPaymentNotifications}>
-        <Pressable style={styles.notificationsBackdrop} onPress={closeClientPaymentNotifications}>
+        <Pressable style={[styles.notificationsBackdrop, isCompactWidth && styles.notificationsBackdropCompact]} onPress={closeClientPaymentNotifications}>
           <Pressable style={[styles.notificationsPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
             <View style={styles.notificationsList}>
               {notifications.length === 0 ? (
@@ -607,11 +653,24 @@ export function ClientsScreen() {
                 notifications.map((notification) => (
                   (() => {
                     const presentation = getNotificationPresentation(notification.kind);
+                    const isEventNotification = notification.kind === 'event';
 
                     return (
                   <Pressable
-                    key={`${notification.kind}-${notification.clientId}`}
-                    onPress={() => (notification.kind === 'payment' ? goToClientPayments(notification.clientId) : goToClientProfile(notification.clientId))}
+                    key={`${notification.kind}-${notification.kind === 'event' ? notification.occurrenceId : notification.clientId}`}
+                    onPress={() => {
+                      if (notification.kind === 'payment') {
+                        goToClientPayments(notification.clientId);
+                        return;
+                      }
+
+                      if (notification.kind === 'revision') {
+                        goToClientProfile(notification.clientId);
+                        return;
+                      }
+
+                      goToEventOccurrence(notification.occurrenceId);
+                    }}
                     style={({ pressed }) => [
                       styles.notificationItem,
                       {
@@ -626,14 +685,25 @@ export function ClientsScreen() {
                         </ThemedText>
                       </View>
                       <View style={styles.notificationItemCopy}>
-                        <ThemedText type="smallBold">{notification.clientName}</ThemedText>
-                        <ThemedText type="small" style={[styles.notificationKindText, { color: presentation.text }]}>
-                          {presentation.title}
-                        </ThemedText>
+                        {isEventNotification ? (
+                          <>
+                            <ThemedText type="smallBold">{notification.eventTitle}</ThemedText>
+                            <ThemedText type="small" style={[styles.notificationKindText, { color: presentation.text }]}>
+                              {notification.clientName}
+                            </ThemedText>
+                          </>
+                        ) : (
+                          <>
+                            <ThemedText type="smallBold">{notification.clientName}</ThemedText>
+                            <ThemedText type="small" style={[styles.notificationKindText, { color: presentation.text }]}>
+                              {presentation.title}
+                            </ThemedText>
+                          </>
+                        )}
                       </View>
                       <View style={[styles.notificationTypePill, { borderColor: presentation.border, backgroundColor: presentation.accentSoft }]}>
                         <ThemedText type="smallBold" style={[styles.notificationTypePillText, { color: presentation.text }]}>
-                          {notification.kind === 'payment' ? 'Cobro' : 'Revisión'}
+                          {notification.kind === 'payment' ? 'Cobro' : notification.kind === 'revision' ? 'Revisión' : 'Evento'}
                         </ThemedText>
                       </View>
                     </View>
@@ -646,13 +716,22 @@ export function ClientsScreen() {
                           Siguiente vencimiento: {formatDashboardNotificationDate(notification.nextDate)}
                         </ThemedText>
                       </>
-                    ) : (
+                    ) : notification.kind === 'revision' ? (
                       <>
                         <ThemedText type="small" themeColor="textSecondary" style={styles.notificationDetailText}>
                           Última revisión: {formatDashboardNotificationDate(notification.lastDate)}
                         </ThemedText>
                         <ThemedText type="small" themeColor="textSecondary" style={styles.notificationDetailText}>
                           Siguiente revisión: {formatDashboardNotificationDate(notification.nextDate)}
+                        </ThemedText>
+                      </>
+                    ) : (
+                      <>
+                        <ThemedText type="small" themeColor="textSecondary" style={styles.notificationDetailText}>
+                          Inicio: {formatEventNotificationDate(notification.nextDate)}
+                        </ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary" style={styles.notificationDetailText}>
+                          {notification.eventSubtitle}
                         </ThemedText>
                       </>
                     )}
@@ -678,8 +757,8 @@ const styles = StyleSheet.create({
     borderColor: '#D8E5F8',
     paddingHorizontal: 14,
     paddingTop: 14,
-    paddingBottom: 12,
-    gap: 12,
+    paddingBottom: 14,
+    gap: 14,
     shadowColor: '#12336E',
     shadowOpacity: 0.08,
     shadowRadius: 16,
@@ -693,6 +772,11 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#E1EAF8',
+  },
+  brandStripCompact: {
+    flexWrap: 'wrap',
+    alignItems: 'flex-start',
+    rowGap: 10,
   },
   brandBadge: {
     width: 44,
@@ -718,6 +802,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  brandActionsCompact: {
+    marginLeft: 'auto',
+  },
   brandEyebrow: {
     color: '#1E4FBF',
   },
@@ -726,16 +813,20 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   heroTopRow: {
-    gap: 6,
+    gap: 8,
   },
   heroIdentity: {
-    gap: 5,
+    gap: 6,
   },
   heroMetaRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.two,
+    flexWrap: 'wrap',
+  },
+  heroMetaRowCompact: {
+    gap: 10,
   },
   heroEyebrow: {
     color: Accent.primary,
@@ -749,6 +840,7 @@ const styles = StyleSheet.create({
   },
   heroSubtitle: {
     flex: 1,
+    minWidth: 0,
     lineHeight: 19,
   },
   statusPill: {
@@ -780,16 +872,16 @@ const styles = StyleSheet.create({
   },
   metricsGrid: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
   },
   calendarCard: {
     borderRadius: Radius.large,
     borderWidth: 1,
     borderColor: '#D9E5F5',
     backgroundColor: '#FAFCFF',
-    padding: 12,
-    paddingBottom: 18,
-    gap: 10,
+    padding: 14,
+    paddingBottom: 16,
+    gap: 12,
     shadowColor: '#10203B',
     shadowOpacity: 0.05,
     shadowRadius: 10,
@@ -808,8 +900,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 10,
+    marginTop: 4,
+  },
+  calendarControlsRowCompact: {
     gap: 8,
-    marginTop: 6,
   },
   calendarNavButton: {
     width: 30,
@@ -829,37 +924,43 @@ const styles = StyleSheet.create({
   },
   calendarWeekRow: {
     flexDirection: 'row',
-    justifyContent: 'flex-start',
-    gap: 4,
-    marginTop: 12,
-    marginBottom: 8,
+    justifyContent: 'space-between',
+    gap: 0,
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  calendarWeekRowCompact: {
+    marginTop: 8,
   },
   calendarWeekLabel: {
-    width: '13%',
+    width: '13.2%',
     textAlign: 'center',
   },
   calendarGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'flex-start',
-    gap: 4,
+    justifyContent: 'space-between',
+    gap: 0,
     rowGap: 6,
   },
+  calendarGridCompact: {
+    rowGap: 8,
+  },
   calendarCellSpacer: {
-    width: '13%',
+    width: '13.2%',
     aspectRatio: 1,
   },
   calendarCell: {
-    width: '13%',
+    width: '13.2%',
     aspectRatio: 1,
     borderWidth: 1,
     borderColor: '#E5ECF7',
-    borderRadius: 16,
+    borderRadius: 15,
     backgroundColor: '#FFFFFF',
-    padding: 6,
+    padding: 5,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
+    gap: 3,
   },
   calendarCellPressable: {
     flex: 1,
@@ -873,7 +974,7 @@ const styles = StyleSheet.create({
   },
   calendarDayLabel: {
     color: '#112746',
-    lineHeight: 16,
+    lineHeight: 15,
     textAlign: 'center',
   },
   calendarDayLabelCombined: {
@@ -922,12 +1023,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: Spacing.three,
   },
+  calendarDetailBackdropCompact: {
+    paddingHorizontal: Spacing.two,
+  },
   calendarDetailPanel: {
     borderWidth: 1,
     borderRadius: Radius.large,
     backgroundColor: '#FFFFFF',
-    padding: Spacing.three,
-    gap: Spacing.three,
+    padding: 14,
+    gap: 12,
     width: '100%',
     maxWidth: 480,
     alignSelf: 'center',
@@ -1016,8 +1120,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D9E5F5',
     backgroundColor: '#FAFCFF',
-    padding: 12,
-    gap: 10,
+    padding: 14,
+    gap: 12,
     shadowColor: '#10203B',
     shadowOpacity: 0.05,
     shadowRadius: 10,
@@ -1038,7 +1142,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.1,
   },
   recentCardList: {
-    gap: 6,
+    gap: 8,
   },
   recentCardAction: {
     borderWidth: 1,
@@ -1087,12 +1191,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: Spacing.three,
   },
+  notificationsBackdropCompact: {
+    paddingHorizontal: Spacing.two,
+  },
   notificationsPanel: {
     borderWidth: 1,
     borderRadius: Radius.large,
     backgroundColor: '#FFFFFF',
-    padding: Spacing.three,
-    gap: Spacing.three,
+    padding: 14,
+    gap: 12,
     width: '100%',
     maxWidth: 460,
     alignSelf: 'center',
@@ -1116,13 +1223,13 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   notificationsList: {
-    gap: Spacing.two,
+    gap: 10,
   },
   notificationItem: {
     borderWidth: 1,
-    borderRadius: Radius.medium,
-    padding: Spacing.three,
-    gap: 8,
+    borderRadius: 16,
+    padding: 12,
+    gap: 10,
     shadowColor: '#10203B',
     shadowOpacity: 0.04,
     shadowRadius: 10,
@@ -1131,7 +1238,7 @@ const styles = StyleSheet.create({
   },
   notificationItemTop: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.two,
   },

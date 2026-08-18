@@ -58,9 +58,9 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   rowCompact: {
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    gap: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    gap: 8,
   },
   rowSpacing: {
     marginBottom: 6,
@@ -76,9 +76,9 @@ const styles = StyleSheet.create({
     borderColor: '#CFE0FA',
   },
   avatarCompact: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
   },
   info: {
     flex: 1,
@@ -90,10 +90,14 @@ const styles = StyleSheet.create({
   },
   nameText: {
     color: '#112746',
+    lineHeight: 19,
   },
   arrow: {
     flexShrink: 0,
     color: Accent.primary,
     fontWeight: '700',
+    fontSize: 12,
+    lineHeight: 16,
+    letterSpacing: 0.2,
   },
 });

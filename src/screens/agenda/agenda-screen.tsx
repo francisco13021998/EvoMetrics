@@ -11,8 +11,9 @@ import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { clientPaymentsService } from '@/services/client-payments';
 import { clientsService } from '@/services/clients';
+import { eventsService } from '@/services/events';
 import { revisionsService } from '@/services/revisions';
-import { Client, ClientPayment, Revision } from '@/types/domain';
+import { Client, ClientPayment, Event, EventOccurrence, Revision } from '@/types/domain';
 import { calculateClientPaymentStatus } from '@/utils/client-payments';
 import { calculateClientRevisionStatus } from '@/utils/client-revisions';
 
@@ -24,12 +25,14 @@ type AgendaClientData = {
   revisions: Revision[];
 };
 
-type AgendaKind = 'revision' | 'payment';
+type AgendaKind = 'revision' | 'payment' | 'event';
 
 type AgendaEvent = {
   id: string;
   kind: AgendaKind;
-  clientId: string;
+  clientId: string | null;
+  eventId: string | null;
+  occurrenceId: string | null;
   clientName: string;
   date: Date;
   title: string;
@@ -38,6 +41,10 @@ type AgendaEvent = {
   color: string;
   statusLabel: string;
 };
+
+function formatTimeLabel(value: Date) {
+  return `${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
+}
 
 function startOfDay(value: Date) {
   return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0);
@@ -56,15 +63,6 @@ function startOfWeekMonday(value: Date) {
 
 function getDateKey(value: Date) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
-}
-
-function formatMonthLabel(value: Date) {
-  return new Intl.DateTimeFormat('es-ES', {
-    month: 'long',
-    year: 'numeric',
-  })
-    .format(value)
-    .replace(/^(.)/, (match) => match.toUpperCase());
 }
 
 function formatShortDay(value: Date) {
@@ -96,41 +94,49 @@ function getWeekStart(value: Date) {
   return addDays(date, diff);
 }
 
-function buildMonthGrid(value: Date) {
-  const year = value.getFullYear();
-  const month = value.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const offset = (firstDay.getDay() + 6) % 7;
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const cells: (number | null)[] = Array.from({ length: offset }, () => null);
-
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    cells.push(day);
-  }
-
-  while (cells.length % 7 !== 0) {
-    cells.push(null);
-  }
-
-  return cells;
-}
-
 function getTimeByKind(kind: AgendaKind, seed: string) {
   const hash = seed.split('').reduce((total, char) => total + char.charCodeAt(0), 0);
   const revisionTimes = ['09:00', '11:00', '18:00'];
   const paymentTimes = ['13:30', '14:00', '17:00'];
+  const eventTimes = ['08:00', '10:30', '16:00'];
 
   if (kind === 'payment') {
     return paymentTimes[hash % paymentTimes.length];
+  }
+
+  if (kind === 'event') {
+    return eventTimes[hash % eventTimes.length];
   }
 
   return revisionTimes[hash % revisionTimes.length];
 }
 
 function getEventColor(kind: AgendaKind) {
-  return kind === 'payment'
-    ? { accent: '#16A34A', soft: '#ECFDF5', border: '#BBF7D0' }
-    : { accent: '#D97706', soft: '#FFF7ED', border: '#FED7AA' };
+  if (kind === 'payment') {
+    return { accent: '#16A34A', soft: '#ECFDF5', border: '#BBF7D0' };
+  }
+
+  if (kind === 'event') {
+    return { accent: '#2563EB', soft: '#EFF6FF', border: '#BFDBFE' };
+  }
+
+  return { accent: '#D97706', soft: '#FFF7ED', border: '#FED7AA' };
+}
+
+function getEventStatusLabel(status: EventOccurrence['status']) {
+  if (status === 'completed') {
+    return 'Completado';
+  }
+
+  if (status === 'cancelled') {
+    return 'Cancelado';
+  }
+
+  if (status === 'rescheduled') {
+    return 'Reprogramado';
+  }
+
+  return 'Programado';
 }
 
 function getInitials(name: string) {
@@ -142,10 +148,18 @@ function getInitials(name: string) {
     .join('');
 }
 
-function buildAgendaEvents(clientData: AgendaClientData[], referenceDate = new Date()) {
+type AgendaBuildInput = {
+  clientData: AgendaClientData[];
+  events: Event[];
+  occurrences: EventOccurrence[];
+};
+
+function buildAgendaEvents({ clientData, events, occurrences }: AgendaBuildInput, referenceDate = new Date()) {
   const today = startOfDay(referenceDate);
   const horizon = addDays(today, 30);
-  const events: AgendaEvent[] = [];
+  const agendaEvents: AgendaEvent[] = [];
+  const clientById = new Map(clientData.map(({ client }) => [client.id, client] as const));
+  const eventById = new Map(events.map((event) => [event.id, event] as const));
 
   clientData.forEach(({ client, payments, revisions }) => {
     const paymentStatus = calculateClientPaymentStatus(client, payments, referenceDate);
@@ -157,10 +171,12 @@ function buildAgendaEvents(clientData: AgendaClientData[], referenceDate = new D
       if (nextPaymentDate >= today && nextPaymentDate <= horizon) {
         const color = getEventColor('payment');
 
-        events.push({
+        agendaEvents.push({
           id: `payment-${client.id}-${getDateKey(nextPaymentDate)}`,
           kind: 'payment',
           clientId: client.id,
+          eventId: null,
+          occurrenceId: null,
           clientName: client.name,
           date: nextPaymentDate,
           title: 'Cobro mensual',
@@ -178,10 +194,12 @@ function buildAgendaEvents(clientData: AgendaClientData[], referenceDate = new D
       if (nextRevisionDate >= today && nextRevisionDate <= horizon) {
         const color = getEventColor('revision');
 
-        events.push({
+        agendaEvents.push({
           id: `revision-${client.id}-${getDateKey(nextRevisionDate)}`,
           kind: 'revision',
           clientId: client.id,
+          eventId: null,
+          occurrenceId: null,
           clientName: client.name,
           date: nextRevisionDate,
           title: 'Revisión corporal',
@@ -194,12 +212,45 @@ function buildAgendaEvents(clientData: AgendaClientData[], referenceDate = new D
     }
   });
 
-  return events.sort((left, right) => left.date.getTime() - right.date.getTime() || left.timeLabel.localeCompare(right.timeLabel));
+  occurrences.forEach((occurrence) => {
+    const event = eventById.get(occurrence.eventId);
+
+    if (!event) {
+      return;
+    }
+
+    const plannedStartAt = new Date(occurrence.plannedStartAt);
+
+    if (Number.isNaN(plannedStartAt.getTime()) || plannedStartAt < today || plannedStartAt > horizon) {
+      return;
+    }
+
+    const client = event.clientId ? clientById.get(event.clientId) ?? null : null;
+
+    agendaEvents.push({
+      id: `event-${occurrence.id}`,
+      kind: 'event',
+      clientId: client?.id ?? event.clientId,
+      eventId: event.id,
+      occurrenceId: occurrence.id,
+      clientName: client?.name ?? 'Evento',
+      date: plannedStartAt,
+      title: event.title,
+      subtitle: event.description ?? event.location ?? 'Evento programado',
+      timeLabel: formatTimeLabel(plannedStartAt),
+      color: getEventColor('event').accent,
+      statusLabel: getEventStatusLabel(occurrence.status),
+    });
+  });
+
+  return agendaEvents.sort((left, right) => left.date.getTime() - right.date.getTime() || left.timeLabel.localeCompare(right.timeLabel));
 }
 
 export function AgendaScreen() {
   const { user } = useAuth();
   const [clientData, setClientData] = useState<AgendaClientData[]>([]);
+  const [eventSeries, setEventSeries] = useState<Event[]>([]);
+  const [eventOccurrences, setEventOccurrences] = useState<EventOccurrence[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedMode, setSelectedMode] = useState<AgendaMode>('day');
   const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()));
@@ -217,6 +268,9 @@ export function AgendaScreen() {
     setIsLoading(true);
 
     try {
+      const today = startOfDay(new Date());
+      const horizon = addDays(today, 30);
+      const horizonEnd = new Date(horizon.getFullYear(), horizon.getMonth(), horizon.getDate(), 23, 59, 59, 999);
       const nextClients = await clientsService.listByOwner(user.id);
       const nextClientData = await Promise.all(
         nextClients.map(async (client) => ({
@@ -225,12 +279,27 @@ export function AgendaScreen() {
           revisions: await revisionsService.listByClient(client.id),
         }))
       );
+      const nextEventSeries = await eventsService.listByOwner(user.id);
+
+      await Promise.all(
+        nextEventSeries.map((event) => eventsService.syncOccurrencesForEvent(event.id, user.id, today, horizonEnd))
+      );
+
+      const nextEventOccurrences = await eventsService.listOccurrencesByOwner(
+        user.id,
+        today.toISOString(),
+        horizonEnd.toISOString()
+      );
 
       setClientData(nextClientData);
+      setEventSeries(nextEventSeries);
+      setEventOccurrences(nextEventOccurrences);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo cargar la agenda.';
       Alert.alert('Error', message);
       setClientData([]);
+      setEventSeries([]);
+      setEventOccurrences([]);
     } finally {
       setIsLoading(false);
     }
@@ -246,7 +315,10 @@ export function AgendaScreen() {
     }, [loadAgenda])
   );
 
-  const agendaEvents = useMemo(() => buildAgendaEvents(clientData), [clientData]);
+  const agendaEvents = useMemo(
+    () => buildAgendaEvents({ clientData, events: eventSeries, occurrences: eventOccurrences }),
+    [clientData, eventSeries, eventOccurrences]
+  );
   const today = startOfDay(new Date());
   const calendarMonthLabel = useMemo(
     () =>
@@ -278,7 +350,7 @@ export function AgendaScreen() {
     return cells;
   }, [calendarMonth]);
   const calendarDays = useMemo(() => {
-    const monthMap = new Map<string, { paymentCount: number; revisionCount: number }>();
+    const monthMap = new Map<string, { paymentCount: number; revisionCount: number; eventCount: number }>();
 
     agendaEvents.forEach((event) => {
       if (event.date.getFullYear() !== calendarMonth.getFullYear() || event.date.getMonth() !== calendarMonth.getMonth()) {
@@ -286,12 +358,14 @@ export function AgendaScreen() {
       }
 
       const dateKey = getDateKey(event.date);
-      const currentValue = monthMap.get(dateKey) ?? { paymentCount: 0, revisionCount: 0 };
+      const currentValue = monthMap.get(dateKey) ?? { paymentCount: 0, revisionCount: 0, eventCount: 0 };
 
       if (event.kind === 'payment') {
         currentValue.paymentCount += 1;
-      } else {
+      } else if (event.kind === 'revision') {
         currentValue.revisionCount += 1;
+      } else {
+        currentValue.eventCount += 1;
       }
 
       monthMap.set(dateKey, currentValue);
@@ -341,7 +415,6 @@ export function AgendaScreen() {
     () => agendaEvents.filter((event) => event.date >= weekStart && event.date < addDays(weekStart, 7)),
     [agendaEvents, weekStart]
   );
-  const monthGrid = useMemo(() => buildMonthGrid(selectedDate), [selectedDate]);
   const timeSlots = useMemo(() => {
     const earliestEventHour = weekEvents.reduce((minimumHour, event) => {
       const eventHour = Number(event.timeLabel.split(':')[0]);
@@ -390,11 +463,26 @@ export function AgendaScreen() {
     setSelectedCalendarDateKey(null);
   }
 
-  function goToNewEvent() {
-    router.push('/revisions/new');
+  function openEventForm() {
+    router.push('/events/new');
+  }
+
+  function openAgendaItem(event: AgendaEvent) {
+    if (event.kind === 'event' && event.occurrenceId) {
+      router.push(`/events/occurrences/${event.occurrenceId}`);
+      return;
+    }
+
+    if (event.clientId) {
+      openClient(event.clientId);
+    }
   }
 
   function openClient(clientId: string) {
+    if (!clientId) {
+      return;
+    }
+
     router.push(`/clients/${clientId}`);
   }
 
@@ -407,6 +495,16 @@ export function AgendaScreen() {
             Agenda de hoy
           </ThemedText>
         </View>
+        <Pressable
+          onPress={openEventForm}
+          style={({ pressed }) => [styles.createEventButton, { opacity: pressed ? 0.92 : 1 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Crear evento">
+          <Ionicons name="add" size={16} color="#FFFFFF" />
+          <ThemedText type="smallBold" style={styles.createEventButtonText}>
+            Nuevo
+          </ThemedText>
+        </Pressable>
       </View>
 
       <View style={styles.modeShell}>
@@ -495,7 +593,7 @@ export function AgendaScreen() {
                       {slotEvents.map((event) => (
                         <Pressable
                           key={event.id}
-                          onPress={() => openClient(event.clientId)}
+                          onPress={() => openAgendaItem(event)}
                           style={({ pressed }) => [
                             styles.timelineEvent,
                             { backgroundColor: getEventColor(event.kind).soft, borderColor: getEventColor(event.kind).border },
@@ -555,6 +653,7 @@ export function AgendaScreen() {
               const dayInfo = calendarDays.get(getDateKey(currentDate));
               const hasPayment = Boolean(dayInfo?.paymentCount);
               const hasRevision = Boolean(dayInfo?.revisionCount);
+              const hasEvent = Boolean(dayInfo?.eventCount);
 
               return (
                 <Pressable
@@ -563,15 +662,15 @@ export function AgendaScreen() {
                   style={[
                     styles.calendarCell,
                     isToday && styles.calendarCellToday,
-                    hasPayment || hasRevision ? styles.calendarCellBusy : null,
+                    hasPayment || hasRevision || hasEvent ? styles.calendarCellBusy : null,
                   ]}>
                   <ThemedText
                     type="smallBold"
                     style={[
                       styles.calendarDayLabel,
-                      hasPayment || hasRevision ? styles.calendarDayLabelBusy : null,
+                      hasPayment || hasRevision || hasEvent ? styles.calendarDayLabelBusy : null,
                       isToday && styles.calendarDayLabelToday,
-                      !hasPayment && !hasRevision ? styles.calendarDayLabelMuted : null,
+                      !hasPayment && !hasRevision && !hasEvent ? styles.calendarDayLabelMuted : null,
                     ]}>
                     {day}
                   </ThemedText>
@@ -593,6 +692,16 @@ export function AgendaScreen() {
                         {dayInfo!.revisionCount > 1 ? (
                           <ThemedText type="small" style={styles.calendarMarkerCount}>
                             {dayInfo!.revisionCount}
+                          </ThemedText>
+                        ) : null}
+                      </View>
+                    ) : null}
+                    {hasEvent ? (
+                      <View style={styles.calendarMarkerRow}>
+                        <View style={[styles.calendarMarkerDot, styles.calendarMarkerEvent]} />
+                        {dayInfo!.eventCount > 1 ? (
+                          <ThemedText type="small" style={styles.calendarMarkerCount}>
+                            {dayInfo!.eventCount}
                           </ThemedText>
                         ) : null}
                       </View>
@@ -629,10 +738,10 @@ export function AgendaScreen() {
                 <StatusBanner tone="info" message="Ese día no tiene eventos programados." />
               ) : (
                 selectedCalendarItems.map((event) => (
-                  <Pressable key={event.id} onPress={() => openClient(event.clientId)} style={styles.calendarDetailItem}>
+                  <Pressable key={event.id} onPress={() => openAgendaItem(event)} style={styles.calendarDetailItem}>
                     <View style={[styles.calendarDetailMarker, { backgroundColor: `${event.color}18`, borderColor: `${event.color}30` }]}>
                       <ThemedText type="smallBold" style={[styles.calendarDetailMarkerText, { color: event.color }]}>
-                        {event.kind === 'payment' ? 'P' : 'R'}
+                        {event.kind === 'payment' ? 'P' : event.kind === 'revision' ? 'R' : 'E'}
                       </ThemedText>
                     </View>
                     <View style={styles.calendarDetailItemCopy}>
@@ -710,7 +819,7 @@ export function AgendaScreen() {
             selectedDayEvents.map((event, index) => (
               <Pressable
                 key={event.id}
-                onPress={() => openClient(event.clientId)}
+                onPress={() => openAgendaItem(event)}
                 style={({ pressed }) => [
                   styles.dayRow,
                   index !== selectedDayEvents.length - 1 && styles.dayRowSpacing,
@@ -770,6 +879,23 @@ const styles = StyleSheet.create({
   headerCopy: {
     flex: 1,
     gap: 2,
+  },
+  createEventButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    backgroundColor: Accent.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    shadowColor: Accent.primary,
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  createEventButtonText: {
+    color: '#FFFFFF',
   },
   title: {
     color: '#10203B',
@@ -1110,6 +1236,9 @@ const styles = StyleSheet.create({
   },
   calendarMarkerRevision: {
     backgroundColor: '#D97706',
+  },
+  calendarMarkerEvent: {
+    backgroundColor: '#2563EB',
   },
   calendarMarkerCount: {
     color: '#60738F',

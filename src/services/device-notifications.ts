@@ -3,15 +3,20 @@ import { Platform } from 'react-native';
 
 import { clientPaymentsService } from '@/services/client-payments';
 import { clientsService } from '@/services/clients';
+import { eventsService } from '@/services/events';
 import { revisionsService } from '@/services/revisions';
-import { ClientDashboardData, DashboardNotificationItem, buildDashboardNotifications } from '@/utils/client-notifications';
+import { buildDashboardNotifications, ClientDashboardData, DashboardNotificationItem } from '@/utils/client-notifications';
+import { buildEventNotifications, EventNotificationItem } from '@/utils/event-notifications';
 
 const NOTIFICATION_CHANNEL_ID = 'evometrics-reminders';
 const REMINDER_HOUR = 23;
 const REMINDER_MINUTE = 59;
+const REMINDER_REPEAT_DAYS = 2;
+const REMINDER_SCHEDULE_HORIZON_DAYS = 90;
 
 type NotificationsModule = typeof import('expo-notifications');
 type NotificationContentInput = import('expo-notifications').NotificationContentInput;
+type ReminderNotificationItem = DashboardNotificationItem | EventNotificationItem;
 
 type ExpoRuntimeInfo = {
   appOwnership?: string;
@@ -111,20 +116,16 @@ export async function ensureDeviceNotificationsPermission() {
   return requestedPermission.status === 'granted';
 }
 
-function getWeeklyTriggerFromDate(value: Date) {
+function addDays(value: Date, days: number) {
+  const nextDate = new Date(value);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+}
+
+function getNotificationTriggerDate(value: Date) {
   const triggerDate = new Date(value);
-  const weekday = triggerDate.getDay() === 0 ? 1 : triggerDate.getDay() + 1;
-
   triggerDate.setHours(REMINDER_HOUR, REMINDER_MINUTE, 0, 0);
-
-  return {
-    type: 'weekly',
-    channelId: NOTIFICATION_CHANNEL_ID,
-    weekday,
-    hour: triggerDate.getHours(),
-    minute: triggerDate.getMinutes(),
-    repeats: true,
-  };
+  return triggerDate;
 }
 
 function getNotificationScheduleBaseDate(nextDate: string | null) {
@@ -140,61 +141,64 @@ function getNotificationScheduleBaseDate(nextDate: string | null) {
     return now;
   }
 
-  return parsedNextDate > now ? parsedNextDate : now;
+  return parsedNextDate;
 }
 
-function shouldSendOverdueNotification(notification: DashboardNotificationItem, referenceDate: Date) {
-  if (!notification.nextDate) {
-    return false;
+function getScheduledReminderDates(notification: ReminderNotificationItem, referenceDate: Date) {
+  const baseDate = getNotificationScheduleBaseDate(notification.nextDate);
+  const firstReminderDate = getNotificationTriggerDate(baseDate);
+  const scheduledDates: Date[] = [];
+  const horizonDate = addDays(referenceDate, REMINDER_SCHEDULE_HORIZON_DAYS);
+
+  if (firstReminderDate <= referenceDate) {
+    scheduledDates.push(referenceDate);
   }
 
-  const nextDate = new Date(notification.nextDate);
+  let nextReminderDate = firstReminderDate > referenceDate ? firstReminderDate : addDays(firstReminderDate, REMINDER_REPEAT_DAYS);
 
-  if (Number.isNaN(nextDate.getTime())) {
-    return false;
+  while (nextReminderDate <= horizonDate) {
+    scheduledDates.push(nextReminderDate);
+    nextReminderDate = addDays(nextReminderDate, REMINDER_REPEAT_DAYS);
   }
 
-  return nextDate < referenceDate;
+  return scheduledDates;
 }
 
-function getNotificationContent(notification: DashboardNotificationItem): NotificationContentInput {
+function getNotificationContent(notification: ReminderNotificationItem): NotificationContentInput {
   const isPayment = notification.kind === 'payment';
+  const isRevision = notification.kind === 'revision';
+  const isEvent = notification.kind === 'event';
 
   return {
-    title: isPayment ? 'Pago pendiente' : 'Revisión pendiente',
+    title: isPayment ? 'Pago pendiente' : isRevision ? 'Revisión pendiente' : 'Evento próximo',
     body: isPayment
       ? `${notification.clientName} tiene un pago pendiente.`
-      : `${notification.clientName} tiene una revisión pendiente.`,
+      : isRevision
+        ? `${notification.clientName} tiene una revisión pendiente.`
+        : `${notification.eventTitle} está próxima.`,
     sound: 'default',
     priority: 'high',
     data: {
       kind: notification.kind,
       clientId: notification.clientId,
       clientName: notification.clientName,
+      eventId: isEvent ? notification.eventId : undefined,
+      occurrenceId: isEvent ? notification.occurrenceId : undefined,
     },
   };
 }
 
-async function scheduleNotification(notification: DashboardNotificationItem) {
-  const Notifications = await loadNotificationsModule();
-
-  if (!Notifications) {
-    return;
-  }
-
-  const baseDate = getNotificationScheduleBaseDate(notification.nextDate);
-  const shouldSendNow = shouldSendOverdueNotification(notification, new Date());
+async function scheduleNotification(Notifications: NotificationsModule, notification: ReminderNotificationItem, triggerDate: Date) {
+  const secondsUntilTrigger = Math.max(1, Math.ceil((triggerDate.getTime() - Date.now()) / 1000));
 
   await Notifications.scheduleNotificationAsync({
     content: getNotificationContent(notification),
-    trigger: shouldSendNow
-      ? {
-          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-          seconds: 1,
-          repeats: false,
-          channelId: NOTIFICATION_CHANNEL_ID,
-        }
-      : getWeeklyTriggerFromDate(baseDate),
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+      seconds: secondsUntilTrigger,
+      repeats: false,
+      channelId: NOTIFICATION_CHANNEL_ID,
+    },
   });
 }
 
@@ -253,13 +257,30 @@ export async function syncDeviceNotifications(clientData: ClientDashboardData[])
 
   await Notifications.cancelAllScheduledNotificationsAsync();
 
+  const referenceDate = new Date();
   const notifications = buildDashboardNotifications(clientData);
 
   for (const notification of notifications) {
-    await scheduleNotification(notification);
+    const scheduledDates = getScheduledReminderDates(notification, referenceDate);
+
+    for (const triggerDate of scheduledDates) {
+      await scheduleNotification(Notifications, notification, triggerDate);
+    }
   }
 
   return true;
+}
+
+async function buildEventNotificationData(userId: string) {
+  const clients = await clientsService.listByOwner(userId);
+  const events = await eventsService.listByOwner(userId);
+
+  const horizonStart = new Date();
+  const horizonEnd = new Date(horizonStart);
+  horizonEnd.setDate(horizonEnd.getDate() + 90);
+  const occurrences = await eventsService.syncOccurrencesForOwner(userId, horizonStart, horizonEnd);
+
+  return buildEventNotifications({ clients, events, occurrences }, horizonStart);
 }
 
 export async function resyncDeviceNotificationsIfNeeded(clientData: ClientDashboardData[]) {
@@ -281,10 +302,15 @@ export async function resyncDeviceNotificationsIfNeeded(clientData: ClientDashbo
 
   await Notifications.cancelAllScheduledNotificationsAsync();
 
+  const referenceDate = new Date();
   const notifications = buildDashboardNotifications(clientData);
 
   for (const notification of notifications) {
-    await scheduleNotification(notification);
+    const scheduledDates = getScheduledReminderDates(notification, referenceDate);
+
+    for (const triggerDate of scheduledDates) {
+      await scheduleNotification(Notifications, notification, triggerDate);
+    }
   }
 
   return true;
@@ -305,5 +331,36 @@ export async function syncDeviceNotificationsForUser(userId: string) {
     }))
   );
 
-  return syncDeviceNotifications(nextClientData);
+  const eventNotifications = await buildEventNotificationData(userId);
+
+  if (!supportsDeviceNotifications()) {
+    return false;
+  }
+
+  const hasPermission = await ensureDeviceNotificationsPermission();
+
+  if (!hasPermission) {
+    return false;
+  }
+
+  const Notifications = await loadNotificationsModule();
+
+  if (!Notifications) {
+    return false;
+  }
+
+  await Notifications.cancelAllScheduledNotificationsAsync();
+
+  const referenceDate = new Date();
+  const notifications = [...buildDashboardNotifications(nextClientData), ...eventNotifications];
+
+  for (const notification of notifications) {
+    const scheduledDates = getScheduledReminderDates(notification, referenceDate);
+
+    for (const triggerDate of scheduledDates) {
+      await scheduleNotification(Notifications, notification, triggerDate);
+    }
+  }
+
+  return true;
 }
