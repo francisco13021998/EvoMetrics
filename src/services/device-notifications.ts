@@ -5,14 +5,20 @@ import { clientPaymentsService } from '@/services/client-payments';
 import { clientsService } from '@/services/clients';
 import { eventsService } from '@/services/events';
 import { revisionsService } from '@/services/revisions';
-import { buildDashboardNotifications, ClientDashboardData, DashboardNotificationItem } from '@/utils/client-notifications';
+import { buildDashboardNotifications, DashboardNotificationItem } from '@/utils/client-notifications';
 import { buildEventNotifications, EventNotificationItem } from '@/utils/event-notifications';
 
 const NOTIFICATION_CHANNEL_ID = 'evometrics-reminders';
 const REMINDER_HOUR = 23;
 const REMINDER_MINUTE = 59;
 const REMINDER_REPEAT_DAYS = 2;
-const REMINDER_SCHEDULE_HORIZON_DAYS = 90;
+// 14 días (antes 90): con repetición cada 2 días y varios items, 90 días superaba de largo
+// el límite de 64 notificaciones pendientes de iOS.
+const REMINDER_SCHEDULE_HORIZON_DAYS = 14;
+// Tope global de notificaciones programadas (iOS descarta a partir de 64).
+const MAX_SCHEDULED_NOTIFICATIONS = 60;
+// Los eventos avisan una única vez, un rato antes de empezar (no a las 23:59 del día del evento).
+const EVENT_REMINDER_LEAD_MINUTES = 60;
 
 type NotificationsModule = typeof import('expo-notifications');
 type NotificationContentInput = import('expo-notifications').NotificationContentInput;
@@ -145,16 +151,36 @@ function getNotificationScheduleBaseDate(nextDate: string | null) {
 }
 
 function getScheduledReminderDates(notification: ReminderNotificationItem, referenceDate: Date) {
+  // Eventos: un único aviso poco antes de empezar; si ya pasó, nada.
+  if (notification.kind === 'event') {
+    if (!notification.nextDate) {
+      return [];
+    }
+
+    const plannedStartAt = new Date(notification.nextDate);
+
+    if (Number.isNaN(plannedStartAt.getTime())) {
+      return [];
+    }
+
+    const reminderDate = new Date(plannedStartAt.getTime() - EVENT_REMINDER_LEAD_MINUTES * 60 * 1000);
+
+    return reminderDate > referenceDate ? [reminderDate] : [];
+  }
+
   const baseDate = getNotificationScheduleBaseDate(notification.nextDate);
   const firstReminderDate = getNotificationTriggerDate(baseDate);
   const scheduledDates: Date[] = [];
   const horizonDate = addDays(referenceDate, REMINDER_SCHEDULE_HORIZON_DAYS);
 
-  if (firstReminderDate <= referenceDate) {
-    scheduledDates.push(referenceDate);
-  }
+  // Items vencidos: nada de disparo inmediato en cada resync — el primer aviso es el próximo
+  // 23:59 (hoy si aún no pasó, si no mañana).
+  let nextReminderDate = firstReminderDate;
 
-  let nextReminderDate = firstReminderDate > referenceDate ? firstReminderDate : addDays(firstReminderDate, REMINDER_REPEAT_DAYS);
+  if (nextReminderDate <= referenceDate) {
+    const todayTrigger = getNotificationTriggerDate(referenceDate);
+    nextReminderDate = todayTrigger > referenceDate ? todayTrigger : getNotificationTriggerDate(addDays(referenceDate, 1));
+  }
 
   while (nextReminderDate <= horizonDate) {
     scheduledDates.push(nextReminderDate);
@@ -165,25 +191,26 @@ function getScheduledReminderDates(notification: ReminderNotificationItem, refer
 }
 
 function getNotificationContent(notification: ReminderNotificationItem): NotificationContentInput {
-  const isPayment = notification.kind === 'payment';
-  const isRevision = notification.kind === 'revision';
-  const isEvent = notification.kind === 'event';
+  const title =
+    notification.kind === 'payment' ? 'Pago pendiente' : notification.kind === 'revision' ? 'Revisión pendiente' : 'Evento próximo';
+  const body =
+    notification.kind === 'event'
+      ? `${notification.eventTitle} está próxima.`
+      : notification.kind === 'payment'
+        ? `${notification.clientName} tiene un pago pendiente.`
+        : `${notification.clientName} tiene una revisión pendiente.`;
 
   return {
-    title: isPayment ? 'Pago pendiente' : isRevision ? 'Revisión pendiente' : 'Evento próximo',
-    body: isPayment
-      ? `${notification.clientName} tiene un pago pendiente.`
-      : isRevision
-        ? `${notification.clientName} tiene una revisión pendiente.`
-        : `${notification.eventTitle} está próxima.`,
+    title,
+    body,
     sound: 'default',
     priority: 'high',
     data: {
       kind: notification.kind,
       clientId: notification.clientId,
       clientName: notification.clientName,
-      eventId: isEvent ? notification.eventId : undefined,
-      occurrenceId: isEvent ? notification.occurrenceId : undefined,
+      eventId: notification.kind === 'event' ? notification.eventId : undefined,
+      occurrenceId: notification.kind === 'event' ? notification.occurrenceId : undefined,
     },
   };
 }
@@ -238,39 +265,6 @@ export async function scheduleTestDeviceNotification() {
   });
 }
 
-export async function syncDeviceNotifications(clientData: ClientDashboardData[]) {
-  if (!supportsDeviceNotifications()) {
-    return false;
-  }
-
-  const hasPermission = await ensureDeviceNotificationsPermission();
-
-  if (!hasPermission) {
-    return false;
-  }
-
-  const Notifications = await loadNotificationsModule();
-
-  if (!Notifications) {
-    return false;
-  }
-
-  await Notifications.cancelAllScheduledNotificationsAsync();
-
-  const referenceDate = new Date();
-  const notifications = buildDashboardNotifications(clientData);
-
-  for (const notification of notifications) {
-    const scheduledDates = getScheduledReminderDates(notification, referenceDate);
-
-    for (const triggerDate of scheduledDates) {
-      await scheduleNotification(Notifications, notification, triggerDate);
-    }
-  }
-
-  return true;
-}
-
 async function buildEventNotificationData(userId: string) {
   const clients = await clientsService.listByOwner(userId);
   const events = await eventsService.listByOwner(userId);
@@ -283,59 +277,26 @@ async function buildEventNotificationData(userId: string) {
   return buildEventNotifications({ clients, events, occurrences }, horizonStart);
 }
 
-export async function resyncDeviceNotificationsIfNeeded(clientData: ClientDashboardData[]) {
-  if (!supportsDeviceNotifications()) {
-    return false;
-  }
-
-  const hasPermission = await ensureDeviceNotificationsPermission();
-
-  if (!hasPermission) {
-    return false;
-  }
-
-  const Notifications = await loadNotificationsModule();
-
-  if (!Notifications) {
-    return false;
-  }
-
-  await Notifications.cancelAllScheduledNotificationsAsync();
-
-  const referenceDate = new Date();
-  const notifications = buildDashboardNotifications(clientData);
-
-  for (const notification of notifications) {
-    const scheduledDates = getScheduledReminderDates(notification, referenceDate);
-
-    for (const triggerDate of scheduledDates) {
-      await scheduleNotification(Notifications, notification, triggerDate);
-    }
-  }
-
-  return true;
-}
-
 export async function syncDeviceNotificationsForUser(userId: string) {
   if (!supportsDeviceNotifications()) {
     return false;
   }
 
   const clients = await clientsService.listByOwner(userId);
+  const clientIds = clients.map((client) => client.id);
 
-  const nextClientData = await Promise.all(
-    clients.map(async (client) => ({
-      client,
-      payments: await clientPaymentsService.listByClient(client.id),
-      revisions: await revisionsService.listByClient(client.id),
-    }))
-  );
+  const [paymentsByClientId, revisionsByClientId] = await Promise.all([
+    clientPaymentsService.listByClients(clientIds),
+    revisionsService.listByClients(clientIds),
+  ]);
+
+  const nextClientData = clients.map((client) => ({
+    client,
+    payments: paymentsByClientId[client.id] ?? [],
+    revisions: revisionsByClientId[client.id] ?? [],
+  }));
 
   const eventNotifications = await buildEventNotificationData(userId);
-
-  if (!supportsDeviceNotifications()) {
-    return false;
-  }
 
   const hasPermission = await ensureDeviceNotificationsPermission();
 
@@ -354,12 +315,16 @@ export async function syncDeviceNotificationsForUser(userId: string) {
   const referenceDate = new Date();
   const notifications = [...buildDashboardNotifications(nextClientData), ...eventNotifications];
 
-  for (const notification of notifications) {
-    const scheduledDates = getScheduledReminderDates(notification, referenceDate);
+  // Se programan como máximo las MAX_SCHEDULED_NOTIFICATIONS más próximas en el tiempo.
+  const pendingTriggers = notifications
+    .flatMap((notification) =>
+      getScheduledReminderDates(notification, referenceDate).map((triggerDate) => ({ notification, triggerDate }))
+    )
+    .sort((left, right) => left.triggerDate.getTime() - right.triggerDate.getTime())
+    .slice(0, MAX_SCHEDULED_NOTIFICATIONS);
 
-    for (const triggerDate of scheduledDates) {
-      await scheduleNotification(Notifications, notification, triggerDate);
-    }
+  for (const { notification, triggerDate } of pendingTriggers) {
+    await scheduleNotification(Notifications, notification, triggerDate);
   }
 
   return true;

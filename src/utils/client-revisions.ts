@@ -1,4 +1,5 @@
 import { Client, Revision } from '@/types/domain';
+import { addMonths, startOfDay, toLocalDate } from '@/utils/date-only';
 
 export const INACTIVE_REVISION_FREQUENCY_VALUE = 9999;
 
@@ -9,41 +10,6 @@ export function isRevisionFrequencyActive(
   const normalizedValue = value ?? 0;
 
   return normalizedValue > 0 && normalizedValue < INACTIVE_REVISION_FREQUENCY_VALUE && Boolean(unit);
-}
-
-function startOfDay(value: Date) {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0);
-}
-
-function addMonths(date: Date, months: number) {
-  const result = new Date(date);
-  const targetDay = result.getDate();
-
-  result.setDate(1);
-  result.setMonth(result.getMonth() + months);
-
-  const maxDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
-  result.setDate(Math.min(targetDay, maxDay));
-
-  return startOfDay(result);
-}
-
-function toLocalDate(value: string | Date | null | undefined) {
-  if (!value) {
-    return null;
-  }
-
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : startOfDay(value);
-  }
-
-  const parsed = new Date(value);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  return startOfDay(parsed);
 }
 
 export type ClientRevisionStatus = {
@@ -64,13 +30,30 @@ export function calculateNextRevisionDate(referenceDate: Date, value: number, un
   return addMonths(baseDate, value);
 }
 
+// La revisión de referencia es la de reviewedAt más reciente, sin confiar en el orden del array.
+function findLatestRevision(revisions: Revision[] | null | undefined) {
+  let latestRevision: Revision | null = null;
+  let latestTime = Number.NEGATIVE_INFINITY;
+
+  for (const revision of revisions ?? []) {
+    const revisionTime = toLocalDate(revision.reviewedAt)?.getTime() ?? Number.NEGATIVE_INFINITY;
+
+    if (revisionTime > latestTime) {
+      latestTime = revisionTime;
+      latestRevision = revision;
+    }
+  }
+
+  return latestRevision;
+}
+
 export function calculateClientRevisionStatus(
   client: Pick<Client, 'createdAt' | 'revisionFrequencyValue' | 'revisionFrequencyUnit'> | null | undefined,
   revisions: Revision[] | null | undefined,
   referenceDate = new Date()
 ): ClientRevisionStatus {
   const normalizedReference = startOfDay(referenceDate);
-  const latestRevision = revisions?.[0] ?? null;
+  const latestRevision = findLatestRevision(revisions);
   const latestRevisionDate = toLocalDate(latestRevision?.reviewedAt ?? null);
   const fallbackStartDate = toLocalDate(client?.createdAt ?? null) ?? normalizedReference;
   const isConfigured = Boolean(isRevisionFrequencyActive(client?.revisionFrequencyValue, client?.revisionFrequencyUnit));

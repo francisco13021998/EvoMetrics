@@ -1,5 +1,6 @@
+import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { EmptyState } from '@/components/feedback/empty-state';
@@ -127,7 +128,7 @@ export function ClientHistoryMetricDetailScreen({ clientId, metricKey }: ClientH
         return;
       }
 
-      const revisions = await revisionsService.listByClient(nextClient.id);
+      const revisions = await revisionsService.listByClient(nextClient.id, isAthlete ? undefined : user.id);
       setHistoricalRevisions(buildHistoricalRevisionMetrics(nextClient, revisions));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo cargar el detalle de la métrica.';
@@ -135,11 +136,14 @@ export function ClientHistoryMetricDetailScreen({ clientId, metricKey }: ClientH
     } finally {
       setIsLoading(false);
     }
-  }, [clientId, user?.id]);
+  }, [clientId, user?.id, isAthlete]);
 
-  useEffect(() => {
-    void loadContent();
-  }, [loadContent]);
+  // Recarga al volver a enfocar la pantalla para no mostrar datos obsoletos.
+  useFocusEffect(
+    useCallback(() => {
+      void loadContent();
+    }, [loadContent])
+  );
 
   const metricEntries = useMemo<MetricHistoryEntry[]>(() => {
     if (!metric) {

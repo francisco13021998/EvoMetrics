@@ -9,7 +9,7 @@ export default function ClientDetailRoute() {
 
   return (
     <ProtectedRoute>
-      <ClientDetailScreen clientId={clientId ?? 'client-1'} />
+      <ClientDetailScreen clientId={clientId ?? ''} />
     </ProtectedRoute>
   );
 }

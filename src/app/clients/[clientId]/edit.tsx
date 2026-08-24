@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 
-import { ProtectedRoute } from '@/components/auth/auth-route';
+import { TrainerRoute } from '@/components/auth/auth-route';
 import { ClientFormScreen } from '@/screens/clients/client-form-screen';
 
 export default function EditClientRoute() {
@@ -8,8 +8,8 @@ export default function EditClientRoute() {
   const clientId = Array.isArray(params.clientId) ? params.clientId[0] : params.clientId;
 
   return (
-    <ProtectedRoute>
+    <TrainerRoute>
       <ClientFormScreen mode="edit" clientId={clientId} />
-    </ProtectedRoute>
+    </TrainerRoute>
   );
 }

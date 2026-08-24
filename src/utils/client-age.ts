@@ -1,36 +1,8 @@
 import { Client } from '@/types/domain';
-
-function parseDateParts(value: string) {
-  const [yearString, monthString, dayString] = value.trim().split('-');
-  const year = Number(yearString);
-  const month = Number(monthString);
-  const day = Number(dayString);
-
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
-    return null;
-  }
-
-  return new Date(year, month - 1, day, 0, 0, 0, 0);
-}
-
-function normalizeDateInput(value: string | Date | null | undefined) {
-  if (!value) {
-    return null;
-  }
-
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : new Date(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0);
-  }
-
-  return parseDateParts(value);
-}
+import { formatDateOnly as formatDateOnlyShared, parseDateOnly as parseDateOnlyShared, toLocalDate } from '@/utils/date-only';
 
 export function formatDateOnly(value: Date) {
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, '0');
-  const day = String(value.getDate()).padStart(2, '0');
-
-  return `${year}-${month}-${day}`;
+  return formatDateOnlyShared(value);
 }
 
 export function parseDateOnly(value: string | null | undefined) {
@@ -38,11 +10,11 @@ export function parseDateOnly(value: string | null | undefined) {
     return null;
   }
 
-  return parseDateParts(value);
+  return parseDateOnlyShared(value);
 }
 
 export function calculateAgeFromBirthDate(birthDate: string | Date | null | undefined, referenceDate = new Date()) {
-  const normalizedBirthDate = normalizeDateInput(birthDate);
+  const normalizedBirthDate = toLocalDate(birthDate);
 
   if (!normalizedBirthDate || Number.isNaN(referenceDate.getTime())) {
     return null;

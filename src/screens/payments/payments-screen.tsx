@@ -279,18 +279,17 @@ export function PaymentsScreen() {
 
     try {
       const nextClients = await clientsService.listByOwner(user.id);
-      const nextClientData = await Promise.all(
-        nextClients.map(async (client) => {
-          const payments = await clientPaymentsService.listByClient(client.id);
-          const paymentStatus = calculateClientPaymentStatus(client, payments, new Date());
+      const paymentsByClientId = await clientPaymentsService.listByClients(nextClients.map((client) => client.id));
+      const nextClientData = nextClients.map((client) => {
+        const payments = paymentsByClientId[client.id] ?? [];
+        const paymentStatus = calculateClientPaymentStatus(client, payments, new Date());
 
-          return {
-            client,
-            payments,
-            paymentStatus,
-          } satisfies PaymentsClientData;
-        })
-      );
+        return {
+          client,
+          payments,
+          paymentStatus,
+        } satisfies PaymentsClientData;
+      });
 
       setClientData(nextClientData);
     } catch (error) {
@@ -352,9 +351,10 @@ export function PaymentsScreen() {
       .filter(({ paymentStatus }) => paymentStatus.isPending)
       .map(({ client, paymentStatus }) => ({ client, paymentStatus }))
       .sort((left, right) => {
+        // Ascendente: primero el vencimiento más antiguo (lo más urgente).
         const leftDate = left.paymentStatus.nextPaymentDate?.getTime() ?? 0;
         const rightDate = right.paymentStatus.nextPaymentDate?.getTime() ?? 0;
-        return rightDate - leftDate;
+        return leftDate - rightDate;
       });
   }, [paymentSnapshots]);
 
@@ -364,9 +364,10 @@ export function PaymentsScreen() {
       .map(({ client, paymentStatus }) => ({ client, paymentStatus }))
       .filter(({ paymentStatus }) => paymentStatus.nextPaymentDate !== null && paymentStatus.nextPaymentDate! > today)
       .sort((left, right) => {
+        // Ascendente: primero el cobro más próximo en el tiempo.
         const leftDate = left.paymentStatus.nextPaymentDate?.getTime() ?? 0;
         const rightDate = right.paymentStatus.nextPaymentDate?.getTime() ?? 0;
-        return rightDate - leftDate;
+        return leftDate - rightDate;
       });
   }, [paymentSnapshots, today]);
 
@@ -645,8 +646,8 @@ export function PaymentsScreen() {
               <StatusBanner tone="info" message="Aún no hay pagos registrados." />
             ) : (
               <View style={styles.listShell}>
-                {sortedHistoryEntries.slice(0, 4).map((entry, index) => (
-                  <Pressable key={entry.id} onPress={() => openClientPayments(entry.clientId)} style={({ pressed }) => [styles.historyRow, index === sortedHistoryEntries.length - 1 && styles.historyRowLast, { opacity: pressed ? 0.92 : 1 }]}>
+                {sortedHistoryEntries.slice(0, 4).map((entry, index, visibleEntries) => (
+                  <Pressable key={entry.id} onPress={() => openClientPayments(entry.clientId)} style={({ pressed }) => [styles.historyRow, index === visibleEntries.length - 1 && styles.historyRowLast, { opacity: pressed ? 0.92 : 1 }]}>
                     <View style={styles.avatarCircle}>
                       <ThemedText type="smallBold" style={styles.avatarText}>{getInitials(entry.clientName) || 'P'}</ThemedText>
                     </View>

@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Modal, Pressable, StyleSheet, View } from 'react-native';
 
 import { StatusBanner } from '@/components/feedback/status-banner';
+import { AppButton } from '@/components/forms/app-button';
 import { ScreenContainer } from '@/components/layout/screen-container';
 import { ThemedText } from '@/components/themed-text';
 import { Accent, Radius, Spacing } from '@/constants/theme';
@@ -94,22 +95,9 @@ function getWeekStart(value: Date) {
   return addDays(date, diff);
 }
 
-function getTimeByKind(kind: AgendaKind, seed: string) {
-  const hash = seed.split('').reduce((total, char) => total + char.charCodeAt(0), 0);
-  const revisionTimes = ['09:00', '11:00', '18:00'];
-  const paymentTimes = ['13:30', '14:00', '17:00'];
-  const eventTimes = ['08:00', '10:30', '16:00'];
-
-  if (kind === 'payment') {
-    return paymentTimes[hash % paymentTimes.length];
-  }
-
-  if (kind === 'event') {
-    return eventTimes[hash % eventTimes.length];
-  }
-
-  return revisionTimes[hash % revisionTimes.length];
-}
+// Los cobros y revisiones no tienen hora real: se muestran como items "sin hora"
+// (antes se les inventaba una hora derivada de un hash del id del cliente).
+const NO_TIME_LABEL = 'Sin hora';
 
 function getEventColor(kind: AgendaKind) {
   if (kind === 'payment') {
@@ -181,7 +169,7 @@ function buildAgendaEvents({ clientData, events, occurrences }: AgendaBuildInput
           date: nextPaymentDate,
           title: 'Cobro mensual',
           subtitle: `Cuota de ${client.name}`,
-          timeLabel: getTimeByKind('payment', client.id),
+          timeLabel: NO_TIME_LABEL,
           color: color.accent,
           statusLabel: paymentStatus.isPending ? 'Pendiente' : 'Programado',
         });
@@ -204,7 +192,7 @@ function buildAgendaEvents({ clientData, events, occurrences }: AgendaBuildInput
           date: nextRevisionDate,
           title: 'Revisión corporal',
           subtitle: `Seguimiento de ${client.name}`,
-          timeLabel: getTimeByKind('revision', client.id),
+          timeLabel: NO_TIME_LABEL,
           color: color.accent,
           statusLabel: revisionStatus.isPending ? 'Pendiente' : 'Programado',
         });
@@ -252,6 +240,7 @@ export function AgendaScreen() {
   const [eventSeries, setEventSeries] = useState<Event[]>([]);
   const [eventOccurrences, setEventOccurrences] = useState<EventOccurrence[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedMode, setSelectedMode] = useState<AgendaMode>('day');
   const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()));
   const [weekStartDate, setWeekStartDate] = useState(() => startOfWeekMonday(startOfDay(new Date())));
@@ -266,49 +255,43 @@ export function AgendaScreen() {
     }
 
     setIsLoading(true);
+    setErrorMessage(null);
 
     try {
       const today = startOfDay(new Date());
       const horizon = addDays(today, 30);
       const horizonEnd = new Date(horizon.getFullYear(), horizon.getMonth(), horizon.getDate(), 23, 59, 59, 999);
       const nextClients = await clientsService.listByOwner(user.id);
-      const nextClientData = await Promise.all(
-        nextClients.map(async (client) => ({
-          client,
-          payments: await clientPaymentsService.listByClient(client.id),
-          revisions: await revisionsService.listByClient(client.id),
-        }))
-      );
+
+      const clientIds = nextClients.map((client) => client.id);
+      const [paymentsByClientId, revisionsByClientId] = await Promise.all([
+        clientPaymentsService.listByClients(clientIds),
+        revisionsService.listByClients(clientIds),
+      ]);
+
+      const nextClientData = nextClients.map((client) => ({
+        client,
+        payments: paymentsByClientId[client.id] ?? [],
+        revisions: revisionsByClientId[client.id] ?? [],
+      }));
+
       const nextEventSeries = await eventsService.listByOwner(user.id);
-
-      await Promise.all(
-        nextEventSeries.map((event) => eventsService.syncOccurrencesForEvent(event.id, user.id, today, horizonEnd))
-      );
-
-      const nextEventOccurrences = await eventsService.listOccurrencesByOwner(
-        user.id,
-        today.toISOString(),
-        horizonEnd.toISOString()
-      );
+      const nextEventOccurrences = await eventsService.syncOccurrencesForOwner(user.id, today, horizonEnd);
 
       setClientData(nextClientData);
       setEventSeries(nextEventSeries);
       setEventOccurrences(nextEventOccurrences);
     } catch (error) {
+      // Se conservan los datos ya cargados: un fallo puntual de red al volver a la
+      // pestaña no debe dejar la agenda en blanco.
       const message = error instanceof Error ? error.message : 'No se pudo cargar la agenda.';
-      Alert.alert('Error', message);
-      setClientData([]);
-      setEventSeries([]);
-      setEventOccurrences([]);
+      setErrorMessage(message);
     } finally {
       setIsLoading(false);
     }
   }, [user?.id]);
 
-  useEffect(() => {
-    void loadAgenda();
-  }, [loadAgenda]);
-
+  // useFocusEffect ya se dispara también al montar: no hace falta un useEffect adicional.
   useFocusEffect(
     React.useCallback(() => {
       void loadAgenda();
@@ -507,6 +490,22 @@ export function AgendaScreen() {
         </Pressable>
       </View>
 
+      {errorMessage ? (
+        <View style={styles.errorBanner}>
+          <StatusBanner tone="danger" title="No se pudo actualizar la agenda" message={errorMessage} />
+          <AppButton
+            label="Reintentar"
+            variant="secondary"
+            size="compact"
+            fullWidth={false}
+            onPress={() => {
+              void loadAgenda();
+            }}
+            loading={isLoading}
+          />
+        </View>
+      ) : null}
+
       <View style={styles.modeShell}>
         {(['day', 'week', 'month'] as AgendaMode[]).map((mode) => {
           const isActive = selectedMode === mode;
@@ -576,6 +575,37 @@ export function AgendaScreen() {
           </View>
 
           <View style={styles.timelineBody}>
+            {/* Franja "Sin hora": cobros y revisiones no tienen hora real y no van al timeline horario. */}
+            {weekEvents.some((event) => event.timeLabel === NO_TIME_LABEL) ? (
+              <View style={styles.timelineRow}>
+                <View style={styles.timelineTimeCell}>
+                  <ThemedText type="small" themeColor="textSecondary" style={styles.timelineTimeText}>
+                    {NO_TIME_LABEL}
+                  </ThemedText>
+                </View>
+                {weekDays.map((day) => {
+                  const dayKey = getDateKey(day);
+                  const noTimeEvents = weekEvents.filter((event) => getDateKey(event.date) === dayKey && event.timeLabel === NO_TIME_LABEL);
+
+                  return (
+                    <View key={`${dayKey}-no-time`} style={styles.timelineCell}>
+                      {noTimeEvents.map((event) => (
+                        <Pressable
+                          key={event.id}
+                          onPress={() => openAgendaItem(event)}
+                          style={({ pressed }) => [
+                            styles.timelineEvent,
+                            { backgroundColor: getEventColor(event.kind).soft, borderColor: getEventColor(event.kind).border },
+                            { opacity: pressed ? 0.92 : 1 },
+                          ]}>
+                          <View style={[styles.timelineEventDot, { backgroundColor: event.color }]} />
+                        </Pressable>
+                      ))}
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
             {timeSlots.map((slot) => (
               <View key={slot} style={styles.timelineRow}>
                 <View style={styles.timelineTimeCell}>
@@ -907,6 +937,10 @@ const styles = StyleSheet.create({
   subtitle: {
     lineHeight: 18,
   },
+  errorBanner: {
+    gap: Spacing.two,
+    marginBottom: Spacing.three,
+  },
   modeShell: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1076,6 +1110,9 @@ const styles = StyleSheet.create({
   },
   timelineDayLabel: {
     color: '#6A7891',
+  },
+  timelineDayNumber: {
+    color: '#10203B',
   },
   timelineBody: {
     gap: 0,

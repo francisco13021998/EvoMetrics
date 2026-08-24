@@ -10,14 +10,6 @@ export type Profile = {
   updatedAt: string;
 };
 
-export function isTrainer(role: UserRole): boolean {
-  return role === 'trainer' || role === 'coach' || role === 'nutritionist' || role === 'owner';
-}
-
-export function isAthlete(role: UserRole): boolean {
-  return role === 'athlete';
-}
-
 export type ClientSex = 'female' | 'male';
 
 export type AthleteLevel = 'beginner' | 'intermediate' | 'advanced';

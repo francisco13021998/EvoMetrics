@@ -156,6 +156,14 @@ function formatEventFormDate(value: Date) {
   return formatDateOnly(value);
 }
 
+function getDeviceTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
 function parseNullableInteger(value: string) {
   if (!value.trim()) {
     return null;
@@ -297,7 +305,7 @@ export function EventFormScreen({ mode, eventId, clientId: clientIdFromRoute }: 
       startDate: formatEventFormDate(form.date),
       startTime: formatTimeOnly(form.time),
       durationMinutes: parsedDuration,
-      timezone: 'UTC',
+      timezone: getDeviceTimezone(),
       allDay: form.allDay,
       recurrenceEnabled: form.recurrenceEnabled,
       recurrenceFrequency: form.recurrenceEnabled ? form.recurrenceFrequency : null,
@@ -518,7 +526,7 @@ export function EventFormScreen({ mode, eventId, clientId: clientIdFromRoute }: 
                     inputMode="numeric"
                     value={form.recurrenceInterval}
                     onChangeText={(value) => setForm((current) => ({ ...current, recurrenceInterval: value }))}
-                    helper="Por ejemplo, 2 para cada 2 semanas."
+                    hint="Por ejemplo, 2 para cada 2 semanas."
                   />
                 </View>
                 <View style={styles.formCell}>
@@ -572,7 +580,7 @@ export function EventFormScreen({ mode, eventId, clientId: clientIdFromRoute }: 
                   inputMode="numeric"
                   value={form.recurrenceMonthDay}
                   onChangeText={(value) => setForm((current) => ({ ...current, recurrenceMonthDay: value }))}
-                  helper="Se programará cada mes en ese dia."
+                  hint="Se programará cada mes en ese dia."
                 />
               ) : null}
 

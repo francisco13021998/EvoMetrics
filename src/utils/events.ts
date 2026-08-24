@@ -1,35 +1,10 @@
 import { Event, EventOccurrence } from '@/types/domain';
+import { addDays, startOfDay, toLocalDate } from '@/utils/date-only';
 
 export type EventOccurrenceDraft = Pick<
   EventOccurrence,
   'eventId' | 'ownerId' | 'clientId' | 'plannedStartAt' | 'plannedEndAt' | 'status' | 'notes'
 >;
-
-function startOfDay(value: Date) {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0);
-}
-
-function addDays(value: Date, offset: number) {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate() + offset, 0, 0, 0, 0);
-}
-
-function toDateOnly(value: string | Date | null | undefined) {
-  if (!value) {
-    return null;
-  }
-
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : startOfDay(value);
-  }
-
-  const parsed = new Date(value);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  return startOfDay(parsed);
-}
 
 function parseTimeParts(value: string) {
   const [hourString = '0', minuteString = '0', secondString = '0'] = value.split(':');
@@ -42,7 +17,7 @@ function parseTimeParts(value: string) {
 }
 
 export function parseLocalDateTime(dateValue: string, timeValue: string) {
-  const date = toDateOnly(dateValue);
+  const date = toLocalDate(dateValue);
 
   if (!date) {
     return null;
@@ -66,7 +41,7 @@ function isWithinRange(candidate: Date, rangeStart: Date, rangeEnd: Date) {
 }
 
 function getDefaultWeeklyDays(event: Event) {
-  const startDate = toDateOnly(event.startDate);
+  const startDate = toLocalDate(event.startDate);
 
   if (!startDate) {
     return [];
@@ -75,36 +50,46 @@ function getDefaultWeeklyDays(event: Event) {
   return [startDate.getDay()];
 }
 
-function getEffectiveEndDate(event: Event, rangeEnd: Date) {
+function getEffectiveEndDate(event: Event, rangeEndDay: Date) {
   if (event.recurrenceEndType === 'until' && event.recurrenceEndDate) {
-    const recurrenceEnd = toDateOnly(event.recurrenceEndDate);
+    const recurrenceEnd = toLocalDate(event.recurrenceEndDate);
 
     if (recurrenceEnd) {
       return recurrenceEnd;
     }
   }
 
-  return rangeEnd;
+  return rangeEndDay;
 }
 
 function matchesWeeklyPattern(candidate: Date, eventStart: Date, interval: number, weekdays: number[]) {
-  if (candidate.getTime() < eventStart.getTime()) {
+  // Comparación por día: el candidato llega a medianoche y compararlo contra la hora exacta
+  // del evento excluía siempre la primera ocurrencia de la serie (su propio día de inicio).
+  if (candidate.getTime() < startOfDay(eventStart).getTime()) {
     return false;
   }
 
   const candidateWeekStart = new Date(candidate.getFullYear(), candidate.getMonth(), candidate.getDate() - candidate.getDay(), 0, 0, 0, 0);
   const startWeekStart = new Date(eventStart.getFullYear(), eventStart.getMonth(), eventStart.getDate() - eventStart.getDay(), 0, 0, 0, 0);
-  const weekDiff = Math.floor((candidateWeekStart.getTime() - startWeekStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
+  // Math.round en lugar de Math.floor: entre semanas separadas por un cambio de horario (DST)
+  // la diferencia real es N semanas ± 1 hora y floor rompería la paridad de weekDiff % interval.
+  const weekDiff = Math.round((candidateWeekStart.getTime() - startWeekStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
 
   return weekDiff >= 0 && weekDiff % interval === 0 && weekdays.includes(candidate.getDay());
 }
 
 function matchesMonthlyPattern(candidate: Date, eventStart: Date, interval: number, monthDay: number) {
-  if (candidate.getTime() < eventStart.getTime()) {
+  // Comparación por día (ver matchesWeeklyPattern).
+  if (candidate.getTime() < startOfDay(eventStart).getTime()) {
     return false;
   }
 
-  if (candidate.getDate() !== monthDay) {
+  // Si el día pedido no existe en este mes (29-31), la ocurrencia cae en el último día del mes
+  // (mismo criterio que addMonths en pagos/revisiones).
+  const daysInMonth = new Date(candidate.getFullYear(), candidate.getMonth() + 1, 0).getDate();
+  const effectiveMonthDay = Math.min(monthDay, daysInMonth);
+
+  if (candidate.getDate() !== effectiveMonthDay) {
     return false;
   }
 
@@ -121,19 +106,26 @@ export function generateEventOccurrenceDrafts(event: Event, rangeStart: Date, ra
   }
 
   const normalizedRangeStart = startOfDay(rangeStart);
-  const normalizedRangeEnd = startOfDay(rangeEnd);
-  const effectiveEndDate = getEffectiveEndDate(event, normalizedRangeEnd);
+  // El límite superior respeta el instante recibido (la agenda pasa 23:59:59.999 para incluir
+  // el último día completo); el recorrido por días usa su medianoche.
+  const rangeEndDay = startOfDay(rangeEnd);
+  const effectiveEndDate = getEffectiveEndDate(event, rangeEndDay);
   const recurrenceInterval = Math.max(1, event.recurrenceInterval ?? 1);
   const result: EventOccurrenceDraft[] = [];
   let generatedCount = 0;
 
-  const pushOccurrence = (plannedStartAt: Date) => {
-    if (!isWithinRange(plannedStartAt, normalizedRangeStart, normalizedRangeEnd)) {
-      return;
+  // Devuelve false cuando la serie se agota (fin por cantidad alcanzado). El contador avanza con
+  // CADA ocurrencia teórica de la serie, caiga o no dentro del rango pedido: las ventanas de
+  // consulta son rodantes y contar solo lo visible haría la serie infinita.
+  const pushOccurrence = (plannedStartAt: Date): boolean => {
+    if (event.recurrenceEndType === 'count' && event.recurrenceCount !== null && generatedCount >= event.recurrenceCount) {
+      return false;
     }
 
-    if (event.recurrenceEndType === 'count' && event.recurrenceCount !== null && generatedCount >= event.recurrenceCount) {
-      return;
+    generatedCount += 1;
+
+    if (!isWithinRange(plannedStartAt, normalizedRangeStart, rangeEnd)) {
+      return true;
     }
 
     const plannedEndAt = addDurationMinutes(plannedStartAt, event.durationMinutes);
@@ -148,8 +140,11 @@ export function generateEventOccurrenceDrafts(event: Event, rangeStart: Date, ra
       notes: null,
     });
 
-    generatedCount += 1;
+    return true;
   };
+
+  const buildOccurrenceAt = (candidate: Date) =>
+    new Date(candidate.getFullYear(), candidate.getMonth(), candidate.getDate(), eventStart.getHours(), eventStart.getMinutes(), eventStart.getSeconds(), 0);
 
   if (!event.recurrenceEnabled) {
     pushOccurrence(eventStart);
@@ -157,8 +152,10 @@ export function generateEventOccurrenceDrafts(event: Event, rangeStart: Date, ra
   }
 
   if (event.recurrenceFrequency === 'daily') {
-    for (let candidate = startOfDay(eventStart); candidate.getTime() <= normalizedRangeEnd.getTime() && candidate.getTime() <= effectiveEndDate.getTime(); candidate = addDays(candidate, recurrenceInterval)) {
-      pushOccurrence(new Date(candidate.getFullYear(), candidate.getMonth(), candidate.getDate(), eventStart.getHours(), eventStart.getMinutes(), eventStart.getSeconds(), 0));
+    for (let candidate = startOfDay(eventStart); candidate.getTime() <= rangeEndDay.getTime() && candidate.getTime() <= effectiveEndDate.getTime(); candidate = addDays(candidate, recurrenceInterval)) {
+      if (!pushOccurrence(buildOccurrenceAt(candidate))) {
+        break;
+      }
     }
 
     return result;
@@ -167,9 +164,11 @@ export function generateEventOccurrenceDrafts(event: Event, rangeStart: Date, ra
   if (event.recurrenceFrequency === 'weekly') {
     const weekdays = (event.recurrenceWeekdays && event.recurrenceWeekdays.length > 0) ? event.recurrenceWeekdays : getDefaultWeeklyDays(event);
 
-    for (let candidate = startOfDay(eventStart); candidate.getTime() <= normalizedRangeEnd.getTime() && candidate.getTime() <= effectiveEndDate.getTime(); candidate = addDays(candidate, 1)) {
+    for (let candidate = startOfDay(eventStart); candidate.getTime() <= rangeEndDay.getTime() && candidate.getTime() <= effectiveEndDate.getTime(); candidate = addDays(candidate, 1)) {
       if (matchesWeeklyPattern(candidate, eventStart, recurrenceInterval, weekdays)) {
-        pushOccurrence(new Date(candidate.getFullYear(), candidate.getMonth(), candidate.getDate(), eventStart.getHours(), eventStart.getMinutes(), eventStart.getSeconds(), 0));
+        if (!pushOccurrence(buildOccurrenceAt(candidate))) {
+          break;
+        }
       }
     }
 
@@ -179,9 +178,11 @@ export function generateEventOccurrenceDrafts(event: Event, rangeStart: Date, ra
   if (event.recurrenceFrequency === 'monthly') {
     const monthDay = event.recurrenceMonthDay ?? eventStart.getDate();
 
-    for (let candidate = startOfDay(eventStart); candidate.getTime() <= normalizedRangeEnd.getTime() && candidate.getTime() <= effectiveEndDate.getTime(); candidate = addDays(candidate, 1)) {
+    for (let candidate = startOfDay(eventStart); candidate.getTime() <= rangeEndDay.getTime() && candidate.getTime() <= effectiveEndDate.getTime(); candidate = addDays(candidate, 1)) {
       if (matchesMonthlyPattern(candidate, eventStart, recurrenceInterval, monthDay)) {
-        pushOccurrence(new Date(candidate.getFullYear(), candidate.getMonth(), candidate.getDate(), eventStart.getHours(), eventStart.getMinutes(), eventStart.getSeconds(), 0));
+        if (!pushOccurrence(buildOccurrenceAt(candidate))) {
+          break;
+        }
       }
     }
 

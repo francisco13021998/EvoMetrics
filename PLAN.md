@@ -3,140 +3,142 @@
 > **Origen:** auditoría del código (agosto 2026) con verificación adversarial de cada hallazgo contra el código real. Todas las referencias `archivo:línea` fueron comprobadas.
 >
 > **Cómo usar este documento:** marcar `[x]` al completar cada tarea y anotar en el registro final. Si un cambio altera el funcionamiento de la app, **reflejarlo también en `CLAUDE.md`**. Si surgen problemas nuevos por el camino, añadirlos a la fase que corresponda.
+>
+> **Estado (23-08-2026):** las iteraciones 1 y 2 (rama `pruebas_felipe`, sin commit) aplicaron todo lo marcado `[x]`. Este documento contiene **solo trabajo de código**; las acciones manuales del dueño de la app (rotación de credenciales, operaciones git, panel de Supabase, decisiones de producto) viven en **`TAREAS-PROPIETARIO.md`** — las tareas de aquí marcadas *(bloqueado)* dependen de aquellas.
 
 ---
 
 ## Fase 0 — Seguridad crítica (antes que cualquier otra cosa)
 
 ### 0.1 Credenciales expuestas en el repo
-- [ ] **Rotar la contraseña del usuario de dev-login** (`.env:5`, `EXPO_PUBLIC_DEV_LOGIN_PASSWORD`). El repo tiene remote público en GitHub y el `.env` está trackeado desde el commit `777e666`: borrar el fichero no basta, la clave está en el historial.
-- [ ] Sacar `.env` del repo: añadir `.env` a `.gitignore` (hoy solo cubre `.env*.local`, línea 34) y ejecutar `git rm --cached .env`.
-- [ ] Crear `.env.example` con las claves vacías y documentarlo en el README.
-- [ ] Revisar que el dev-login no llegue a producción: las variables `EXPO_PUBLIC_*` se **inlinean en el bundle JS de release** (la const se evalúa a nivel de módulo en `src/services/auth.ts:26`, fuera del guard `__DEV__`). Mover el preset a un mecanismo no versionado o excluirlo de builds de producción.
-- [ ] Valorar limpiar el historial de git (filter-repo / BFG) si el repo se comparte.
+> Rotar la contraseña, destrackear `.env` (`git rm --cached`) y limpiar el historial → **`TAREAS-PROPIETARIO.md` §1**.
+- [x] Añadir `.env` (y `.lint-output.txt`) a `.gitignore`.
+- [x] Crear `.env.example` con las claves vacías y documentarlo en el README.
+- [ ] Revisar que el dev-login no llegue a producción: las variables `EXPO_PUBLIC_*` se **inlinean en el bundle JS de release** (`src/services/auth.ts:26`, fuera del guard `__DEV__`). Mover las lecturas dentro de una rama `__DEV__` para que el minificador las elimine del bundle de producción, y verificarlo grepeando un export.
 
 ### 0.2 Row Level Security (RLS)
-- [ ] **Verificar en el dashboard de Supabase** que `clients`, `revisions`, `client_photos`, `client_payments`, `events`, `event_occurrences` y el bucket `client-images` tienen RLS activo con policies por `owner_id` (y `athlete_user_id` para el rol atleta). Ninguna migración del repo contiene `enable row level security` ni `create policy` (grep: 0 resultados), y el código confía explícitamente en RLS (`clients.ts:186`, `photos.ts:232`).
-- [ ] **Versionar el RLS en migraciones** (tablas base + policies + storage), para que el esquema real sea reproducible y auditable. Hoy las tablas base (`clients`, `revisions`, `client_photos`, `body_fat_formulas`) ni siquiera aparecen en las migraciones.
+> Verificar RLS en el dashboard y aplicar el borrador `supabase/pending/03_rls_draft.sql` → **`TAREAS-PROPIETARIO.md` §2**.
+- [ ] *(bloqueado por §2)* Una vez aplicado el RLS definitivo, moverlo a `supabase/migrations/` para dejarlo versionado.
 
 ### 0.3 Defensa en profundidad: filtros por owner en cliente
-- [ ] `clientPaymentsService.update/remove` filtran solo por `id` (`src/services/client-payments.ts:105-110,120`) → añadir `.eq('owner_id', ...)`.
-- [ ] `revisionsService.getById/update/remove` solo por `id` y `listByClient` solo por `client_id` (`src/services/revisions.ts:409-414,423-428,499,511`) → ídem.
-- [ ] `eventsService.listOccurrencesByEvent` solo por `event_id` (`src/services/events.ts:304-309`) → ídem.
+- [x] `clientPaymentsService.update/remove` aceptan `ownerId` opcional y filtran por `owner_id` (las pantallas lo pasan).
+- [x] `revisionsService.getById/listByClient/update/remove` ídem — opcional porque el rol atleta accede vía RLS sin ser owner.
+- [x] `eventsService.listOccurrencesByEvent` ídem.
 
 ### 0.4 Edge function `send-trainer-request`
-- [ ] Sin autenticación, sin rate limit y enviando correo al email arbitrario recibido → usable para email bombing (`supabase/functions/send-trainer-request/index.ts:38,64`). Añadir rate limiting (tabla de solicitudes con unique + ventana temporal) y/o captcha.
-- [ ] Inyección de HTML: el email se interpola sin escapar en el correo al admin (`index.ts:55`) y el regex acepta `<`, `>` y comillas. Escapar o enviar como texto plano.
-- [ ] Exigir `POST` (hoy no valida método), unificar headers CORS en todas las respuestas (el 400 no lleva `Access-Control-Allow-Origin`) y no devolver el error crudo de Resend al cliente (`index.ts:84-88`).
+- [ ] Rate limiting (tabla de solicitudes con unique + ventana temporal) y/o captcha — requiere migración.
+- [x] Inyección de HTML corregida: `escapeHtml` en todas las interpolaciones y `encodeURIComponent` en el `mailto:`; validación endurecida (longitud ≤ 254, rechazo de `<>`, comillas y espacios).
+- [x] Solo `POST` (405 al resto), headers CORS unificados en todas las respuestas, y el catch ya no devuelve el error crudo de Resend (mensaje genérico + `console.error`).
 - [ ] Registrar las solicitudes en una tabla en vez de depender solo del correo.
 
 ### 0.5 Control de acceso por rol en la app
-- [ ] `TrainerRoute` existe pero **no se usa en ningún sitio**: todas las pestañas de entrenador usan `ProtectedRoute` (solo comprueba sesión), así que un atleta autenticado puede entrar a dashboard, agenda y pagos. Sustituir `ProtectedRoute` por `TrainerRoute` en `(tabs)/index|clientes|agenda|pagos`, `/clients/*`, `/revisions/*` y `/events/*`.
-- [ ] La pestaña **Más no tiene guard alguno** (`src/app/(tabs)/mas.tsx:47`) → envolver en guard.
-- [ ] El login hace `router.replace('/(tabs)')` incondicional (`src/screens/auth/login-screen.tsx:48`) aunque el rol se resuelve async → redirigir según rol (o pasar por `/`, que ya lo hace).
+- [x] `TrainerRoute` aplicado a las 4 pestañas de entrenador, `clients/new`, `clients/[clientId]/edit`, `clients/[clientId]/payments`, `revisions/new`, `revisions/[revisionId]/edit` y todo `/events/*` (vía su nuevo `_layout`). Las rutas compartidas con atletas (ficha, fotos, métricas, detalle de revisión) conservan `ProtectedRoute`.
+- [x] La pestaña **Más** envuelta en `TrainerRoute` (no tenía guard alguno).
+- [x] El login redirige a `/` (que enruta por rol) en vez de a `/(tabs)` incondicional.
 
 ---
 
 ## Fase 1 — Bugs confirmados
 
-### Bloqueantes (arreglos pequeños, impacto alto)
-- [ ] **El botón "Salir" del dashboard crashea**: `clients-screen.tsx:110` solo destructura `{ user }` de `useAuth()`, pero la línea 325 llama a `signOut()` → ReferenceError al pulsarlo. Añadir `signOut` al destructuring.
-- [ ] **La sincronización de ocurrencias duplica filas en cada carga**: el dedupe compara `planned_start_at` de PostgREST (`...T08:00:00+00:00`) contra `Date.toISOString()` (`...T08:00:00.000Z`) — nunca coinciden (`src/services/events.ts:508-509`, `src/utils/events.ts:145`). Normalizar ambos lados a epoch **y** añadir unique index `(event_id, planned_start_at)` con `on conflict do nothing`.
-- [ ] **La recurrencia con fin "por cantidad" nunca termina**: `generatedCount` solo cuenta ocurrencias dentro de la ventana consultada; con ventanas rodantes la serie se regenera indefinidamente (`src/utils/events.ts:128-151`). Contar desde el inicio de la serie.
-- [ ] **`clientPaymentsService.create` inserta sin `owner_id`** aunque la columna es NOT NULL sin default; el RPC `create_client_payment` creado para esto no se llama desde ningún sitio (grep `rpc(` en src: 0 resultados). Usar el RPC o incluir `owner_id`; si el insert directo funciona hoy, el esquema real difiere de las migraciones → sincronizar.
+### Bloqueantes
+- [x] **Botón "Salir" del dashboard crasheaba**: faltaba `signOut` en el destructuring de `useAuth()` (`clients-screen.tsx`).
+- [x] **El sync de ocurrencias duplicaba filas en cada carga**: la deduplicación ahora compara epochs en vez de strings con formatos incompatibles (`services/events.ts`).
+- [ ] *(bloqueado)* Tras aplicar `supabase/pending/01` (**`TAREAS-PROPIETARIO.md` §2.2** — limpia duplicados y crea el unique index), opcional: simplificar el insert de ocurrencias con `ON CONFLICT DO NOTHING` y eliminar el SELECT previo de dedupe.
+- [x] **La recurrencia con fin "por cantidad" nunca terminaba**: el contador ahora avanza con cada ocurrencia teórica desde el inicio de la serie (`utils/events.ts`).
+- [x] **Pagos sin `owner_id`**: `clientPaymentsService.create` ahora llama al RPC `create_client_payment` (security definer) con `ownerId` obligatorio.
 
 ### Lógica de negocio
-- [ ] `revisionsService.update` fusiona con `??` (`revisions.ts:464-490`): pasar `null` explícito recupera el valor anterior — es imposible borrar una medida guardada, y el formulario de edición sí envía nulls. Distinguir `undefined` (no tocar) de `null` (borrar).
-- [ ] El estado de pago asume `payments[0]` como último pago, pero el servicio ordena primero por `created_at` (`services/client-payments.ts:51-52`, `utils/client-payments.ts:119`): registrar tarde un pago antiguo marca al cliente como pendiente. Buscar el máximo `dueDate` dentro del array.
-- [ ] "Quincenal" inconsistente: los ingresos asumen 26 pagos/año (`utils/client-payments.ts:39`) pero la próxima fecha suma 15 días (línea 73). Decidir semántica (14 o 15 días) y alinear.
-- [ ] **Parseo de fechas `YYYY-MM-DD` inconsistente (UTC vs local)**: `new Date('YYYY-MM-DD')` es medianoche UTC y los getters locales la corren un día al oeste de UTC (`utils/events.ts:25`, `utils/client-payments.ts:96`, `utils/client-revisions.ts:40`, `toDateOnlyIso` duplicado en `services/client-payments.ts:28`, `revisions.ts:397`, `photos.ts:158`). Unificar en un único helper date-only local (existe `parseDateOnly` en `utils/client-age.ts`).
-- [ ] El diff de masa grasa/magra mezcla metodologías: el valor actual usa el **% medio** pero el fallback del snapshot anterior usa el **% visual** (`utils/calculations.ts:296-316` vs `services/revisions.ts:262-271`; `getPreviousRevisionSnapshot` no trae `body_fat_pct`). Alinear ambos términos.
-- [ ] El % por perímetros histórico se **recalcula con sexo/altura actuales** del cliente (`utils/client-history.ts:132-137`, `revision-comparisons.ts:140-161`): corregir la altura reescribe el histórico. Persistir `body_fat_perimeters_pct` en cada revisión (como ya se hace con pliegues).
-- [ ] `generateEventOccurrenceDrafts` trunca `rangeEnd` a medianoche (`utils/events.ts:124`): las ocurrencias del último día del rango con hora ≠ 00:00 quedan fuera (la agenda pasa 23:59:59.999 a propósito). No truncar.
-- [ ] El cambio de horario (DST) rompe la paridad de semanas en recurrencias con intervalo ≥ 2: `Math.floor` sobre diferencia de ms (`utils/events.ts:95-97`) → usar `Math.round` o componentes de calendario.
-- [ ] La recurrencia mensual en días 29–31 se salta los meses cortos (`utils/events.ts:107`) mientras pagos/revisiones recortan al último día del mes. Unificar criterio.
-- [ ] `rescheduleOccurrence` no es atómico: marca `rescheduled` y luego inserta la sucesora en llamada aparte (`services/events.ts:438-476`); si el insert falla, la instancia queda huérfana. Mover a un RPC transaccional.
-- [ ] Listas "Próximos" y "Pendientes" de pagos ordenadas al revés (descendente: muestra los cobros más lejanos primero) (`payments-screen.tsx:354-370,712`).
-- [ ] La migración añade `birth_date` pero todo el código usa `date_birth` (`migrations/20260624120000`, `clients.ts:17`): columna muerta y prueba de drift de esquema. Limpiar y versionar la definición real.
+- [x] `revisionsService.update` distingue `undefined` (no tocar) de `null` (borrar): ya se pueden vaciar medidas guardadas.
+- [x] El estado de pago ya no confía en `payments[0]`: busca el pago con `dueDate` máxima (`utils/client-payments.ts`); ídem revisiones con `reviewedAt` máxima.
+- [x] "Quincenal" alineado: multiplicador 24/12 (2 pagos/mes) coherente con próxima fecha +15 días. **Decisión documentada en el código.**
+- [x] **Fechas date-only unificadas**: nuevo módulo `src/utils/date-only.ts` (parseo por componentes locales); migrados `utils/events|client-payments|client-revisions|client-age` y los `toDateOnlyIso` de `services/client-payments|revisions|photos`. Adiós al desfase de un día al oeste de UTC.
+- [x] El diff de masa grasa/magra usa el **% medio** también en el fallback del snapshot anterior (`calculations.ts` + `getPreviousRevisionSnapshot` trae `body_fat_pct`).
+- [ ] Persistir `body_fat_perimeters_pct` por revisión para que el histórico no se recalcule con sexo/altura actuales — requiere migración + cambio de código coordinado.
+- [x] `generateEventOccurrenceDrafts` respeta el instante exacto de `rangeEnd` (ya no trunca a medianoche el último día).
+- [x] DST: paridad semanal con `Math.round` en vez de `Math.floor`.
+- [x] Recurrencia mensual en días 29–31 cae en el último día de los meses cortos (mismo criterio que `addMonths`).
+- [ ] *(bloqueado)* `rescheduleOccurrence` atómico: tras aplicar `supabase/pending/02` (**`TAREAS-PROPIETARIO.md` §2.2**), cambiar `services/events.ts` para llamar al RPC.
+- [x] "Pendientes" y "Próximos" de pagos ordenados ascendente (lo más urgente/próximo primero).
+- [ ] Limpiar la columna muerta `birth_date` vs `date_birth` — requiere migración.
 
 ### Notificaciones
-- [ ] Badge inflado: **cada** ocurrencia `scheduled` de los próximos 90 días cuenta como una notificación (`utils/event-notifications.ts:39-66` + sync a 90 días en `clients-screen.tsx:279-290`). Limitar a una ventana próxima (p. ej. 7 días) o agrupar.
-- [ ] Sobreprogramación: hasta ~46 notificaciones locales por item (cada 2 días × 90 días) → supera el límite de 64 pendientes de iOS (`device-notifications.ts:14-15,159-163`). Reducir horizonte/repeticiones.
-- [ ] Los items vencidos disparan una notificación a 1 segundo en **cada** resync, y el resync corre en cada focus del dashboard (`device-notifications.ts:153-154,192`; `clients-screen.tsx:300`). Deduplicar por contenido/día.
-- [ ] El recordatorio de un evento salta a las **23:59 del día del evento** (ya pasado) y se repite cada 2 días después (`device-notifications.ts:125-129`). Avisar antes del evento.
-- [ ] Código muerto: `syncDeviceNotifications` y `resyncDeviceNotificationsIfNeeded` son idénticas entre sí y nadie las importa (`device-notifications.ts:241-317`). Eliminar.
+- [x] Badge del dashboard: los eventos solo cuentan a 7 días vista (`EVENT_NOTIFICATION_WINDOW_DAYS`).
+- [x] Horizonte de programación 90 → 14 días y **tope global de 60** notificaciones (límite iOS 64), priorizando las más próximas.
+- [x] Los items vencidos ya no disparan una notificación a 1 segundo en cada resync: primer aviso en el próximo 23:59.
+- [x] Los eventos avisan **una sola vez, 60 min antes de empezar** (antes: 23:59 del día del evento + repetición posterior).
+- [x] Eliminadas las funciones muertas `syncDeviceNotifications` y `resyncDeviceNotificationsIfNeeded`.
 
 ### UI y carga de datos
-- [ ] Horas de agenda **simuladas**: para pagos/revisiones la hora se deriva de un hash del `client.id` sobre horas fijas (`agenda-screen.tsx:97-112`) y se pinta como si fuera real. Mostrar "todo el día" / "sin hora" o permitir configurarla.
-- [ ] Error de red en agenda: `Alert.alert` + vacía todos los datos ya mostrados, sin botón de reintento (`agenda-screen.tsx:297-302`). Usar StatusBanner + conservar datos + retry (como ya hace Pagos).
-- [ ] Deps de hooks incompletas: `isAthlete` ausente en 4 `useCallback` de carga (`revision-detail-screen.tsx:233`, `client-photos-screen.tsx:631`, `client-history-analysis-screen.tsx:257`, `client-history-metric-detail-screen.tsx:138`) → los atletas pueden quedarse en "no encontrado" hasta recargar. Son además los warnings que reporta el lint.
-- [ ] Doble carga al montar el dashboard: `useEffect` + `useFocusEffect` disparan `loadClients` dos veces sin guard (`clients-screen.tsx:311-319`).
-- [ ] Estado stale: el análisis histórico (y metric-detail y fotos) solo cargan con `useEffect`, sin `useFocusEffect` → tras crear la primera revisión y volver, siguen vacíos (`client-history-analysis-screen.tsx:259`).
-- [ ] Fotos huérfanas: en modo crear, las imágenes se suben inmediatamente con `revisionId: null` y solo se enlazan al guardar; cancelar las deja huérfanas y visibles en la galería (`revision-form-screen.tsx:628-637`). Subir al guardar, o limpiar al cancelar.
-- [ ] `photosService.remove` borra el objeto de storage **antes** que la fila SQL (`photos.ts:334-344`): invertir el orden (tolerar huérfanos de storage, nunca filas rotas).
-- [ ] Menores: comparador de notificaciones da NaN si no hay fechas (`clients-screen.tsx:292`); separador del historial calculado sobre la lista sin recortar (`payments-screen.tsx:649`); Pressable anidado redundante (`client-list-screen.tsx:235,265`); label "revision" en minúscula que además ignora `isToday` (`client-list-screen.tsx:77`); cast `client as Client` antes del guard de null (`client-history-analysis-screen.tsx:209`).
+- [x] Agenda sin horas inventadas: cobros/revisiones son items **"Sin hora"** (etiqueta en vista día; franja propia encima del timeline semanal). Eliminado `getTimeByKind`.
+- [x] Error de red en agenda: StatusBanner con botón "Reintentar" y **se conservan los datos ya cargados** (antes: Alert + pantalla vaciada).
+- [x] Deps de hooks: `isAthlete` añadido en las 4 pantallas afectadas.
+- [x] Doble carga inicial eliminada en dashboard y agenda (solo `useFocusEffect`).
+- [x] Análisis histórico, detalle de métrica y galería recargan al volver a enfocarse (`useFocusEffect`).
+- [x] Fotos huérfanas: al salir del formulario de revisión (crear) sin guardar, se borran las fotos pendientes subidas.
+- [x] `photosService.remove` borra primero la fila y después el objeto de storage (best-effort).
+- [x] Menores: sort de notificaciones NaN-safe; separador del historial sobre la lista recortada; Pressable anidado eliminado; etiqueta "Revisión pendiente"/"Revisión hoy"; cast inseguro sustituido por guard.
 
 ---
 
 ## Fase 2 — Rendimiento
 
-- [ ] **N+1 en dashboard y agenda**: 2 consultas por cliente (pagos + revisiones) en cada focus, más `syncOccurrencesForOwner` (1 `getById` por evento) y un `syncDeviceNotificationsForUser` fire-and-forget que **repite** todas esas consultas (`clients-screen.tsx:270-300`, `agenda-screen.tsx:261-316`, `events.ts:485,527`). Agrupar con `.in('client_id', ids)` (2 consultas totales) o crear una vista/RPC de resumen.
-- [ ] **N+1 de signed URLs**: una llamada `createSignedUrl` por foto en cada listado (`photos.ts:112,128,229`); usar `createSignedUrls(paths, 3600)` en batch y regenerar al expirar (caducan en 1 h sin refresco).
-- [ ] Introducir una capa de caché/estado servidor (React Query o SWR): elimina las recargas completas por focus, los `useState`/`useEffect` repetidos y los estados stale de la Fase 1.
-- [ ] Carga en cascada del formulario de revisión: 3-5 awaits secuenciales evitables (`revision-form-screen.tsx:424-467`) → paralelizar.
-- [ ] `useMemo` con dependencia inestable: `reviewedAtDate` se crea con `new Date()` en cada render y aparece en las deps de 5 memos (`revision-form-screen.tsx:655,721-818`).
+- [x] **N+1 eliminado**: nuevos `clientPaymentsService.listByClients` y `revisionsService.listByClients` (2 consultas totales via `.in()`) usados por dashboard, listado de clientes, agenda, pagos y notificaciones; `syncOccurrencesForOwner` ya no hace un `getById` por evento.
+- [x] **Signed URLs en batch**: `createSignedUrls` (1 llamada por listado en vez de 1 por foto).
+- [ ] Capa de caché/estado servidor (React Query o SWR) — requiere dependencia nueva.
+- [x] Carga del formulario de revisión paralelizada (fórmulas + revisiones + revisión a editar en un `Promise.all`).
+- [x] `reviewedAtDate` memoizado (invalidaba 5 `useMemo` en cada render).
 
 ---
 
 ## Fase 3 — Calidad y mantenibilidad
 
 ### Tests y tooling
-- [ ] Añadir **Jest (jest-expo)** y tests de `src/utils/` — todo es lógica pura determinista: fórmulas Navy / Durnin-Womersley / Mifflin-St Jeor con valores de referencia publicados, multiplicadores de facturación, `calculateClientPaymentStatus`, expansión de recurrencias (bordes: fin de mes, count, until, DST). Los bugs de la Fase 1 son los primeros casos de test (red de regresión).
-- [ ] Añadir scripts `test` y `typecheck` (`tsc --noEmit`) a `package.json` (hoy solo start/android/web/lint/reset-project).
-- [ ] Montar CI (GitHub Actions): lint + typecheck + test en cada push. No existe `.github/`.
-- [ ] Arreglar los 4 warnings de lint (ya cubiertos por las deps de hooks de la Fase 1).
+- [x] **Jest (jest-expo) instalado y 55 tests de `src/utils/`** en `src/utils/__tests__/`: fórmulas Navy/Durnin-Womersley/Mifflin con valores de referencia, fechas date-only (regresión del −1 día), estados de pago/revisión (backdated, quincenal, fin de mes), recurrencias de eventos (count, until, último día del rango, mensual 29-31, semanal con intervalo) y ventana de notificaciones. Script `npm test`. Los tests **cazaron y se corrigió un bug preexistente más**: las series semanales/mensuales se saltaban su primera ocurrencia (guarda comparaba medianoche vs hora exacta, `utils/events.ts`).
+- [x] Script `typecheck` (`tsc --noEmit`) añadido; **el proyecto typechecka limpio por primera vez** (se corrigieron también los errores preexistentes: estilos inexistentes, prop `helper`→`hint`, narrowing de notificaciones, `tabBarSafeAreaInsets`, mapping de `@expo/vector-icons` en tsconfig).
+- [x] CI creado: `.github/workflows/ci.yml` (npm ci + lint + typecheck + test) — se activará con el primer push.
+- [x] Lint a cero: 0 errores, 0 warnings (antes: 1 error y 6 warnings tras typecheck, y 4 warnings históricos).
+- [x] `babel.config.js` creado (resuelve `babel-preset-expo` aunque npm lo deje anidado) — requerido por jest-expo.
+- [x] **Export web estático reparado**: el cliente Supabase rompía el prerender de `expo export` (AsyncStorage sin `window`); guard SSR en `src/lib/supabase.ts`. `npx expo export --platform web` genera ahora todas las rutas.
 
 ### Duplicación
-- [ ] Helpers de fecha (`startOfDay`, `addMonths`, `toLocalDate`/`toDateOnly`) copiados en 3-4 ficheros de utils y 3 servicios → módulo común `utils/date-only.ts` (prerrequisito del fix de zona horaria).
-- [ ] Modal de subida de imagen + flujo ImagePicker duplicado en 3 pantallas (`client-photos-screen.tsx:651`, `revision-detail-screen.tsx:282`, `revision-form-screen.tsx:594`) → componente/hook compartido.
-- [ ] Helpers de formato de métricas duplicados entre análisis histórico y detalle de métrica (`client-history-metric-detail-screen.tsx:38-94` ≈ `client-history-analysis-screen.tsx:145-201`).
-- [ ] `calculateAvailableBodyFatAverage` (`client-history.ts:101-119`) duplica `calculateBodyFatAverage` solo para añadir el número de fuentes.
+- [x] Helpers de fecha unificados en `utils/date-only.ts`.
+- [ ] Modal de subida de imagen + flujo ImagePicker duplicado en 3 pantallas → componente/hook compartido.
+- [ ] Helpers de formato de métricas duplicados entre análisis histórico y detalle de métrica.
+- [ ] `calculateAvailableBodyFatAverage` duplica `calculateBodyFatAverage`.
 
 ### Tamaño de pantallas
-- [ ] Partir en hooks + componentes: `revision-form-screen.tsx` (2072 líneas), `revision-detail-screen.tsx` (1703), `client-photos-screen.tsx` (1575), `agenda-screen.tsx` (1424), `clients-screen.tsx` (1280). Candidatos claros: zoom/pan del comparador de fotos, cálculos en vivo del formulario, calendario del dashboard.
+- [ ] Partir en hooks + componentes: `revision-form-screen.tsx` (~2.100 líneas), `revision-detail-screen.tsx` (~1.700), `client-photos-screen.tsx` (~1.580), `agenda-screen.tsx` (~1.470), `clients-screen.tsx` (~1.300).
 
-### Código muerto (eliminar o conectar)
-- [ ] `src/mocks/demo-data.ts` (179 líneas, 0 imports) y los fallbacks `'client-1'`/`'revision-1'` en rutas dinámicas (`clients/[clientId].tsx:12`, `revisions/[revisionId].tsx:12`).
-- [ ] `AthletePinModal`, `DisabledTabButton`, `MetricRow`, `SectionCard` (surface), `isTrainer`/`isAthlete` de domain.ts: sin ningún uso.
-- [ ] Rutas huérfanas: `/register` (nada navega a ella) y las tres `athlete-*` placeholder "Soon".
-- [ ] Aliases y wrappers no usados de `calculations.ts` (`body_fat_*_pct`, wrappers por sexo, `resolveUsedMaintenance`, `calculateCaloricBalance` — o conectarlos a la UI de kcal objetivo si eran features pendientes).
-- [ ] Columna `revision_frequency_enabled` sin uso + triple representación de "sin frecuencia" (null / 0 / centinela 9999) → normalizar a una sola.
-- [ ] La migración `add_is_active_to_clients` crea `estado` (nombre en español, con UPDATE muerto) mientras events usa `is_active` → unificar convención.
+### Código muerto
+- [x] Eliminados: `src/mocks/demo-data.ts`, `MetricRow`, `SectionCard` (surface), `AthletePinModal`, `DisabledTabButton`, `isTrainer`/`isAthlete` de domain.ts, aliases muertos de `calculations.ts`, fallbacks `'client-1'`/`'revision-1'`, funciones de sync duplicadas de notificaciones.
+- [ ] *(bloqueado por decisión — `TAREAS-PROPIETARIO.md` §3.1)* Rutas placeholder `/register` y `athlete-*`: eliminarlas o conectarlas según lo que se decida sobre el alta por PIN.
+- [ ] Columna `revision_frequency_enabled` sin uso + triple representación de "sin frecuencia" (null / 0 / 9999) — requiere migración.
+- [ ] Incoherencia `estado` (español) vs `is_active` (inglés) — requiere migración.
 
 ---
 
 ## Fase 4 — Producto y entrega
 
 ### UX / funcionalidad prometida
-- [ ] Pestaña Más: 9 items de menú son `View` sin `onPress` pero con chevron (Perfil, Suscripción, Métodos de pago, Apariencia, Integraciones, Exportar datos, Ayuda, Privacidad, Términos) y el badge "Plan Pro" es decorativo (`mas.tsx:21-34,123-131,167-175`). Implementar, marcar "Próximamente" o eliminar.
-- [ ] Decidir el destino del alta de atletas por PIN: `athletePinsService` es un stub en mantenimiento y el botón "PIN Atleta" está permanentemente disabled (`client-detail-screen.tsx:494`). Reactivar o retirar de la UI.
-- [ ] Dashboard montado en 2 rutas (`/(tabs)/index` y `/clients/index`) con dos sistemas de tabs paralelos (Tabs de expo-router + `PersistentTabShell`, barra falsa que navega con `router.replace`): unificar navegación.
-- [ ] Las pantallas de `/events` pierden la barra de tabs (no tienen `_layout` con shell, a diferencia de `/clients` y `/revisions`).
-- [ ] Tema: nativo fuerza light pero la variante web devuelve el esquema real → la web puede renderizar la paleta dark a medias (`use-color-scheme.ts` vs `use-color-scheme.web.ts:16`). Alinear hasta que el dark mode esté listo.
-- [ ] `timezone: 'UTC'` hardcodeada en el payload de eventos aunque todo se trata como hora local (`event-form-screen.tsx:300`).
+- [x] Pestaña Más: los 9 items muertos muestran pill **"Próximamente"**, sin chevron y atenuados (ya no simulan navegación).
+- [ ] *(bloqueado por decisión — `TAREAS-PROPIETARIO.md` §3.1)* Alta de atletas por PIN: implementar la opción elegida (reconstruir backend de PINs, o retirar el stub y la UI).
+- [ ] Unificar los dos sistemas de tabs (Tabs real + `PersistentTabShell`) y el dashboard montado en 2 rutas.
+- [x] `/events/*` ya tiene `_layout` con `PersistentTabShell` (pestaña Agenda activa) — ya no pierde la barra.
+- [x] Tema: la web también fuerza light (coherente con nativo) hasta que el dark mode esté listo.
+- [x] `timezone` del evento: zona horaria real del dispositivo (`Intl`) con fallback `'UTC'`.
 
 ### Cumplimiento (bloqueante para publicar en stores)
-- [ ] RGPD: la app almacena datos de salud (medidas corporales, fotos) de terceros que no son el titular de la cuenta. Falta: consentimiento del cliente final, política de privacidad real, exportación y borrado de datos/cuenta. Apple y Google lo exigen en revisión.
+- [ ] *(bloqueado por decisión — `TAREAS-PROPIETARIO.md` §3.3)* RGPD: implementar consentimiento, pantalla de política de privacidad, y exportación/borrado de datos y cuenta cuando el alcance esté decidido.
 
 ### Build y distribución
-- [ ] `versionCode` fijo en 1 + `appVersionSource: local` sin `autoIncrement` → Google Play rechazará el segundo build. Activar `autoIncrement` en el perfil production de `eas.json`.
-- [ ] Sin OTA: `expo-updates` no está instalado y no hay `runtimeVersion`. Decidir si se quiere OTA y configurarlo.
-- [ ] Añadir perfil `development` (developmentClient) y sección `submit` a `eas.json`.
+- [x] `autoIncrement: true` en el perfil production de `eas.json`.
+- [ ] *(bloqueado por decisión — `TAREAS-PROPIETARIO.md` §3.2)* OTA: si se aprueba, instalar `expo-updates` y configurar `runtimeVersion`.
+- [x] Perfil `development` (developmentClient) añadido a `eas.json`. (La sección `submit` queda pendiente de credenciales.)
 
 ### Higiene de repo
-- [ ] Reescribir `README.md`: es la plantilla intacta de create-expo-app (recomienda `npm run reset-project`, que en este repo **borra `src/`** si respondes "n" — `scripts/reset-project.js:14,67`). Eliminar también el script.
-- [ ] Borrar `.lint-output.txt` del repo (artefacto generado, con rutas de otra máquina).
-- [ ] Renombrar `TabLayout` → `RootLayout` en `src/app/_layout.tsx:11` (es el Stack raíz, colisiona con `TabsLayout`).
+- [x] `README.md` reescrito describiendo EvoMetrics de verdad (setup, scripts, estructura, builds).
+- [x] Eliminados `scripts/reset-project.js` (+ su script npm — podía **borrar `src/`**) y `.lint-output.txt`.
+- [x] `TabLayout` → `RootLayout` en el layout raíz.
 
 ---
 
@@ -144,4 +146,6 @@
 
 | Fecha | Tarea | Commit | Notas |
 |---|---|---|---|
-| — | — | — | — |
+| 23-08-2026 | Iteración 1: seguridad + bugs + rendimiento + limpieza (~35 ficheros) | commit 24-08-2026 en `pruebas_felipe` | `tsc --noEmit` exit 0 y `expo lint` sin avisos. |
+| 23-08-2026 | Iteración 2: Jest + 55 tests (cazaron 1 bug más: primera ocurrencia semanal/mensual perdida), CI, migraciones pendientes redactadas (`supabase/pending/`), fix SSR de Supabase para el export web | commit 24-08-2026 en `pruebas_felipe` | Validado: `tsc` exit 0, lint 0 avisos, 55/55 tests, `expo export --platform web` completa todas las rutas. Falta probar en dispositivo/emulador con datos reales. |
+| 24-08-2026 | Las tareas manuales y decisiones de producto se extraen a `TAREAS-PROPIETARIO.md`; este plan queda solo con trabajo de código | commit 24-08-2026 en `pruebas_felipe` | Las tareas *(bloqueado)* dependen de aquel documento. |

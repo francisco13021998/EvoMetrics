@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { ClientPayment } from '@/types/domain';
+import { toDateOnlyString } from '@/utils/date-only';
 
 export const CLIENT_PAYMENTS_TABLE = 'client_payments';
 
@@ -13,6 +14,7 @@ type DbClientPaymentRow = {
 };
 
 export type CreateClientPaymentInput = {
+  ownerId: string;
   clientId: string;
   amount: number;
   paymentDate: string;
@@ -26,9 +28,13 @@ export type UpdateClientPaymentInput = {
 };
 
 function toDateOnlyIso(value: string | Date) {
-  const date = value instanceof Date ? value : new Date(value);
+  const dateOnly = toDateOnlyString(value);
 
-  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0)).toISOString();
+  if (!dateOnly) {
+    throw new Error('Fecha de pago no válida.');
+  }
+
+  return dateOnly;
 }
 
 function mapDbClientPayment(row: DbClientPaymentRow): ClientPayment {
@@ -48,8 +54,8 @@ export const clientPaymentsService = {
       .from(CLIENT_PAYMENTS_TABLE)
       .select('*')
       .eq('client_id', clientId)
-      .order('created_at', { ascending: false })
-      .order('payment_date', { ascending: false });
+      .order('payment_date', { ascending: false })
+      .order('created_at', { ascending: false });
 
     if (error) {
       throw new Error(error.message);
@@ -58,19 +64,47 @@ export const clientPaymentsService = {
     return (data as DbClientPaymentRow[] | null)?.map(mapDbClientPayment) ?? [];
   },
 
-  async create(payload: CreateClientPaymentInput) {
-    const dueDateValue = payload.dueDate ?? payload.paymentDate;
+  async listByClients(clientIds: string[]) {
+    const paymentsByClientId: Record<string, ClientPayment[]> = {};
+
+    for (const clientId of clientIds) {
+      paymentsByClientId[clientId] = [];
+    }
+
+    if (clientIds.length === 0) {
+      return paymentsByClientId;
+    }
 
     const { data, error } = await supabase
       .from(CLIENT_PAYMENTS_TABLE)
-      .insert({
-        client_id: payload.clientId,
-        amount: payload.amount,
-        payment_date: toDateOnlyIso(payload.paymentDate),
-        due_date: toDateOnlyIso(dueDateValue),
-      })
       .select('*')
-      .single();
+      .in('client_id', clientIds)
+      .order('payment_date', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    for (const row of (data as DbClientPaymentRow[] | null) ?? []) {
+      const payment = mapDbClientPayment(row);
+      (paymentsByClientId[payment.clientId] ??= []).push(payment);
+    }
+
+    return paymentsByClientId;
+  },
+
+  async create(payload: CreateClientPaymentInput) {
+    const dueDateValue = payload.dueDate ?? payload.paymentDate;
+
+    // RPC security definer: valida owner_id = auth.uid() y rellena owner_id (NOT NULL) en servidor.
+    const { data, error } = await supabase.rpc('create_client_payment', {
+      p_owner_id: payload.ownerId,
+      p_client_id: payload.clientId,
+      p_amount: payload.amount,
+      p_payment_date: toDateOnlyIso(payload.paymentDate),
+      p_due_date: toDateOnlyIso(dueDateValue),
+    });
 
     if (error) {
       throw new Error(error.message);
@@ -79,7 +113,7 @@ export const clientPaymentsService = {
     return mapDbClientPayment(data as DbClientPaymentRow);
   },
 
-  async update(paymentId: string, payload: UpdateClientPaymentInput) {
+  async update(paymentId: string, payload: UpdateClientPaymentInput, ownerId?: string) {
     const updatePayload: Record<string, unknown> = {};
     let nextPaymentDate: string | undefined;
 
@@ -102,12 +136,16 @@ export const clientPaymentsService = {
       throw new Error('No se proporcionaron cambios para actualizar el pago.');
     }
 
-    const { data, error } = await supabase
+    let updateQuery = supabase
       .from(CLIENT_PAYMENTS_TABLE)
       .update(updatePayload)
-      .eq('id', paymentId)
-      .select('*')
-      .single();
+      .eq('id', paymentId);
+
+    if (ownerId) {
+      updateQuery = updateQuery.eq('owner_id', ownerId);
+    }
+
+    const { data, error } = await updateQuery.select('*').single();
 
     if (error) {
       throw new Error(error.message);
@@ -116,8 +154,14 @@ export const clientPaymentsService = {
     return mapDbClientPayment(data as DbClientPaymentRow);
   },
 
-  async remove(paymentId: string) {
-    const { error } = await supabase.from(CLIENT_PAYMENTS_TABLE).delete().eq('id', paymentId);
+  async remove(paymentId: string, ownerId?: string) {
+    let deleteQuery = supabase.from(CLIENT_PAYMENTS_TABLE).delete().eq('id', paymentId);
+
+    if (ownerId) {
+      deleteQuery = deleteQuery.eq('owner_id', ownerId);
+    }
+
+    const { error } = await deleteQuery;
 
     if (error) {
       throw new Error(error.message);

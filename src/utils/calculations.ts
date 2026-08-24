@@ -1,6 +1,7 @@
 type RevisionComparisonSnapshot = {
   weightKg: number | null;
   bodyFatVisualPct: number | null;
+  bodyFatPct?: number | null;
   fatMassKg?: number | null;
   leanMassKg?: number | null;
 };
@@ -28,24 +29,6 @@ export type MaintenanceCaloriesInput = {
   heightCm: number | null | undefined;
   age: number | null | undefined;
   activityFactor: number | null | undefined;
-};
-
-export type ResolvedMaintenanceInput = {
-  estimatedMaintenanceKcal: number | null | undefined;
-  manualMaintenanceKcal: number | null | undefined;
-  useManualMaintenance: boolean;
-};
-
-export type ResolvedMaintenanceResult = {
-  maintenanceKcal: number;
-  source: 'estimated' | 'manual';
-};
-
-export type CaloricBalanceResult = {
-  percentage: number;
-  roundedPercentage: number;
-  state: 'deficit' | 'surplus' | 'maintenance';
-  label: string;
 };
 
 export type CompositionMetricsInput = {
@@ -295,7 +278,10 @@ export function calculateFatMassDiffKg(
 ) {
   const previousFatMassKg =
     previousRevision?.fatMassKg ??
-    calculateFatMassKg(previousRevision?.weightKg ?? null, previousRevision?.bodyFatVisualPct ?? null);
+    calculateFatMassKg(
+      previousRevision?.weightKg ?? null,
+      previousRevision?.bodyFatPct ?? previousRevision?.bodyFatVisualPct ?? null
+    );
 
   if (currentFatMassKg === null || previousFatMassKg === null) {
     return null;
@@ -310,7 +296,10 @@ export function calculateLeanMassDiffKg(
 ) {
   const previousFatMassKg =
     previousRevision?.fatMassKg ??
-    calculateFatMassKg(previousRevision?.weightKg ?? null, previousRevision?.bodyFatVisualPct ?? null);
+    calculateFatMassKg(
+      previousRevision?.weightKg ?? null,
+      previousRevision?.bodyFatPct ?? previousRevision?.bodyFatVisualPct ?? null
+    );
   const previousLeanMassKg =
     previousRevision?.leanMassKg ??
     calculateLeanMassKg(previousRevision?.weightKg ?? null, previousFatMassKg);
@@ -447,38 +436,6 @@ export function calculateBodyFatFromSkinfolds(
   return calculateDurninWomersleyBodyFat(sex, age, values);
 }
 
-export function calculateFemaleBodyFatFromSkinfolds(
-  age: number | null | undefined,
-  values: FemaleBodyFatSkinfoldInput
-): FemaleBodyFatSkinfoldResult | null {
-  return calculateBodyFatFromSkinfolds('female', age, values);
-}
-
-export function calculateMaleBodyFatFromSkinfolds(
-  age: number | null | undefined,
-  values: FemaleBodyFatSkinfoldInput
-): FemaleBodyFatSkinfoldResult | null {
-  return calculateBodyFatFromSkinfolds('male', age, values);
-}
-
-export function bodyFatSkinfoldsPct(
-  sex: SupportedSkinfoldSex | null | undefined,
-  age: number | null | undefined,
-  values: FemaleBodyFatSkinfoldInput
-) {
-  return calculateBodyFatFromSkinfolds(sex, age, values)?.bodyFatPct ?? null;
-}
-
-export function bodyFatPerimetersPct(
-  sex: SupportedPerimeterSex | null | undefined,
-  values: BodyFatPerimeterInput
-) {
-  return calculateBodyFatFromPerimeters(sex, values)?.bodyFatPct ?? null;
-}
-
-export const body_fat_perimeters_pct = bodyFatPerimetersPct;
-export const body_fat_skinfolds_pct = bodyFatSkinfoldsPct;
-
 export function calculateMaintenanceCalories(values: MaintenanceCaloriesInput) {
   const { sex } = values;
   const weightKg = getValidNumericValue(values.weightKg);
@@ -515,74 +472,4 @@ export function calculateMaintenanceCalories(values: MaintenanceCaloriesInput) {
   }
 
   return roundTo(maintenanceCalories, 2);
-}
-
-export function resolveUsedMaintenance(values: ResolvedMaintenanceInput): ResolvedMaintenanceResult | null {
-  const { useManualMaintenance } = values;
-  const estimatedMaintenanceKcal = getValidNumericValue(values.estimatedMaintenanceKcal);
-  const manualMaintenanceKcal = getValidNumericValue(values.manualMaintenanceKcal);
-
-  if (useManualMaintenance) {
-    if (manualMaintenanceKcal === null || manualMaintenanceKcal <= 0) {
-      return null;
-    }
-
-    return {
-      maintenanceKcal: roundTo(manualMaintenanceKcal, 2),
-      source: 'manual',
-    };
-  }
-
-  if (estimatedMaintenanceKcal === null || estimatedMaintenanceKcal <= 0) {
-    return null;
-  }
-
-  return {
-    maintenanceKcal: roundTo(estimatedMaintenanceKcal, 2),
-    source: 'estimated',
-  };
-}
-
-export function calculateCaloricBalance(
-  currentIntakeKcal: number | null | undefined,
-  maintenanceKcal: number | null | undefined
-): CaloricBalanceResult | null {
-  const resolvedCurrentIntakeKcal = getValidNumericValue(currentIntakeKcal);
-  const resolvedMaintenanceKcal = getValidNumericValue(maintenanceKcal);
-
-  if (resolvedCurrentIntakeKcal === null || resolvedMaintenanceKcal === null || resolvedMaintenanceKcal <= 0) {
-    return null;
-  }
-
-  const percentage = ((resolvedCurrentIntakeKcal - resolvedMaintenanceKcal) / resolvedMaintenanceKcal) * 100;
-
-  if (!Number.isFinite(percentage)) {
-    return null;
-  }
-
-  if (Math.abs(percentage) < 1) {
-    return {
-      percentage: roundTo(percentage, 4),
-      roundedPercentage: 0,
-      state: 'maintenance',
-      label: '0% mantenimiento',
-    };
-  }
-
-  const roundedPercentage = Math.round(percentage);
-
-  return {
-    percentage: roundTo(percentage, 4),
-    roundedPercentage,
-    state: roundedPercentage > 0 ? 'surplus' : 'deficit',
-    label: roundedPercentage > 0 ? `+${roundedPercentage}% superavit` : `${roundedPercentage}% deficit`,
-  };
-}
-
-export function calculateFemalePerimeterBodyFat(values: BodyFatPerimeterInput) {
-  return calculateFemaleBodyFatFromPerimeters(values);
-}
-
-export function calculateMalePerimeterBodyFat(values: BodyFatPerimeterInput) {
-  return calculateMaleBodyFatFromPerimeters(values);
 }

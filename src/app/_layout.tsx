@@ -8,7 +8,7 @@ import { AuthProvider } from '@/providers/auth-provider';
 
 const palette = Colors.light;
 
-export default function TabLayout() {
+export default function RootLayout() {
   return (
     <AuthProvider>
       <ThemeProvider

@@ -1,3 +1,4 @@
+import { useFocusEffect } from '@react-navigation/native';
 import { File, Paths } from 'expo-file-system';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -435,7 +436,7 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
       setIsDownloading(true);
 
       const { status } = await MediaLibrary.requestPermissionsAsync(true);
-      if (status !== 'granted' && status !== 'limited') {
+      if ((status as string) !== 'granted' && (status as string) !== 'limited') {
         Alert.alert('Permiso denegado', 'Activa el permiso de galería en los ajustes del dispositivo para descargar imágenes.');
         return;
       }
@@ -473,7 +474,7 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
       setIsDownloadingComparison(true);
 
       const { status } = await MediaLibrary.requestPermissionsAsync(true);
-      if (status !== 'granted' && status !== 'limited') {
+      if ((status as string) !== 'granted' && (status as string) !== 'limited') {
         Alert.alert('Permiso denegado', 'Activa el permiso de galería en los ajustes del dispositivo para descargar imágenes.');
         return;
       }
@@ -616,7 +617,7 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
         isAthlete
           ? photosService.listByClientForViewer(nextClient.id)
           : photosService.listByClient(nextClient.id, user.id!),
-        revisionsService.listByClient(nextClient.id),
+        revisionsService.listByClient(nextClient.id, isAthlete ? undefined : user.id),
       ]);
 
       setPhotos(nextPhotos);
@@ -628,11 +629,14 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
     } finally {
       setIsLoading(false);
     }
-  }, [clientId, user?.id]);
+  }, [clientId, user?.id, isAthlete]);
 
-  useEffect(() => {
-    void loadContent();
-  }, [loadContent]);
+  // Recarga al volver a enfocar la pantalla (además, regenera las signed URLs que caducan en 1h).
+  useFocusEffect(
+    useCallback(() => {
+      void loadContent();
+    }, [loadContent])
+  );
 
   useEffect(() => {
     if (!autoOpenUpload || hasAutoOpenedUpload || !client || isLoading) {

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Image, Modal, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { StatusBanner } from '@/components/feedback/status-banner';
@@ -107,12 +107,12 @@ function formatSpanishLongDate(value: Date) {
 }
 
 export function ClientsScreen() {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const [clients, setClients] = useState<Client[]>([]);
   const [clientData, setClientData] = useState<ClientDashboardData[]>([]);
-  const [notifications, setNotifications] = useState<ReturnType<typeof buildDashboardNotifications>>([]);
+  const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
   const [isLoadingClients, setIsLoadingClients] = useState(true);
   const [clientsError, setClientsError] = useState<string | null>(null);
   const [isNotificationsModalOpen, setIsNotificationsModalOpen] = useState(false);
@@ -267,13 +267,17 @@ export function ClientsScreen() {
       const nextClients = await clientsService.listByOwner(user.id);
       setClients(nextClients);
 
-      const nextClientData = await Promise.all(
-        nextClients.map(async (client) => ({
-          client,
-          payments: await clientPaymentsService.listByClient(client.id),
-          revisions: await revisionsService.listByClient(client.id),
-        }))
-      );
+      const clientIds = nextClients.map((client) => client.id);
+      const [paymentsByClientId, revisionsByClientId] = await Promise.all([
+        clientPaymentsService.listByClients(clientIds),
+        revisionsService.listByClients(clientIds),
+      ]);
+
+      const nextClientData = nextClients.map((client) => ({
+        client,
+        payments: paymentsByClientId[client.id] ?? [],
+        revisions: revisionsByClientId[client.id] ?? [],
+      }));
 
       const nextEvents = await eventsService.listByOwner(user.id);
       const horizonStart = startOfDay(new Date());
@@ -289,8 +293,15 @@ export function ClientsScreen() {
           occurrences: nextOccurrences,
         }),
       ].sort((left, right) => {
-        const leftDate = new Date(left.nextDate ?? left.lastDate ?? '').getTime();
-        const rightDate = new Date(right.nextDate ?? right.lastDate ?? '').getTime();
+        // NaN-safe: los items sin ninguna fecha van al final, con orden estable.
+        const leftTime = new Date(left.nextDate ?? left.lastDate ?? '').getTime();
+        const rightTime = new Date(right.nextDate ?? right.lastDate ?? '').getTime();
+        const leftDate = Number.isNaN(leftTime) ? Number.POSITIVE_INFINITY : leftTime;
+        const rightDate = Number.isNaN(rightTime) ? Number.POSITIVE_INFINITY : rightTime;
+
+        if (leftDate === rightDate) {
+          return 0;
+        }
 
         return leftDate - rightDate;
       });
@@ -308,10 +319,7 @@ export function ClientsScreen() {
     }
   }, [user?.id]);
 
-  useEffect(() => {
-    void loadClients();
-  }, [loadClients]);
-
+  // useFocusEffect ya se dispara también al montar: un useEffect adicional duplicaba la carga inicial.
   useFocusEffect(
     React.useCallback(() => {
       void loadClients();
@@ -669,7 +677,9 @@ export function ClientsScreen() {
                         return;
                       }
 
-                      goToEventOccurrence(notification.occurrenceId);
+                      if (notification.kind === 'event') {
+                        goToEventOccurrence(notification.occurrenceId);
+                      }
                     }}
                     style={({ pressed }) => [
                       styles.notificationItem,
@@ -725,7 +735,7 @@ export function ClientsScreen() {
                           Siguiente revisión: {formatDashboardNotificationDate(notification.nextDate)}
                         </ThemedText>
                       </>
-                    ) : (
+                    ) : notification.kind === 'event' ? (
                       <>
                         <ThemedText type="small" themeColor="textSecondary" style={styles.notificationDetailText}>
                           Inicio: {formatEventNotificationDate(notification.nextDate)}
@@ -734,7 +744,7 @@ export function ClientsScreen() {
                           {notification.eventSubtitle}
                         </ThemedText>
                       </>
-                    )}
+                    ) : null}
                   </Pressable>
                     );
                   })()
@@ -873,6 +883,10 @@ const styles = StyleSheet.create({
   metricsGrid: {
     flexDirection: 'row',
     gap: 10,
+  },
+  calendarCardCompact: {
+    padding: 12,
+    paddingBottom: 14,
   },
   calendarCard: {
     borderRadius: Radius.large,
@@ -1114,6 +1128,9 @@ const styles = StyleSheet.create({
   calendarDetailItemDate: {
     flexShrink: 0,
     lineHeight: 16,
+  },
+  recentCardCompact: {
+    padding: 12,
   },
   recentCard: {
     borderRadius: Radius.large,

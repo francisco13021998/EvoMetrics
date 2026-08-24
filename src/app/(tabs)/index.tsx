@@ -1,10 +1,10 @@
-import { ProtectedRoute } from '@/components/auth/auth-route';
+import { TrainerRoute } from '@/components/auth/auth-route';
 import { ClientsScreen } from '@/screens/clients/clients-screen';
 
 export default function InicioRoute() {
   return (
-    <ProtectedRoute>
+    <TrainerRoute>
       <ClientsScreen />
-    </ProtectedRoute>
+    </TrainerRoute>
   );
 }

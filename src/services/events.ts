@@ -301,12 +301,18 @@ export const eventsService = {
     }
   },
 
-  async listOccurrencesByEvent(eventId: string) {
-    const { data, error } = await supabase
+  async listOccurrencesByEvent(eventId: string, ownerId?: string) {
+    let query = supabase
       .from(EVENT_OCCURRENCES_TABLE)
       .select('*')
       .eq('event_id', eventId)
       .order('planned_start_at', { ascending: true });
+
+    if (ownerId) {
+      query = query.eq('owner_id', ownerId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       throw new Error(error.message);
@@ -488,47 +494,56 @@ export const eventsService = {
       throw new Error('No se encontró el evento.');
     }
 
-    const drafts = generateEventOccurrenceDrafts(event, rangeStart, rangeEnd);
-
-    if (drafts.length === 0) {
-      return [] as EventOccurrence[];
-    }
-
-    const { data: existingRows, error: existingError } = await supabase
-      .from(EVENT_OCCURRENCES_TABLE)
-      .select('planned_start_at')
-      .eq('event_id', eventId)
-      .gte('planned_start_at', rangeStart.toISOString())
-      .lte('planned_start_at', rangeEnd.toISOString());
-
-    if (existingError) {
-      throw new Error(existingError.message);
-    }
-
-    const existingStartSet = new Set((existingRows as { planned_start_at: string }[] | null)?.map((row) => row.planned_start_at) ?? []);
-    const missingDrafts = drafts.filter((draft) => !existingStartSet.has(draft.plannedStartAt));
-
-    if (missingDrafts.length === 0) {
-      return [] as EventOccurrence[];
-    }
-
-    const { data, error } = await supabase
-      .from(EVENT_OCCURRENCES_TABLE)
-      .insert(missingDrafts.map(buildCreateOccurrencePayload))
-      .select('*');
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    return (data as DbEventOccurrenceRow[] | null)?.map(mapDbEventOccurrence) ?? [];
+    return syncOccurrencesForLoadedEvent(event, rangeStart, rangeEnd);
   },
 
   async syncOccurrencesForOwner(ownerId: string, rangeStart: Date, rangeEnd: Date) {
     const events = await this.listByOwner(ownerId);
 
-    await Promise.all(events.map((event) => this.syncOccurrencesForEvent(event.id, ownerId, rangeStart, rangeEnd)));
+    await Promise.all(events.map((event) => syncOccurrencesForLoadedEvent(event, rangeStart, rangeEnd)));
 
     return this.listOccurrencesByOwner(ownerId, rangeStart.toISOString(), rangeEnd.toISOString());
   },
 };
+
+async function syncOccurrencesForLoadedEvent(event: Event, rangeStart: Date, rangeEnd: Date) {
+  const drafts = generateEventOccurrenceDrafts(event, rangeStart, rangeEnd);
+
+  if (drafts.length === 0) {
+    return [] as EventOccurrence[];
+  }
+
+  const { data: existingRows, error: existingError } = await supabase
+    .from(EVENT_OCCURRENCES_TABLE)
+    .select('planned_start_at')
+    .eq('event_id', event.id)
+    .gte('planned_start_at', rangeStart.toISOString())
+    .lte('planned_start_at', rangeEnd.toISOString());
+
+  if (existingError) {
+    throw new Error(existingError.message);
+  }
+
+  // La deduplicación compara epochs: PostgREST serializa timestamptz como '...+00:00' y los
+  // drafts usan Date.toISOString() ('...Z'), así que la comparación por string nunca coincidía
+  // y cada sync reinsertaba todas las ocurrencias.
+  const existingStartSet = new Set(
+    ((existingRows as { planned_start_at: string }[] | null) ?? []).map((row) => new Date(row.planned_start_at).getTime())
+  );
+  const missingDrafts = drafts.filter((draft) => !existingStartSet.has(new Date(draft.plannedStartAt).getTime()));
+
+  if (missingDrafts.length === 0) {
+    return [] as EventOccurrence[];
+  }
+
+  const { data, error } = await supabase
+    .from(EVENT_OCCURRENCES_TABLE)
+    .insert(missingDrafts.map(buildCreateOccurrencePayload))
+    .select('*');
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data as DbEventOccurrenceRow[] | null)?.map(mapDbEventOccurrence) ?? [];
+}

@@ -2,6 +2,7 @@ import { normalizeAthleteLevel } from '@/constants/athlete-level';
 import { getPerimeterFormulaCodeForSex, getSkinfoldFormulaCodeForAthleteLevel } from '@/constants/body-fat-formulas';
 import { supabase } from '@/lib/supabase';
 import { bodyFatFormulasService } from '@/services/body-fat-formulas';
+import { formatDateOnly, toDateOnlyString } from '@/utils/date-only';
 import { CLIENTS_TABLE } from '@/services/clients';
 import { Revision } from '@/types/domain';
 import { isSupportedActivityFactor } from '@/utils/activity';
@@ -197,7 +198,7 @@ async function getClientMetrics(clientId: string) {
 async function getPreviousRevisionSnapshot(clientId: string, excludeRevisionId?: string) {
   let query = supabase
     .from(REVISIONS_TABLE)
-    .select('weight_kg, body_fat_visual_pct, fat_mass_kg, lean_mass_kg')
+    .select('weight_kg, body_fat_visual_pct, body_fat_pct, fat_mass_kg, lean_mass_kg')
     .eq('client_id', clientId)
     .order('reviewed_at', { ascending: false })
     .limit(1);
@@ -216,6 +217,7 @@ async function getPreviousRevisionSnapshot(clientId: string, excludeRevisionId?:
     ? {
         weightKg: data.weight_kg as number | null,
         bodyFatVisualPct: data.body_fat_visual_pct as number | null,
+        bodyFatPct: data.body_fat_pct as number | null,
         fatMassKg: data.fat_mass_kg as number | null,
         leanMassKg: data.lean_mass_kg as number | null,
       }
@@ -395,23 +397,23 @@ function mapUpdatePayload(payload: CreateRevisionInput, metrics: RevisionCompute
 }
 
 function toDateOnlyIso(value: string) {
-  const parsedDate = new Date(value);
-
-  if (Number.isNaN(parsedDate.getTime())) {
-    const now = new Date();
-    return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)).toISOString();
-  }
-
-  return new Date(Date.UTC(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate(), 0, 0, 0, 0)).toISOString();
+  return toDateOnlyString(value) ?? formatDateOnly(new Date());
 }
 
 export const revisionsService = {
-  async listByClient(clientId: string) {
-    const { data, error } = await supabase
+  // ownerId es opcional (defensa en profundidad): el rol atleta accede sin ser owner vía RLS.
+  async listByClient(clientId: string, ownerId?: string) {
+    let query = supabase
       .from(REVISIONS_TABLE)
       .select('*')
       .eq('client_id', clientId)
       .order('reviewed_at', { ascending: false });
+
+    if (ownerId) {
+      query = query.eq('owner_id', ownerId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       throw new Error(error.message);
@@ -420,12 +422,46 @@ export const revisionsService = {
     return (data as DbRevisionRow[] | null)?.map(mapDbRevision) ?? [];
   },
 
-  async getById(revisionId: string) {
+  async listByClients(clientIds: string[]) {
+    const revisionsByClientId: Record<string, Revision[]> = {};
+
+    for (const clientId of clientIds) {
+      revisionsByClientId[clientId] = [];
+    }
+
+    if (clientIds.length === 0) {
+      return revisionsByClientId;
+    }
+
     const { data, error } = await supabase
       .from(REVISIONS_TABLE)
       .select('*')
-      .eq('id', revisionId)
-      .maybeSingle();
+      .in('client_id', clientIds)
+      .order('reviewed_at', { ascending: false });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    for (const row of (data as DbRevisionRow[] | null) ?? []) {
+      const revision = mapDbRevision(row);
+      (revisionsByClientId[revision.clientId] ??= []).push(revision);
+    }
+
+    return revisionsByClientId;
+  },
+
+  async getById(revisionId: string, ownerId?: string) {
+    let query = supabase
+      .from(REVISIONS_TABLE)
+      .select('*')
+      .eq('id', revisionId);
+
+    if (ownerId) {
+      query = query.eq('owner_id', ownerId);
+    }
+
+    const { data, error } = await query.maybeSingle();
 
     if (error) {
       throw new Error(error.message);
@@ -455,50 +491,60 @@ export const revisionsService = {
     return mapDbRevision(data as DbRevisionRow);
   },
 
-  async update(revisionId: string, payload: UpdateRevisionInput) {
-    const currentRevision = await this.getById(revisionId);
+  async update(revisionId: string, payload: UpdateRevisionInput, ownerId?: string) {
+    const currentRevision = await this.getById(revisionId, ownerId);
 
     if (!currentRevision) {
       throw new Error('La revision que intentas actualizar no existe.');
     }
 
+    // undefined = no tocar el campo; null = borrarlo. Con ?? un null explícito recuperaba el
+    // valor anterior y era imposible vaciar una medida guardada.
+    const resolveField = <T>(nextValue: T | undefined, currentValue: T): T =>
+      nextValue !== undefined ? nextValue : currentValue;
+
     const mergedPayload: CreateRevisionInput = {
       ownerId: payload.ownerId ?? '',
       clientId: currentRevision.clientId,
-      phase: payload.phase ?? currentRevision.phase,
+      phase: resolveField(payload.phase, currentRevision.phase),
       reviewedAt: payload.reviewedAt ?? currentRevision.reviewedAt,
-      weightKg: payload.weightKg ?? currentRevision.weightKg,
-      neckCm: payload.neckCm ?? currentRevision.neckCm,
-      armCm: payload.armCm ?? currentRevision.armCm,
-      waistCm: payload.waistCm ?? currentRevision.waistCm,
-      bellyCm: payload.bellyCm ?? currentRevision.bellyCm,
-      pelvisCm: payload.pelvisCm ?? currentRevision.pelvisCm,
-      gluteCm: payload.gluteCm ?? currentRevision.gluteCm,
-      thighCm: payload.thighCm ?? currentRevision.thighCm,
-      bicepFoldMm: payload.bicepFoldMm ?? currentRevision.bicepFoldMm,
-      tricepFoldMm: payload.tricepFoldMm ?? currentRevision.tricepFoldMm,
-      subscapularFoldMm: payload.subscapularFoldMm ?? currentRevision.subscapularFoldMm,
-      abdominalFoldMm: payload.abdominalFoldMm ?? currentRevision.abdominalFoldMm,
-      suprailiacFoldMm: payload.suprailiacFoldMm ?? currentRevision.suprailiacFoldMm,
-      frontThighFoldMm: payload.frontThighFoldMm ?? currentRevision.frontThighFoldMm,
-      calfFoldMm: payload.calfFoldMm ?? currentRevision.calfFoldMm,
-      bodyFatVisualPct: payload.bodyFatVisualPct ?? currentRevision.bodyFatVisualPct,
-      activityFactor: payload.activityFactor ?? currentRevision.activityFactor,
-      maintenanceKcal: payload.maintenanceKcal ?? currentRevision.maintenanceKcal,
-      maintenanceKcalEstimated: payload.maintenanceKcalEstimated ?? currentRevision.maintenanceKcalEstimated,
-      targetKcal: payload.targetKcal ?? currentRevision.targetKcal,
-      notes: payload.notes ?? currentRevision.notes,
+      weightKg: resolveField(payload.weightKg, currentRevision.weightKg),
+      neckCm: resolveField(payload.neckCm, currentRevision.neckCm),
+      armCm: resolveField(payload.armCm, currentRevision.armCm),
+      waistCm: resolveField(payload.waistCm, currentRevision.waistCm),
+      bellyCm: resolveField(payload.bellyCm, currentRevision.bellyCm),
+      pelvisCm: resolveField(payload.pelvisCm, currentRevision.pelvisCm),
+      gluteCm: resolveField(payload.gluteCm, currentRevision.gluteCm),
+      thighCm: resolveField(payload.thighCm, currentRevision.thighCm),
+      bicepFoldMm: resolveField(payload.bicepFoldMm, currentRevision.bicepFoldMm),
+      tricepFoldMm: resolveField(payload.tricepFoldMm, currentRevision.tricepFoldMm),
+      subscapularFoldMm: resolveField(payload.subscapularFoldMm, currentRevision.subscapularFoldMm),
+      abdominalFoldMm: resolveField(payload.abdominalFoldMm, currentRevision.abdominalFoldMm),
+      suprailiacFoldMm: resolveField(payload.suprailiacFoldMm, currentRevision.suprailiacFoldMm),
+      frontThighFoldMm: resolveField(payload.frontThighFoldMm, currentRevision.frontThighFoldMm),
+      calfFoldMm: resolveField(payload.calfFoldMm, currentRevision.calfFoldMm),
+      bodyFatVisualPct: resolveField(payload.bodyFatVisualPct, currentRevision.bodyFatVisualPct),
+      activityFactor: resolveField(payload.activityFactor, currentRevision.activityFactor),
+      maintenanceKcal: resolveField(payload.maintenanceKcal, currentRevision.maintenanceKcal),
+      maintenanceKcalEstimated: resolveField(payload.maintenanceKcalEstimated, currentRevision.maintenanceKcalEstimated),
+      targetKcal: resolveField(payload.targetKcal, currentRevision.targetKcal),
+      notes: resolveField(payload.notes, currentRevision.notes),
     };
 
     const computedMetrics = await buildComputedMetrics(mergedPayload, revisionId);
-    const { data, error } = await supabase
+
+    let updateQuery = supabase
       .from(REVISIONS_TABLE)
       .update({
         ...mapUpdatePayload(mergedPayload, computedMetrics),
       })
-      .eq('id', revisionId)
-      .select('*')
-      .single();
+      .eq('id', revisionId);
+
+    if (ownerId) {
+      updateQuery = updateQuery.eq('owner_id', ownerId);
+    }
+
+    const { data, error } = await updateQuery.select('*').single();
 
     if (error) {
       throw new Error(error.message);
@@ -507,8 +553,14 @@ export const revisionsService = {
     return mapDbRevision(data as DbRevisionRow);
   },
 
-  async remove(revisionId: string) {
-    const { error } = await supabase.from(REVISIONS_TABLE).delete().eq('id', revisionId);
+  async remove(revisionId: string, ownerId?: string) {
+    let deleteQuery = supabase.from(REVISIONS_TABLE).delete().eq('id', revisionId);
+
+    if (ownerId) {
+      deleteQuery = deleteQuery.eq('owner_id', ownerId);
+    }
+
+    const { error } = await deleteQuery;
 
     if (error) {
       throw new Error(error.message);

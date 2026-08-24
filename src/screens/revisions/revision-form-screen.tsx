@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { EmptyState } from '@/components/feedback/empty-state';
@@ -409,6 +409,32 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   const [pendingRevisionPhotoIds, setPendingRevisionPhotoIds] = useState<string[]>([]);
   const [isCompositionGuideOpen, setIsCompositionGuideOpen] = useState(false);
 
+  // En modo crear las fotos se suben antes de guardar la revisión: si el usuario sale sin
+  // guardar (Cancelar, volver atrás), hay que borrar esas fotos huérfanas.
+  const pendingPhotoIdsRef = useRef<string[]>([]);
+  const isRevisionSavedRef = useRef(false);
+  const ownerIdRef = useRef<string | null>(null);
+  pendingPhotoIdsRef.current = pendingRevisionPhotoIds;
+  ownerIdRef.current = user?.id ?? null;
+
+  useEffect(() => {
+    return () => {
+      if (mode !== 'create' || isRevisionSavedRef.current) {
+        return;
+      }
+
+      const ownerId = ownerIdRef.current;
+
+      if (!ownerId) {
+        return;
+      }
+
+      for (const photoId of pendingPhotoIdsRef.current) {
+        void photosService.remove(photoId, ownerId).catch(() => {});
+      }
+    };
+  }, [mode]);
+
   useEffect(() => {
     async function loadContext() {
       if (!clientId || !user?.id) {
@@ -430,14 +456,16 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         }
 
         setClient(nextClient);
-        const [nextPerimeterFormulaInfo, nextSkinfoldFormulaInfo] = await Promise.all([
+
+        // Las fórmulas, las revisiones y (en editar) la revisión no dependen entre sí: en paralelo.
+        const [nextPerimeterFormulaInfo, nextSkinfoldFormulaInfo, nextRevisions, editRevision] = await Promise.all([
           bodyFatFormulasService.getByCode(getPerimeterFormulaCodeForSex(nextClient.sex)),
           bodyFatFormulasService.getByCode(getSkinfoldFormulaCodeForAthleteLevel(nextClient.athleteLevel)),
+          revisionsService.listByClient(nextClient.id, user.id),
+          mode === 'edit' && revisionId ? revisionsService.getById(revisionId, user.id) : Promise.resolve(null),
         ]);
         setPerimeterFormulaInfo(nextPerimeterFormulaInfo);
         setSkinfoldFormulaInfo(nextSkinfoldFormulaInfo);
-
-        const nextRevisions = await revisionsService.listByClient(nextClient.id);
         setClientRevisions(nextRevisions);
         setReferenceRevision(nextRevisions.find((revision) => revision.id !== revisionId) ?? null);
         const latestClientRevision = nextRevisions[0] ?? null;
@@ -456,7 +484,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         }
 
         if (mode === 'edit' && revisionId) {
-          const revision = await revisionsService.getById(revisionId);
+          const revision = editRevision;
 
           if (!revision || revision.clientId !== nextClient.id) {
             throw new Error('La revision no existe o no pertenece a este cliente.');
@@ -560,6 +588,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
           setPendingRevisionPhotoIds([]);
         }
 
+        isRevisionSavedRef.current = true;
         router.replace(`/revisions/${createdRevision.id}`);
         return;
       }
@@ -568,10 +597,14 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         throw new Error('No se ha encontrado la revision a editar.');
       }
 
-      await revisionsService.update(revisionId, {
-        ...payload,
-        ownerId: user.id,
-      });
+      await revisionsService.update(
+        revisionId,
+        {
+          ...payload,
+          ownerId: user.id,
+        },
+        user.id
+      );
       router.back();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo guardar la revision.';
@@ -652,7 +685,8 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   const isMedium = width >= 720;
   const compositionGuidePanelWidth = Math.min(width - 24, 920);
   const compositionGuideImageHeight = Math.min(height * 0.72, 760);
-  const reviewedAtDate = form.reviewedAt ? new Date(form.reviewedAt) : null;
+  // Memoizado: un new Date() por render invalidaba las deps de todos los useMemo que lo consumen.
+  const reviewedAtDate = useMemo(() => (form.reviewedAt ? new Date(form.reviewedAt) : null), [form.reviewedAt]);
   const referencePlaceholders = useMemo<RevisionReferencePlaceholders | null>(() => {
     if (mode !== 'create' || !referenceRevision) {
       return null;
@@ -767,8 +801,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       calfFoldMm: activeSkinfoldFieldKeySet.has('calfFoldMm') ? parseFieldValue(form.calfFoldMm) : null,
     });
   }, [
-    client?.birthDate,
-    client?.sex,
+    client,
     activeSkinfoldFieldKeySet,
     selectedSkinfoldProtocol,
     reviewedAtDate,
@@ -798,7 +831,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       frontThighFoldMm: activeSkinfoldFieldKeySet.has('frontThighFoldMm') ? previousComparableSkinfoldRevision.frontThighFoldMm : null,
       calfFoldMm: activeSkinfoldFieldKeySet.has('calfFoldMm') ? previousComparableSkinfoldRevision.calfFoldMm : null,
     });
-  }, [activeSkinfoldFieldKeySet, client?.birthDate, client?.sex, previousComparableSkinfoldRevision, selectedSkinfoldProtocol, reviewedAtDate]);
+  }, [activeSkinfoldFieldKeySet, client, previousComparableSkinfoldRevision, selectedSkinfoldProtocol, reviewedAtDate]);
   const skinfoldDifference =
     skinfoldCalculation && previousSkinfoldCalculation
       ? skinfoldCalculation.roundedBodyFatPct - previousSkinfoldCalculation.roundedBodyFatPct
@@ -815,7 +848,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       age: getClientAge(client, reviewedAtDate ?? new Date()),
       activityFactor: activityFactorValue,
     }),
-    [activityFactorValue, client?.birthDate, client?.heightCm, client?.sex, form.weightKg, reviewedAtDate]
+    [activityFactorValue, client, form.weightKg, reviewedAtDate]
   );
   function renderWeightField() {
     return (

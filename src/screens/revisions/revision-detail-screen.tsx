@@ -191,7 +191,7 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
     setErrorMessage(null);
 
     try {
-      const nextRevision = await revisionsService.getById(revisionId);
+      const nextRevision = await revisionsService.getById(revisionId, isAthlete ? undefined : user.id);
       setRevision(nextRevision);
 
       if (nextRevision) {
@@ -210,7 +210,7 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
         setPerimeterFormulaInfo(nextPerimeterFormula);
         setSkinfoldFormulaInfo(nextSkinfoldFormula);
         const [nextRevisions, nextRevisionPhotos] = await Promise.all([
-          revisionsService.listByClient(nextRevision.clientId),
+          revisionsService.listByClient(nextRevision.clientId, isAthlete ? undefined : user.id),
           isAthlete
             ? photosService.listByRevisionForViewer(nextRevision.id)
             : photosService.listByRevision(nextRevision.id, user.id!),
@@ -230,7 +230,7 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
     } finally {
       setIsLoading(false);
     }
-  }, [revisionId, user?.id]);
+  }, [revisionId, user?.id, isAthlete]);
 
   useFocusEffect(
     useCallback(() => {
@@ -244,7 +244,7 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
     setIsDeleting(true);
 
     try {
-      await revisionsService.remove(revision.id);
+      await revisionsService.remove(revision.id, user?.id);
       router.replace(`/clients/${revision.clientId}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo eliminar la revision.';
@@ -396,7 +396,7 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
       frontThighFoldMm: revision.frontThighFoldMm,
       calfFoldMm: revision.calfFoldMm,
     });
-  }, [client?.birthDate, client?.sex, revision]);
+  }, [client, revision]);
 
   const comparisonPerimeterCalculation = useMemo(() => {
     if (!selectedComparisonRevision || (client?.sex !== 'female' && client?.sex !== 'male')) {
@@ -442,7 +442,7 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
       frontThighFoldMm: selectedComparisonRevision.frontThighFoldMm,
       calfFoldMm: selectedComparisonRevision.calfFoldMm,
     });
-  }, [client?.birthDate, client?.sex, selectedComparisonRevision]);
+  }, [client, selectedComparisonRevision]);
 
   const comparisonPerimeterMeasurementValues = useMemo<MeasurementValueMap | null>(() => {
     if (!selectedComparisonRevision) {

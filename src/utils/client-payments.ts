@@ -1,4 +1,5 @@
 import { BillingFrequency, Client, ClientPayment } from '@/types/domain';
+import { addMonths, startOfDay, toLocalDate } from '@/utils/date-only';
 
 export const BILLING_FREQUENCY_OPTIONS: { label: string; value: BillingFrequency }[] = [
   { label: 'Pago único', value: 'one_time' },
@@ -8,23 +9,6 @@ export const BILLING_FREQUENCY_OPTIONS: { label: string; value: BillingFrequency
   { label: 'Trimestral', value: 'quarterly' },
   { label: 'Anual', value: 'yearly' },
 ];
-
-function startOfDay(value: Date) {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0);
-}
-
-function addMonths(date: Date, months: number) {
-  const result = new Date(date);
-  const targetDay = result.getDate();
-
-  result.setDate(1);
-  result.setMonth(result.getMonth() + months);
-
-  const maxDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
-  result.setDate(Math.min(targetDay, maxDay));
-
-  return startOfDay(result);
-}
 
 export function formatBillingFrequencyLabel(value: BillingFrequency) {
   return BILLING_FREQUENCY_OPTIONS.find((option) => option.value === value)?.label ?? 'Pago único';
@@ -36,7 +20,8 @@ function getMonthlyMultiplier(billingFrequency: BillingFrequency) {
   }
 
   if (billingFrequency === 'biweekly') {
-    return 26 / 12;
+    // Decisión: "Quincenal" = 2 pagos al mes (la próxima fecha de pago suma 15 días).
+    return 24 / 12;
   }
 
   if (billingFrequency === 'monthly') {
@@ -84,24 +69,6 @@ export function calculateNextPaymentDate(referenceDate: Date, billingFrequency: 
   return addMonths(baseDate, 12);
 }
 
-function toLocalDate(value: string | Date | null | undefined) {
-  if (!value) {
-    return null;
-  }
-
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : startOfDay(value);
-  }
-
-  const parsed = new Date(value);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  return startOfDay(parsed);
-}
-
 export type ClientPaymentStatus = {
   label: 'Al corriente' | 'Pendiente de pago';
   isPending: boolean;
@@ -110,13 +77,31 @@ export type ClientPaymentStatus = {
   referenceDate: Date;
 };
 
+// El pago de referencia es el de dueDate (o paymentDate) más reciente, no payments[0]:
+// el servicio ordena por created_at y un pago antiguo registrado tarde ocuparía el primer puesto.
+function findLatestPayment(payments: ClientPayment[] | null | undefined) {
+  let latestPayment: ClientPayment | null = null;
+  let latestTime = Number.NEGATIVE_INFINITY;
+
+  for (const payment of payments ?? []) {
+    const paymentTime = (toLocalDate(payment.dueDate) ?? toLocalDate(payment.paymentDate))?.getTime() ?? Number.NEGATIVE_INFINITY;
+
+    if (paymentTime > latestTime) {
+      latestTime = paymentTime;
+      latestPayment = payment;
+    }
+  }
+
+  return latestPayment;
+}
+
 export function calculateClientPaymentStatus(
   client: Pick<Client, 'createdAt' | 'billingFrequency' | 'forcePaymentPending'> | null | undefined,
   payments: ClientPayment[] | null | undefined,
   referenceDate = new Date()
 ): ClientPaymentStatus {
   const normalizedReference = startOfDay(referenceDate);
-  const latestPayment = payments?.[0] ?? null;
+  const latestPayment = findLatestPayment(payments);
   const latestPaymentDate = toLocalDate(latestPayment?.paymentDate ?? null);
   const latestDueDate = toLocalDate(latestPayment?.dueDate ?? null);
   const fallbackStartDate = toLocalDate(client?.createdAt ?? null) ?? normalizedReference;

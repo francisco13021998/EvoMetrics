@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { TrainerRoute } from '@/components/auth/auth-route';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
 import { ScreenContainer } from '@/components/layout/screen-container';
@@ -18,9 +19,10 @@ type MenuItemProps = {
   subtitle: string;
 };
 
+// Item sin funcionalidad todavía: se marca como "Próximamente" y no sugiere navegación.
 function MenuItem({ icon, title, subtitle }: MenuItemProps) {
   return (
-    <View style={styles.menuItem}>
+    <View style={[styles.menuItem, styles.menuItemUpcoming]}>
       <View style={styles.menuIcon}>{icon}</View>
       <View style={styles.menuCopy}>
         <ThemedText type="smallBold" style={styles.menuTitle} numberOfLines={1}>{title}</ThemedText>
@@ -28,7 +30,9 @@ function MenuItem({ icon, title, subtitle }: MenuItemProps) {
           {subtitle}
         </ThemedText>
       </View>
-      <Ionicons name="chevron-forward" size={20} color="#8B9BB8" />
+      <View style={styles.upcomingBadge}>
+        <ThemedText type="small" style={styles.upcomingBadgeText}>Próximamente</ThemedText>
+      </View>
     </View>
   );
 }
@@ -45,6 +49,14 @@ function SectionCard({ title, children }: { title: string; children: React.React
 }
 
 export default function MasTab() {
+  return (
+    <TrainerRoute>
+      <MasTabContent />
+    </TrainerRoute>
+  );
+}
+
+function MasTabContent() {
   const { user, signOut } = useAuth();
   const theme = useTheme();
   const [isSigningOut, setIsSigningOut] = React.useState(false);
@@ -298,6 +310,20 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#EEF3FA',
+  },
+  menuItemUpcoming: {
+    opacity: 0.6,
+  },
+  upcomingBadge: {
+    borderRadius: 999,
+    backgroundColor: '#EEF3FA',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  upcomingBadgeText: {
+    color: '#5B6B85',
+    fontSize: 11,
+    lineHeight: 14,
   },
   menuIcon: {
     width: 44,

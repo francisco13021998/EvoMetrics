@@ -9,7 +9,7 @@ export default function RevisionDetailRoute() {
 
   return (
     <ProtectedRoute>
-      <RevisionDetailScreen revisionId={revisionId ?? 'revision-1'} />
+      <RevisionDetailScreen revisionId={revisionId ?? ''} />
     </ProtectedRoute>
   );
 }

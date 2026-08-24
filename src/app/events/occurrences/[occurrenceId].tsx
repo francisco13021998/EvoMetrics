@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 
-import { ProtectedRoute } from '@/components/auth/auth-route';
+import { TrainerRoute } from '@/components/auth/auth-route';
 import { EventOccurrenceDetailScreen } from '@/screens/events/event-occurrence-detail-screen';
 
 export default function EventOccurrenceRoute() {
@@ -8,8 +8,8 @@ export default function EventOccurrenceRoute() {
   const occurrenceId = Array.isArray(params.occurrenceId) ? params.occurrenceId[0] : params.occurrenceId;
 
   return (
-    <ProtectedRoute>
+    <TrainerRoute>
       <EventOccurrenceDetailScreen occurrenceId={occurrenceId} />
-    </ProtectedRoute>
+    </TrainerRoute>
   );
 }

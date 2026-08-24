@@ -1,5 +1,6 @@
+import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { EmptyState } from '@/components/feedback/empty-state';
@@ -206,7 +207,6 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const [client, setClient] = useState<Client | null>(null);
-  const currentClient = client as Client;
   const [historyRange, setHistoryRange] = useState<HistoryRange>('all');
   const [historicalRevisions, setHistoricalRevisions] = useState<HistoricalRevisionMetrics[]>([]);
   const [isSecondaryExpanded, setIsSecondaryExpanded] = useState(false);
@@ -246,7 +246,7 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
         return;
       }
 
-      const revisions = await revisionsService.listByClient(nextClient.id);
+      const revisions = await revisionsService.listByClient(nextClient.id, isAthlete ? undefined : user.id);
       setHistoricalRevisions(buildHistoricalRevisionMetrics(nextClient, revisions));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo cargar el análisis histórico.';
@@ -254,11 +254,14 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
     } finally {
       setIsLoading(false);
     }
-  }, [clientId, user?.id]);
+  }, [clientId, user?.id, isAthlete]);
 
-  useEffect(() => {
-    void loadContent();
-  }, [loadContent]);
+  // Recarga al volver a enfocar la pantalla (p. ej. tras crear la primera revisión).
+  useFocusEffect(
+    useCallback(() => {
+      void loadContent();
+    }, [loadContent])
+  );
 
   const filteredHistory = useMemo(() => {
     if (historyRange === 'all') {
@@ -311,6 +314,10 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
   }, [client, historicalRevisions]);
 
   function renderSecondaryMetricRows(metricKeys: readonly string[]) {
+    if (!client) {
+      return null;
+    }
+
     const rows = metricKeys
       .map((metricKey) => secondaryRowsByKey.get(metricKey))
       .filter((row): row is SecondaryMetricProgressRow => Boolean(row));
@@ -328,7 +335,7 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
           return (
             <Pressable
               key={row.metric.key}
-              onPress={() => router.push(`/clients/${currentClient.id}/metrics/${row.metric.key}`)}
+              onPress={() => router.push(`/clients/${client.id}/metrics/${row.metric.key}`)}
               style={({ pressed }) => [
                 styles.secondaryMetricRow,
                 {

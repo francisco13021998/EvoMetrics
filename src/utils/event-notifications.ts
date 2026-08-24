@@ -1,4 +1,9 @@
 import { Client, Event, EventOccurrence } from '@/types/domain';
+import { addDays, startOfDay } from '@/utils/date-only';
+
+// Solo las ocurrencias de los próximos días generan notificación: con todo el horizonte
+// sincronizado (90 días) el badge del dashboard se inflaba con eventos lejanos.
+export const EVENT_NOTIFICATION_WINDOW_DAYS = 7;
 
 export type EventNotificationItem = {
   kind: 'event';
@@ -18,10 +23,6 @@ type EventNotificationInput = {
   occurrences: EventOccurrence[];
 };
 
-function startOfDay(value: Date) {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 0, 0, 0, 0);
-}
-
 function parseDate(value: string | null | undefined) {
   if (!value) {
     return null;
@@ -36,8 +37,9 @@ export function buildEventNotifications({ clients, events, occurrences }: EventN
   const clientNameById = new Map(clients.map((client) => [client.id, client.name] as const));
   const eventById = new Map(events.map((event) => [event.id, event] as const));
   const normalizedReference = startOfDay(referenceDate);
+  const windowEnd = addDays(normalizedReference, EVENT_NOTIFICATION_WINDOW_DAYS);
 
-  return occurrences.flatMap((occurrence) => {
+  return occurrences.flatMap((occurrence): EventNotificationItem[] => {
     const plannedStartAt = parseDate(occurrence.plannedStartAt);
     const event = eventById.get(occurrence.eventId);
 
@@ -45,7 +47,9 @@ export function buildEventNotifications({ clients, events, occurrences }: EventN
       return [] as EventNotificationItem[];
     }
 
-    if (startOfDay(plannedStartAt) < normalizedReference) {
+    const plannedStartDay = startOfDay(plannedStartAt);
+
+    if (plannedStartDay < normalizedReference || plannedStartDay > windowEnd) {
       return [] as EventNotificationItem[];
     }
 

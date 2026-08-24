@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 
-import { ProtectedRoute } from '@/components/auth/auth-route';
+import { TrainerRoute } from '@/components/auth/auth-route';
 import { ClientPaymentsScreen } from '@/screens/clients/client-payments-screen';
 
 export default function ClientPaymentsRoute() {
@@ -8,8 +8,8 @@ export default function ClientPaymentsRoute() {
   const clientId = Array.isArray(params.clientId) ? params.clientId[0] : params.clientId;
 
   return (
-    <ProtectedRoute>
+    <TrainerRoute>
       <ClientPaymentsScreen clientId={clientId ?? ''} />
-    </ProtectedRoute>
+    </TrainerRoute>
   );
 }

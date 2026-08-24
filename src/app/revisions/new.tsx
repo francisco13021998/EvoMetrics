@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 
-import { ProtectedRoute } from '@/components/auth/auth-route';
+import { TrainerRoute } from '@/components/auth/auth-route';
 import { RevisionFormScreen } from '@/screens/revisions/revision-form-screen';
 
 export default function NewRevisionRoute() {
@@ -8,8 +8,8 @@ export default function NewRevisionRoute() {
   const clientId = Array.isArray(params.clientId) ? params.clientId[0] : params.clientId;
 
   return (
-    <ProtectedRoute>
+    <TrainerRoute>
       <RevisionFormScreen mode="create" clientId={clientId} />
-    </ProtectedRoute>
+    </TrainerRoute>
   );
 }

@@ -74,7 +74,7 @@ function getClientStatus(client: Client, payments: ClientPayment[], revisions: R
       return { label: isToday ? 'Pago hoy' : 'Pago pendiente', tone: 'payment' };
     }
 
-    return { label: 'revision', tone: 'revision' };
+    return { label: isToday ? 'Revisión hoy' : 'Revisión pendiente', tone: 'revision' };
   }
 
   return { label: 'Activo', tone: 'active' };
@@ -129,15 +129,19 @@ export function ClientListScreen() {
 
     try {
       const nextClients = await clientsService.listByOwner(user.id);
-      const nextItems = await Promise.all(
-        nextClients.map(async (client) => ({
+      const clientIds = nextClients.map((client) => client.id);
+      const [paymentsByClientId, revisionsByClientId] = await Promise.all([
+        clientPaymentsService.listByClients(clientIds),
+        revisionsService.listByClients(clientIds),
+      ]);
+
+      setItems(
+        nextClients.map((client) => ({
           client,
-          payments: await clientPaymentsService.listByClient(client.id),
-          revisions: await revisionsService.listByClient(client.id),
+          payments: paymentsByClientId[client.id] ?? [],
+          revisions: revisionsByClientId[client.id] ?? [],
         }))
       );
-
-      setItems(nextItems);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudieron cargar los clientes.';
       Alert.alert('Error', message);
@@ -262,12 +266,12 @@ export function ClientListScreen() {
                     </ThemedText>
                   </View>
 
-                  <Pressable onPress={() => goToClient(client.id)} hitSlop={10} style={styles.rowLink}>
+                  <View style={styles.rowLink}>
                     <ThemedText type="smallBold" style={styles.rowLinkText}>
                       Ver
                     </ThemedText>
                     <Ionicons name="chevron-forward" size={18} color={Accent.primary} />
-                  </Pressable>
+                  </View>
                 </Pressable>
               );
             })

@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { ClientPhoto } from '@/types/domain';
+import { formatDateOnly, toDateOnlyString } from '@/utils/date-only';
 
 export const PHOTOS_TABLE = 'client_photos';
 export const CLIENT_IMAGES_BUCKET = 'client-images';
@@ -132,6 +133,40 @@ async function mapDbClientPhoto(row: DbClientPhotoRow): Promise<ClientPhoto> {
   };
 }
 
+// Firma todas las URLs de un listado en una única llamada a Storage (antes era 1 request por foto).
+async function mapDbClientPhotos(rows: DbClientPhotoRow[]): Promise<ClientPhoto[]> {
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const paths = rows.map((row) => row.storage_path);
+  const { data, error } = await supabase.storage.from(CLIENT_IMAGES_BUCKET).createSignedUrls(paths, 60 * 60);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const signedUrlByPath = new Map<string, string>();
+
+  for (const entry of data ?? []) {
+    if (entry.path && entry.signedUrl) {
+      signedUrlByPath.set(entry.path, entry.signedUrl);
+    }
+  }
+
+  return rows.map((row) => ({
+    id: row.id,
+    ownerId: row.owner_id,
+    clientId: row.client_id,
+    revisionId: row.revision_id,
+    storagePath: row.storage_path,
+    imageUrl: signedUrlByPath.get(row.storage_path) ?? '',
+    type: row.type,
+    capturedAt: row.captured_at,
+    createdAt: row.created_at,
+  }));
+}
+
 async function getFileArrayBuffer(uri: string) {
   const response = await fetch(uri);
 
@@ -156,14 +191,7 @@ function mapCreatePayload(payload: { ownerId: string; clientId: string; revision
 }
 
 function toDateOnlyIso(value: string) {
-  const parsedDate = new Date(value);
-
-  if (Number.isNaN(parsedDate.getTime())) {
-    const now = new Date();
-    return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)).toISOString();
-  }
-
-  return new Date(Date.UTC(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate(), 0, 0, 0, 0)).toISOString();
+  return toDateOnlyString(value) ?? formatDateOnly(new Date());
 }
 
 async function uploadSinglePhoto({ ownerId, clientId, asset, revisionId, capturedAt }: UploadClientPhotoInput) {
@@ -226,7 +254,7 @@ export const photosService = {
       throw new Error(error.message);
     }
 
-    return Promise.all(((data as DbClientPhotoRow[] | null) ?? []).map(mapDbClientPhoto));
+    return mapDbClientPhotos((data as DbClientPhotoRow[] | null) ?? []);
   },
 
   /** Queries only by client_id — relies on RLS for access control (athletes + trainers). */
@@ -241,7 +269,7 @@ export const photosService = {
       throw new Error(error.message);
     }
 
-    return Promise.all(((data as DbClientPhotoRow[] | null) ?? []).map(mapDbClientPhoto));
+    return mapDbClientPhotos((data as DbClientPhotoRow[] | null) ?? []);
   },
 
   async listByRevision(revisionId: string, ownerId: string) {
@@ -256,7 +284,7 @@ export const photosService = {
       throw new Error(error.message);
     }
 
-    return Promise.all(((data as DbClientPhotoRow[] | null) ?? []).map(mapDbClientPhoto));
+    return mapDbClientPhotos((data as DbClientPhotoRow[] | null) ?? []);
   },
 
   /** Queries only by revision_id — relies on RLS for access control. */
@@ -271,7 +299,7 @@ export const photosService = {
       throw new Error(error.message);
     }
 
-    return Promise.all(((data as DbClientPhotoRow[] | null) ?? []).map(mapDbClientPhoto));
+    return mapDbClientPhotos((data as DbClientPhotoRow[] | null) ?? []);
   },
 
   async getById(photoId: string, ownerId: string) {
@@ -331,12 +359,8 @@ export const photosService = {
       throw new Error('La imagen que intentas eliminar no existe.');
     }
 
-    const { error: storageError } = await supabase.storage.from(CLIENT_IMAGES_BUCKET).remove([photo.storagePath]);
-
-    if (storageError) {
-      throw new Error(storageError.message);
-    }
-
+    // Primero la fila y después el objeto: si storage falla queda un huérfano en el bucket
+    // (barrible más adelante), nunca una fila apuntando a un archivo inexistente.
     const { error } = await supabase
       .from(PHOTOS_TABLE)
       .delete()
@@ -346,6 +370,8 @@ export const photosService = {
     if (error) {
       throw new Error(error.message);
     }
+
+    await supabase.storage.from(CLIENT_IMAGES_BUCKET).remove([photo.storagePath]).catch(() => {});
   },
 
   async updateCapturedAt({ photoId, ownerId, capturedAt }: UpdateClientPhotoCapturedAtInput) {

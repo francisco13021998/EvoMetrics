@@ -166,7 +166,7 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
     setErrorMessage(null);
 
     try {
-      await clientPaymentsService.remove(payment.id);
+      await clientPaymentsService.remove(payment.id, user?.id);
       setSelectedPayment(null);
       await loadContent();
     } catch (error) {
@@ -212,10 +212,14 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
     setErrorMessage(null);
 
     try {
-      await clientPaymentsService.update(selectedPayment.id, {
-        amount: parsedAmount,
-        paymentDate: paymentDateInput.toISOString(),
-      });
+      await clientPaymentsService.update(
+        selectedPayment.id,
+        {
+          amount: parsedAmount,
+          paymentDate: paymentDateInput.toISOString(),
+        },
+        user?.id
+      );
       closePaymentEditModal();
       await loadContent();
     } catch (error) {
@@ -273,6 +277,7 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
 
     try {
       await clientPaymentsService.create({
+        ownerId: user.id,
         clientId: client.id,
         amount: parsedAmount,
         paymentDate: paymentDateInput.toISOString(),
