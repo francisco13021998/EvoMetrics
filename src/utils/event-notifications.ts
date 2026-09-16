@@ -32,12 +32,15 @@ function parseDate(value: string | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-export function buildEventNotifications({ clients, events, occurrences }: EventNotificationInput, referenceDate = new Date()) {
+export function buildEventNotifications(
+  { clients, events, occurrences }: EventNotificationInput,
+  referenceDate = new Date()
+): EventNotificationItem[] {
   const clientNameById = new Map(clients.map((client) => [client.id, client.name] as const));
   const eventById = new Map(events.map((event) => [event.id, event] as const));
   const normalizedReference = startOfDay(referenceDate);
 
-  return occurrences.flatMap((occurrence) => {
+  return occurrences.flatMap<EventNotificationItem>((occurrence) => {
     const plannedStartAt = parseDate(occurrence.plannedStartAt);
     const event = eventById.get(occurrence.eventId);
 

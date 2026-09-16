@@ -2,6 +2,8 @@ import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 
+import { Ionicons } from '@expo/vector-icons';
+
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
@@ -10,7 +12,7 @@ import { PageSection } from '@/components/layout/page-section';
 import { ScreenContainer } from '@/components/layout/screen-container';
 import { HistoryLineChart } from '@/components/surface/history-line-chart';
 import { ThemedText } from '@/components/themed-text';
-import { Accent, Radius, Spacing } from '@/constants/theme';
+import { Accent, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
 import { clientsService } from '@/services/clients';
@@ -34,7 +36,6 @@ type ClientHistoryAnalysisScreenProps = {
   clientId: string;
 };
 
-type HistoryRange = 'all' | '5' | '10';
 type TrendDirection = 'decrease-better' | 'increase-better' | 'neutral';
 type MetricUnit = 'kg' | 'pct' | 'cm' | 'mm' | 'bmi';
 
@@ -62,11 +63,6 @@ type SecondaryMetricProgressRow = {
 
 type SecondaryGroupId = (typeof SECONDARY_METRIC_GROUPS)[number]['id'];
 
-const RANGE_OPTIONS: { label: string; value: HistoryRange }[] = [
-  { label: 'Todas', value: 'all' },
-  { label: 'Últimas 5', value: '5' },
-  { label: 'Últimas 10', value: '10' },
-];
 
 const SUMMARY_METRICS: MetricConfig[] = [
   {
@@ -207,7 +203,6 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
   const { width } = useWindowDimensions();
   const [client, setClient] = useState<Client | null>(null);
   const currentClient = client as Client;
-  const [historyRange, setHistoryRange] = useState<HistoryRange>('all');
   const [historicalRevisions, setHistoricalRevisions] = useState<HistoricalRevisionMetrics[]>([]);
   const [isSecondaryExpanded, setIsSecondaryExpanded] = useState(false);
   const [expandedSecondaryGroups, setExpandedSecondaryGroups] = useState<Record<SecondaryGroupId, boolean>>({
@@ -222,7 +217,11 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
   const isWide = width >= 960;
   const isMedium = width >= 720;
   const summaryCardWidth = isMedium ? '48.6%' : '48.2%';
-  const chartCardWidth = isWide ? Math.max((width - 88) / 2, 280) : width - 48;
+  const screenContentWidth = Math.min(width, MaxContentWidth) - (Spacing.four * 2);
+  const chartSectionInnerWidth = screenContentWidth - 28;
+  const chartCardWidth = isWide
+    ? Math.max(((chartSectionInnerWidth - Spacing.two) / 2) - 28, 260)
+    : Math.max(chartSectionInnerWidth - 28, 220);
 
   const loadContent = useCallback(async () => {
     if (!user?.id) {
@@ -260,17 +259,9 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
     void loadContent();
   }, [loadContent]);
 
-  const filteredHistory = useMemo(() => {
-    if (historyRange === 'all') {
-      return historicalRevisions;
-    }
-
-    return historicalRevisions.slice(0, Number(historyRange));
-  }, [historicalRevisions, historyRange]);
-
-  const currentRevision = filteredHistory[0] ?? null;
+  const currentRevision = historicalRevisions[0] ?? null;
   const latestRevision = historicalRevisions[0] ?? null;
-  const chartSeries = useMemo(() => filteredHistory.slice().reverse(), [filteredHistory]);
+  const chartSeries = useMemo(() => historicalRevisions.slice().reverse(), [historicalRevisions]);
   const secondaryRows = useMemo<SecondaryMetricProgressRow[]>(() => {
     return SECONDARY_ANALYSIS_METRICS.flatMap((metric) => {
       const metricHistory = historicalRevisions
@@ -402,59 +393,88 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
 
   if (historicalRevisions.length === 0) {
     return (
-      <ScreenContainer>
-        <PageHeader
-          eyebrow={`Cliente: ${client.name}`}
-          title="Análisis histórico"
-          rightSlot={<AppButton label="← Volver" variant="ghost" size="compact" fullWidth={false} onPress={() => router.back()} />}
-        />
-        <PageSection first>
+      <ScreenContainer contentStyle={styles.screenContent}>
+        <View style={styles.topBar}>
+          <Pressable
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Volver"
+            style={({ pressed }) => [
+              styles.backButton,
+              {
+                borderColor: theme.backgroundSelected,
+                backgroundColor: pressed ? '#EFF5FF' : '#FFFFFF',
+                opacity: pressed ? 0.92 : 1,
+              },
+            ]}>
+            <Ionicons name="chevron-back" size={18} color={Accent.primary} />
+            <ThemedText type="smallBold" style={styles.backButtonText}>Volver</ThemedText>
+          </Pressable>
+        </View>
+        <View style={[styles.emptyAnalysisCard, { borderColor: theme.backgroundSelected }]}>
+          <View style={styles.headerIconWrap}>
+            <Ionicons name="analytics-outline" size={26} color={Accent.primary} />
+          </View>
+          <ThemedText type="label" style={styles.headerEyebrow}>Cliente: {client.name}</ThemedText>
+          <ThemedText type="headline" style={styles.headerTitle}>Análisis histórico</ThemedText>
           <EmptyState
             title="Todavía no hay revisiones para analizar"
             description="Cuando registres la primera revisión aparecerán aquí el resumen, las gráficas y la comparativa histórica del cliente."
             actionLabel="Crear primera revisión"
             onAction={() => router.push(`/revisions/new?clientId=${client.id}`)}
           />
-        </PageSection>
+        </View>
       </ScreenContainer>
     );
   }
 
   return (
-    <ScreenContainer>
-      <PageHeader
-        eyebrow={`Cliente: ${client.name}`}
-        title="Análisis histórico"
-        subtitle="Evolución y comparativas"
-        rightSlot={<AppButton label="← Volver" variant="ghost" size="compact" fullWidth={false} onPress={() => router.back()} />}
-      />
+    <ScreenContainer contentStyle={styles.screenContent}>
+      <View style={styles.topBar}>
+        <Pressable
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Volver"
+          style={({ pressed }) => [
+            styles.backButton,
+            {
+              borderColor: theme.backgroundSelected,
+              backgroundColor: pressed ? '#EFF5FF' : '#FFFFFF',
+              opacity: pressed ? 0.92 : 1,
+            },
+          ]}>
+          <Ionicons name="chevron-back" size={18} color={Accent.primary} />
+          <ThemedText type="smallBold" style={styles.backButtonText}>Volver</ThemedText>
+        </Pressable>
+      </View>
 
-      <PageSection
-        first
-        label="Resumen"
-        rightSlot={
-          <View style={styles.rangeSwitch}>
-            {RANGE_OPTIONS.map((option) => {
-              const isActive = historyRange === option.value;
-
-              return (
-                <Pressable
-                  key={option.value}
-                  onPress={() => setHistoryRange(option.value)}
-                  style={[
-                    styles.rangeChip,
-                    {
-                      backgroundColor: isActive ? Accent.primary : '#FFFFFF',
-                      borderColor: isActive ? Accent.primary : theme.backgroundSelected,
-                    },
-                  ]}>
-                  <ThemedText type="smallBold" style={{ color: isActive ? '#FFFFFF' : '#10203B' }}>{option.label}</ThemedText>
-                </Pressable>
-              );
-            })}
+      <View style={[styles.headerCard, { borderColor: theme.backgroundSelected }]}>
+        <View style={styles.headerRow}>
+          <View style={styles.headerIconWrap}>
+            <Ionicons name="analytics-outline" size={26} color={Accent.primary} />
           </View>
-        }
-      >
+          <View style={styles.headerCopy}>
+            <ThemedText type="label" style={styles.headerEyebrow}>Análisis</ThemedText>
+            <ThemedText type="headline" style={styles.headerTitle}>Evolución histórica</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.headerSubtitle}>
+              {client.name} · {historicalRevisions.length} revisiones registradas
+            </ThemedText>
+          </View>
+        </View>
+
+      </View>
+
+
+      <View style={[styles.analysisSection, { borderColor: theme.backgroundSelected }]}>
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionIconWrap}>
+            <Ionicons name="speedometer-outline" size={18} color={Accent.primary} />
+          </View>
+          <View style={styles.sectionCopy}>
+            <ThemedText type="label" style={styles.sectionEyebrow}>Resumen</ThemedText>
+            <ThemedText type="headline" style={styles.sectionTitle}>Indicadores principales</ThemedText>
+          </View>
+        </View>
         <View style={styles.summaryGridCompact}>
           {SUMMARY_METRICS.map((metric) => {
             const comparison = resolveHistoricalMetricComparison({
@@ -503,9 +523,18 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
             );
           })}
         </View>
-      </PageSection>
+      </View>
 
-      <PageSection label="Tendencias">
+      <View style={[styles.analysisSection, { borderColor: theme.backgroundSelected }]}>
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionIconWrap}>
+            <Ionicons name="trending-up-outline" size={18} color={Accent.primary} />
+          </View>
+          <View style={styles.sectionCopy}>
+            <ThemedText type="label" style={styles.sectionEyebrow}>Tendencias</ThemedText>
+            <ThemedText type="headline" style={styles.sectionTitle}>Evolución visual</ThemedText>
+          </View>
+        </View>
         <View style={styles.chartsGrid}>
           {CHART_METRICS.map((metric) => {
             const comparison = resolveHistoricalMetricComparison({
@@ -538,7 +567,7 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
             );
           })}
         </View>
-      </PageSection>
+      </View>
 
       <Modal transparent visible={isBodyFatWarningOpen} animationType="fade" onRequestClose={() => setIsBodyFatWarningOpen(false)}>
         <Pressable style={styles.warningBackdrop} onPress={() => setIsBodyFatWarningOpen(false)}>
@@ -564,16 +593,21 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
         </Pressable>
       </Modal>
 
-      <PageSection>
       <View style={[styles.secondaryPanel, { borderColor: theme.backgroundSelected }]}>
         <Pressable
           onPress={() => setIsSecondaryExpanded((currentValue) => !currentValue)}
-          style={[styles.historyToggle, { borderColor: theme.backgroundSelected }]}> 
+          accessibilityRole="button"
+          accessibilityLabel={`${isSecondaryExpanded ? 'Cerrar' : 'Abrir'} lectura secundaria`}
+          style={({ pressed }) => [styles.historyToggle, { borderColor: theme.backgroundSelected, opacity: pressed ? 0.92 : 1 }]}>
+          <View style={styles.sectionIconWrap}>
+            <Ionicons name="list-outline" size={18} color={Accent.primary} />
+          </View>
           <View style={styles.sectionCopy}>
-            <ThemedText type="smallBold">Lectura secundaria</ThemedText>
+            <ThemedText type="label" style={styles.sectionEyebrow}>Detalle</ThemedText>
+            <ThemedText type="headline" style={styles.sectionTitle}>Lectura secundaria</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">Último dato disponible y progreso total por métrica</ThemedText>
           </View>
-          <ThemedText type="smallBold" style={styles.historyToggleIcon}>{isSecondaryExpanded ? '-' : '+'}</ThemedText>
+          <Ionicons name={isSecondaryExpanded ? 'chevron-up' : 'chevron-down'} size={18} color={Accent.primary} />
         </Pressable>
 
         {isSecondaryExpanded ? (
@@ -595,11 +629,13 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
                         [group.id]: !currentGroups[group.id],
                       }))
                     }
-                    style={[styles.historyToggle, { borderColor: theme.backgroundSelected }]}> 
+                    accessibilityRole="button"
+                    accessibilityLabel={`${isOpen ? 'Cerrar' : 'Abrir'} ${group.title}`}
+                    style={({ pressed }) => [styles.historyToggleGroup, { borderColor: theme.backgroundSelected, opacity: pressed ? 0.92 : 1 }]}>
                     <View style={styles.sectionCopy}>
                       <ThemedText type="smallBold">{group.title}</ThemedText>
                     </View>
-                    <ThemedText type="smallBold" style={styles.historyToggleIcon}>{isOpen ? '-' : '+'}</ThemedText>
+                    <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={18} color={Accent.primary} />
                   </Pressable>
                   {isOpen ? renderSecondaryMetricRows(group.metricKeys) : null}
                 </View>
@@ -608,22 +644,120 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
           </>
         ) : null}
       </View>
-      </PageSection>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  rangeSwitch: {
-    flexDirection: 'row',
-    gap: Spacing.one,
-    flexWrap: 'wrap',
+  screenContent: {
+    gap: 14,
+    paddingTop: 14,
   },
-  rangeChip: {
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  backButton: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     borderWidth: 1,
+    borderColor: '#DFE7F2',
     borderRadius: Radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+  },
+  backButtonText: {
+    color: '#10203B',
+    lineHeight: 16,
+  },
+  headerCard: {
+    borderWidth: 1,
+    borderColor: '#DFE7F2',
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    gap: 16,
+    shadowColor: '#12336E',
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 3,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  headerIconWrap: {
+    width: 58,
+    height: 58,
+    borderWidth: 1,
+    borderColor: '#D2E0FA',
+    borderRadius: 20,
+    backgroundColor: '#E8F0FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  headerEyebrow: {
+    color: Accent.primary,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  headerTitle: {
+    color: '#10203B',
+    fontSize: 31,
+    lineHeight: 36,
+  },
+  headerSubtitle: {
+    lineHeight: 18,
+  },
+  emptyAnalysisCard: {
+    borderWidth: 1,
+    borderColor: '#DFE7F2',
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    gap: 10,
+    alignItems: 'flex-start',
+  },
+  analysisSection: {
+    borderWidth: 1,
+    borderColor: '#DFE7F2',
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    gap: 12,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  sectionIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF5FF',
+  },
+  sectionEyebrow: {
+    color: Accent.primary,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  sectionTitle: {
+    color: '#10203B',
+    fontSize: 22,
+    lineHeight: 27,
   },
   bodyFatWarningTrigger: {
     width: 16,
@@ -647,7 +781,8 @@ const styles = StyleSheet.create({
   },
   summaryCardCompact: {
     borderWidth: 1,
-    borderRadius: Radius.medium,
+    borderColor: '#DFE7F2',
+    borderRadius: 18,
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 12,
     paddingVertical: 12,
@@ -667,12 +802,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.two,
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
   secondaryPanel: {
     borderWidth: 1,
-    borderRadius: Radius.large,
+    borderColor: '#DFE7F2',
+    borderRadius: 22,
     backgroundColor: '#FFFFFF',
     padding: 14,
     gap: 12,
@@ -789,6 +925,18 @@ const styles = StyleSheet.create({
   },
   historyToggle: {
     borderWidth: 1,
+    borderColor: '#DFE7F2',
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  historyToggleGroup: {
+    borderWidth: 1,
+    borderColor: '#DFE7F2',
     borderRadius: Radius.medium,
     paddingHorizontal: 12,
     paddingVertical: 12,
@@ -796,6 +944,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: Spacing.two,
+    backgroundColor: '#F8FBFF',
   },
   historyToggleIcon: {
     color: Accent.primary,

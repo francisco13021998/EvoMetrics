@@ -5,6 +5,8 @@ import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 
+import { Ionicons } from '@expo/vector-icons';
+
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
@@ -258,7 +260,7 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
 
     setIsRevisionMenuOpen(false);
 
-    Alert.alert('Eliminar revision', 'Esta accion no se puede deshacer.', [
+    Alert.alert('Eliminar revisión', 'Esta acción no se puede deshacer.', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Eliminar',
@@ -756,8 +758,8 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
     return (
       <ScreenContainer>
         <EmptyState
-          title="Revision no encontrada"
-          description="No existe una revision con ese identificador."
+          title="Revisión no encontrada"
+          description="No existe una revisión con ese identificador."
           actionLabel="Volver"
           onAction={() => router.back()}
         />
@@ -813,19 +815,38 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
     children: React.ReactNode
   ) {
     const isOpen = activeSection === sectionKey;
+    const sectionIcon =
+      sectionKey === 'summary'
+        ? 'stats-chart-outline'
+        : sectionKey === 'perimeters'
+          ? 'resize-outline'
+          : sectionKey === 'skinfolds'
+            ? 'analytics-outline'
+            : sectionKey === 'photos'
+              ? 'images-outline'
+              : 'document-text-outline';
 
     return (
-      <View style={[styles.sheetSection, { borderTopColor: theme.backgroundSelected }]}>
+      <View style={[styles.sheetSection, { borderColor: theme.backgroundSelected }]}>
         <Pressable
           onPress={() => setActiveSection((currentSection) => (currentSection === sectionKey ? null : sectionKey))}
-          style={styles.sectionToggle}>
-          <View style={styles.sectionHeaderCopy}>
-            <ThemedText type="label" style={styles.sectionEyebrow}>{eyebrow}</ThemedText>
-            <ThemedText type="smallBold" style={styles.sectionTitle}>{title}</ThemedText>
+          accessibilityRole="button"
+          accessibilityLabel={`${isOpen ? 'Cerrar' : 'Abrir'} sección ${title}`}
+          style={({ pressed }) => [styles.sectionToggle, { opacity: pressed ? 0.92 : 1 }]}>
+          <View style={styles.sectionTitleArea}>
+            <View style={[styles.sectionIconWrap, isOpen && styles.sectionIconWrapActive]}>
+              <Ionicons name={sectionIcon} size={18} color={isOpen ? '#FFFFFF' : Accent.primary} />
+            </View>
+            <View style={styles.sectionHeaderCopy}>
+              <ThemedText type="label" style={styles.sectionEyebrow}>{eyebrow}</ThemedText>
+              <ThemedText type="smallBold" style={styles.sectionTitle}>{title}</ThemedText>
+            </View>
           </View>
           <View style={styles.sectionToggleMeta}>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.sectionCountText}>{count}</ThemedText>
-            <ThemedText type="smallBold" style={styles.sectionChevron}>{isOpen ? '−' : '+'}</ThemedText>
+            <View style={styles.sectionCountPill}>
+              <ThemedText type="smallBold" style={styles.sectionCountText}>{count}</ThemedText>
+            </View>
+            <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={18} color={isOpen ? Accent.primary : '#7B8AA0'} />
           </View>
         </Pressable>
         {isOpen ? <View style={styles.sectionBody}>{children}</View> : null}
@@ -881,92 +902,68 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
 
   return (
     <ScreenContainer contentStyle={styles.screenContent}>
-      <View style={[styles.heroCard, { borderColor: theme.backgroundSelected }]}>
-        <View style={styles.heroTopAccent} />
+      <View style={styles.topBar}>
+        <Pressable
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Volver"
+          style={({ pressed }) => [
+            styles.backButton,
+            {
+              borderColor: theme.backgroundSelected,
+              backgroundColor: pressed ? '#EFF5FF' : '#FFFFFF',
+              opacity: pressed ? 0.92 : 1,
+            },
+          ]}>
+          <Ionicons name="chevron-back" size={18} color={Accent.primary} />
+          <ThemedText type="smallBold" style={styles.backButtonText}>Volver</ThemedText>
+        </Pressable>
 
-        <View style={styles.heroTopRow}>
-          <View style={styles.heroTopCopy}>
-            <ThemedText type="label" style={styles.heroEyebrow}>Detalle de revision</ThemedText>
+        {!isAthlete ? (
+          <Pressable
+            onPress={() => setIsRevisionMenuOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Acciones de revisión"
+            style={({ pressed }) => [
+              styles.menuButton,
+              {
+                borderColor: theme.backgroundSelected,
+                backgroundColor: pressed ? '#EFF5FF' : '#FFFFFF',
+                opacity: pressed ? 0.92 : 1,
+              },
+            ]}>
+            <Ionicons name="ellipsis-horizontal" size={20} color="#1F3D69" />
+          </Pressable>
+        ) : null}
+      </View>
+
+      <View style={[styles.heroCard, { borderColor: theme.backgroundSelected }]}>
+        <View style={styles.heroIdentityRow}>
+          <View style={styles.heroIconWrap}>
+            <Ionicons name="clipboard-outline" size={26} color={Accent.primary} />
+          </View>
+          <View style={styles.heroCopy}>
+            <ThemedText type="label" style={styles.heroEyebrow}>Detalle de revisión</ThemedText>
+            <ThemedText type="headline" style={styles.clientTitle}>
+              {client?.name ?? 'Cliente'}
+            </ThemedText>
             <ThemedText type="small" themeColor="textSecondary" style={styles.heroDate}>
               {formatLongDate(revision.reviewedAt)}
             </ThemedText>
           </View>
-
-          <View style={styles.heroTopActions}>
-            <Pressable
-              onPress={() => router.back()}
-              accessibilityLabel="Volver"
-              style={({ pressed }) => [
-                styles.backButton,
-                {
-                  borderColor: theme.backgroundSelected,
-                  backgroundColor: pressed ? '#F6F9FE' : '#FFFFFF',
-                  opacity: pressed ? 0.92 : 1,
-                },
-              ]}>
-              <ThemedText type="smallBold" style={styles.backButtonIcon}>←</ThemedText>
-              <ThemedText type="smallBold" style={styles.backButtonText}>Volver</ThemedText>
-            </Pressable>
-
-            {!isAthlete && (
-              <Pressable
-                onPress={() => setIsRevisionMenuOpen(true)}
-                accessibilityLabel="Acciones de revision"
-                style={({ pressed }) => [
-                  styles.menuButton,
-                  {
-                    borderColor: theme.backgroundSelected,
-                    backgroundColor: pressed ? '#F6F9FE' : '#FFFFFF',
-                    opacity: pressed ? 0.92 : 1,
-                  },
-                ]}>
-                <ThemedText type="headline" style={styles.menuDots}>⋯</ThemedText>
-              </Pressable>
-            )}
-          </View>
         </View>
 
-        <View style={styles.heroCopy}>
-          {client?.name ? (
-            <ThemedText type="headline" style={styles.clientTitle}>
-              {client.name}
+        <View style={styles.heroMetaRow}>
+          <View style={styles.phasePill}>
+            <Ionicons name="flag-outline" size={16} color={Accent.primary} />
+            <ThemedText type="smallBold" style={styles.phasePillText}>{formatRevisionPhase(revision.phase)}</ThemedText>
+          </View>
+          <View style={styles.phasePillSoft}>
+            <Ionicons name="git-compare-outline" size={16} color="#5C6B86" />
+            <ThemedText type="small" themeColor="textSecondary">
+              {selectedComparisonRevision ? `vs ${formatShortDate(selectedComparisonRevision.reviewedAt)}` : 'Sin comparativa'}
             </ThemedText>
-          ) : null}
-          <ThemedText type="small" themeColor="textSecondary" style={styles.heroPhase}>
-            {formatRevisionPhase(revision.phase)}
-          </ThemedText>
-        </View>
-
-        <View style={[styles.compareCard, { borderColor: theme.backgroundSelected }]}>
-          <View style={styles.compareCardHeader}>
-            <View style={styles.compareCardCopy}>
-              <ThemedText type="smallBold" style={styles.compareCardTitle}>Comparativa de progreso</ThemedText>
-            </View>
-            {selectedComparisonRevision ? (
-              <View style={styles.compareBadge}>
-                <ThemedText type="smallBold" style={styles.compareBadgeText}>
-                  {formatShortDate(selectedComparisonRevision.reviewedAt)}
-                </ThemedText>
-              </View>
-            ) : null}
           </View>
-
-          {comparisonOptions.length > 0 ? (
-            <AppSelect
-              label="Comparar con"
-              value={selectedComparisonRevision?.id ?? ''}
-              options={comparisonOptions}
-              onChange={setSelectedComparisonRevisionId}
-              containerStyle={styles.compareSelectShell}
-              pickerTextStyle={styles.compareSelectText}
-            />
-          ) : (
-            <View style={styles.compareEmptyState}>
-              <ThemedText type="small" themeColor="textSecondary" style={styles.compareEmptyText}>
-                Esta revisión se muestra sin diferencias porque todavía no hay otra visita registrada.
-              </ThemedText>
-            </View>
-          )}
         </View>
 
         <View style={styles.heroMetricsRow}>
@@ -996,7 +993,38 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
         </View>
       </View>
 
-      <View style={[styles.detailSheet, { borderColor: theme.backgroundSelected }]}>
+      <View style={[styles.compareCard, { borderColor: theme.backgroundSelected }]}>
+        <View style={styles.compareCardHeader}>
+          <View style={styles.compareIconWrap}>
+            <Ionicons name="trending-up-outline" size={20} color={Accent.primary} />
+          </View>
+          <View style={styles.compareCardCopy}>
+            <ThemedText type="smallBold" style={styles.compareCardTitle}>Comparativa de progreso</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.compareCardHint}>
+              Selecciona una revisión de referencia para interpretar diferencias.
+            </ThemedText>
+          </View>
+        </View>
+
+        {comparisonOptions.length > 0 ? (
+          <AppSelect
+            label="Comparar con"
+            value={selectedComparisonRevision?.id ?? ''}
+            options={comparisonOptions}
+            onChange={setSelectedComparisonRevisionId}
+            containerStyle={styles.compareSelectShell}
+            pickerTextStyle={styles.compareSelectText}
+          />
+        ) : (
+          <View style={styles.compareEmptyState}>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.compareEmptyText}>
+              Esta revisión se muestra sin diferencias porque todavía no hay otra visita registrada.
+            </ThemedText>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.detailSheet}>
         {renderSectionCard(
           'summary',
           'Resumen',
@@ -1180,7 +1208,7 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
         <Pressable style={styles.menuBackdrop} onPress={() => setIsRevisionMenuOpen(false)}>
           <Pressable style={[styles.menuPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
             <AppButton
-              label="Editar revision"
+              label="Editar revisión"
               variant="surface"
               size="compact"
               onPress={() => {
@@ -1189,7 +1217,7 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
               }}
             />
             <AppButton
-              label={isDeleting ? 'Eliminando...' : 'Eliminar revision'}
+              label={isDeleting ? 'Eliminando...' : 'Eliminar revisión'}
               variant="danger"
               size="compact"
               onPress={handleDelete}
@@ -1204,100 +1232,179 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
 
 const styles = StyleSheet.create({
   screenContent: {
-    gap: Spacing.two,
-  },
-  heroCard: {
-    borderWidth: 1,
-    borderRadius: Radius.large,
-    backgroundColor: '#FFFFFF',
-    padding: Spacing.three,
+    gap: 14,
     paddingTop: 14,
-    gap: Spacing.two,
-    overflow: 'hidden',
-    shadowColor: '#12336E',
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
   },
-  heroTopAccent: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 4,
-    backgroundColor: '#2D66E0',
-  },
-  heroTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: Spacing.two,
-  },
-  heroTopCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  heroTopActions: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: Spacing.two,
   },
   backButton: {
-    borderRadius: Radius.pill,
-    borderWidth: 1,
+    minHeight: 42,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    minHeight: 30,
-    paddingHorizontal: 10,
-  },
-  backButtonIcon: {
-    color: Accent.primary,
-    fontSize: 11,
-    lineHeight: 12,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#DFE7F2',
+    borderRadius: Radius.pill,
+    paddingHorizontal: 14,
   },
   backButtonText: {
-    color: Accent.primary,
-    fontSize: 11,
-    lineHeight: 12,
+    color: '#10203B',
+    lineHeight: 16,
+  },
+  heroCard: {
+    borderWidth: 1,
+    borderColor: '#DFE7F2',
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    gap: 16,
+    shadowColor: '#12336E',
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 3,
+  },
+  heroIdentityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  heroIconWrap: {
+    width: 58,
+    height: 58,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#D2E0FA',
+    backgroundColor: '#E8F0FF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   heroCopy: {
+    flex: 1,
+    minWidth: 0,
     gap: 3,
   },
   heroEyebrow: {
     color: Accent.primary,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   clientTitle: {
-    fontSize: 29,
-    lineHeight: 34,
+    fontSize: 31,
+    lineHeight: 36,
     color: '#10203B',
   },
   heroDate: {
     lineHeight: 18,
   },
-  heroPhase: {
+  heroMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E6EDF7',
+  },
+  phasePill: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    borderRadius: Radius.pill,
+    backgroundColor: '#EEF5FF',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  phasePillText: {
+    color: Accent.primary,
+    lineHeight: 16,
+  },
+  phasePillSoft: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    borderRadius: Radius.pill,
+    backgroundColor: '#F6F9FE',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  heroMetricsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  heroMetricCard: {
+    flexGrow: 1,
+    flexBasis: '47%',
+    minWidth: 150,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#DFE7F2',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 4,
+    backgroundColor: '#FFFFFF',
+  },
+  heroMetricCardPrimary: {
+    width: '100%',
+    backgroundColor: '#EEF4FF',
+  },
+  heroMetricCardSecondary: {
+    backgroundColor: '#F9FBFF',
+  },
+  heroMetricLabelPrimary: {
+    color: '#4A628A',
+  },
+  heroMetricLabel: {
+    color: '#5E6E88',
+    lineHeight: 17,
+  },
+  heroMetricValue: {
+    color: Accent.ink,
+    fontSize: 18,
+    lineHeight: 23,
+  },
+  heroMetricDelta: {
+    color: Accent.primary,
     lineHeight: 18,
+  },
+  heroMetricSpacer: {
+    height: 18,
   },
   compareCard: {
     borderWidth: 1,
-    borderRadius: Radius.medium,
-    backgroundColor: '#F8FBFF',
-    padding: 12,
-    gap: Spacing.two,
+    borderColor: '#DFE7F2',
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    gap: 12,
   },
   compareCardHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
+    alignItems: 'center',
+    gap: 12,
+  },
+  compareIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF5FF',
   },
   compareCardCopy: {
     flex: 1,
+    minWidth: 0,
     gap: 2,
   },
   compareCardTitle: {
     color: Accent.ink,
+    lineHeight: 18,
   },
   compareCardHint: {
     lineHeight: 18,
@@ -1315,63 +1422,52 @@ const styles = StyleSheet.create({
   },
   compareSelectShell: {
     backgroundColor: '#FFFFFF',
+    borderRadius: Radius.medium,
   },
   compareSelectText: {
     color: Accent.ink,
   },
   compareEmptyState: {
     borderRadius: Radius.medium,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F6F9FE',
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
   compareEmptyText: {
     lineHeight: 18,
   },
-  heroMetricsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  heroMetricCard: {
-    borderRadius: Radius.large,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    gap: 2,
-    backgroundColor: '#F9FBFF',
-  },
-  heroMetricCardPrimary: {
-    width: '100%',
-    backgroundColor: '#EEF4FF',
-  },
-  heroMetricCardSecondary: {
-    width: '48.5%',
-  },
-  heroMetricLabelPrimary: {
-    color: '#4A628A',
-  },
-  heroMetricLabel: {
-    color: '#5E6E88',
-  },
-  heroMetricValue: {
-    color: Accent.ink,
-  },
-  heroMetricDelta: {
-    color: Accent.primary,
-    lineHeight: 18,
-  },
-  heroMetricSpacer: {
-    height: 18,
-  },
   detailSheet: {
-    borderWidth: 1,
-    borderRadius: Radius.large,
-    backgroundColor: '#FFFFFF',
-    overflow: 'hidden',
+    gap: 12,
   },
   sheetSection: {
-    borderTopWidth: 1,
+    borderWidth: 1,
+    borderColor: '#DFE7F2',
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    shadowColor: '#12336E',
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 1,
+  },
+  sectionTitleArea: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minWidth: 0,
+  },
+  sectionIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF5FF',
+  },
+  sectionIconWrapActive: {
+    backgroundColor: Accent.primary,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -1380,43 +1476,50 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   sectionHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
     gap: 1,
   },
   sectionEyebrow: {
     color: Accent.primary,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
   sectionTitle: {
     color: Accent.ink,
-    fontSize: 16,
-    lineHeight: 20,
+    fontSize: 18,
+    lineHeight: 23,
   },
   sectionToggle: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: Spacing.two,
+    gap: 12,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 14,
   },
   sectionToggleMeta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  sectionCountText: {
-    color: '#6A7991',
-    fontSize: 12,
-    lineHeight: 16,
+  sectionCountPill: {
+    borderRadius: Radius.pill,
+    backgroundColor: '#EEF4FF',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
   },
-  sectionChevron: {
-    color: '#6C7A92',
-    width: 18,
-    textAlign: 'center',
+  sectionCountText: {
+    color: Accent.primary,
+    fontSize: 11,
+    lineHeight: 14,
   },
   sectionBody: {
     paddingHorizontal: 14,
     paddingBottom: 14,
-    paddingTop: 2,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#EDF2FB',
   },
   perimeterSectionBody: {
     gap: Spacing.two,
@@ -1427,6 +1530,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: Spacing.two,
     borderWidth: 1,
+    borderColor: '#DFE7F2',
     borderRadius: Radius.medium,
     backgroundColor: '#F8FBFF',
     paddingHorizontal: 12,
@@ -1445,8 +1549,9 @@ const styles = StyleSheet.create({
   measureGroup: {
     gap: Spacing.two,
     borderWidth: 1,
-    borderRadius: Radius.medium,
-    padding: 10,
+    borderColor: '#DFE7F2',
+    borderRadius: 18,
+    padding: 12,
   },
   measureGroupPrimary: {
     backgroundColor: '#FCFDFF',
@@ -1503,7 +1608,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.two,
-    paddingVertical: 10,
+    paddingVertical: 11,
   },
   summaryRowDivider: {
     borderBottomWidth: 1,
@@ -1577,7 +1682,9 @@ const styles = StyleSheet.create({
     color: '#50627E',
   },
   noteInline: {
-    paddingVertical: 2,
+    borderRadius: 18,
+    backgroundColor: '#F8FBFF',
+    padding: 12,
   },
   noteText: {
     lineHeight: 22,
@@ -1613,7 +1720,8 @@ const styles = StyleSheet.create({
   },
   viewerPanel: {
     borderWidth: 1,
-    borderRadius: Radius.large,
+    borderColor: '#DFE7F2',
+    borderRadius: 22,
     backgroundColor: '#0D1A33',
     padding: Spacing.two,
     gap: Spacing.two,
@@ -1636,7 +1744,8 @@ const styles = StyleSheet.create({
   },
   uploadPanel: {
     borderWidth: 1,
-    borderRadius: Radius.large,
+    borderColor: '#DFE7F2',
+    borderRadius: 22,
     backgroundColor: '#FFFFFF',
     padding: Spacing.three,
     gap: Spacing.three,
@@ -1652,8 +1761,8 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   uploadCloseButton: {
-    width: 28,
-    height: 28,
+    width: 34,
+    height: 34,
     borderRadius: Radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1661,8 +1770,8 @@ const styles = StyleSheet.create({
   },
   uploadCloseText: {
     color: '#5E6E88',
-    fontSize: 16,
-    lineHeight: 18,
+    fontSize: 18,
+    lineHeight: 20,
   },
   uploadActions: {
     flexDirection: 'row',
@@ -1671,33 +1780,35 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   menuButton: {
-    width: 36,
-    height: 36,
+    width: 42,
+    height: 42,
     borderWidth: 1,
+    borderColor: '#DFE7F2',
     borderRadius: Radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
-  menuDots: {
-    color: '#10203B',
-    lineHeight: 24,
-    marginTop: -2,
-  },
   menuBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(16, 32, 59, 0.16)',
+    backgroundColor: 'rgba(16, 32, 59, 0.18)',
     paddingHorizontal: Spacing.three,
     paddingTop: 96,
   },
   menuPanel: {
     alignSelf: 'flex-end',
-    width: 220,
+    width: 240,
     borderWidth: 1,
-    borderRadius: Radius.large,
+    borderColor: '#DFE7F2',
+    borderRadius: 22,
     backgroundColor: '#FFFFFF',
     padding: Spacing.two,
     gap: Spacing.two,
+    shadowColor: '#12336E',
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 5,
   },
 });
 

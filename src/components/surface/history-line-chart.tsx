@@ -23,6 +23,7 @@ type HistoryLineChartProps = {
   width: number;
   points: ChartPoint[];
   yUnitSuffix?: string;
+  hideHeader?: boolean;
 };
 
 type ResolvedPoint = ChartPoint & {
@@ -46,6 +47,7 @@ export function HistoryLineChart({
   width,
   points,
   yUnitSuffix = '',
+  hideHeader = false,
 }: HistoryLineChartProps) {
   const theme = useTheme();
   const chartWidth = Math.max(width, 220);
@@ -121,16 +123,18 @@ export function HistoryLineChart({
 
   return (
     <View style={[styles.card, { borderColor: theme.backgroundSelected }]}> 
-      <View style={styles.headerRow}>
-        <View style={styles.copyWrap}>
-          <ThemedText type="small" themeColor="textSecondary">{title}</ThemedText>
-          <ThemedText type="headline" style={styles.valueText}>{valueLabel}</ThemedText>
-          {subtitle ? <ThemedText type="small" themeColor="textSecondary">{subtitle}</ThemedText> : null}
+      {!hideHeader ? (
+        <View style={styles.headerRow}>
+          <View style={styles.copyWrap}>
+            <ThemedText type="small" themeColor="textSecondary">{title}</ThemedText>
+            <ThemedText type="headline" style={styles.valueText}>{valueLabel}</ThemedText>
+            {subtitle ? <ThemedText type="small" themeColor="textSecondary">{subtitle}</ThemedText> : null}
+          </View>
+          <View style={styles.deltaPill}>
+            <ThemedText type="smallBold" style={{ color: deltaColor }}>{deltaLabel}</ThemedText>
+          </View>
         </View>
-        <View style={styles.deltaPill}>
-          <ThemedText type="smallBold" style={{ color: deltaColor }}>{deltaLabel}</ThemedText>
-        </View>
-      </View>
+      ) : null}
 
       {resolvedChart ? (
         <Svg width={chartWidth} height={chartHeight}>

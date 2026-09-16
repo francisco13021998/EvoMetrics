@@ -4,6 +4,8 @@ import { router } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 
+import { Ionicons } from '@expo/vector-icons';
+
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
@@ -817,6 +819,8 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     }),
     [activityFactorValue, client?.birthDate, client?.heightCm, client?.sex, form.weightKg, reviewedAtDate]
   );
+  const selectedPhaseLabel = REVISION_PHASE_OPTIONS.find((option) => option.value === normalizeRevisionPhase(form.phase))?.label ?? 'Sin fase';
+
   function renderWeightField() {
     return (
       <View style={[styles.contextCell, isMedium && styles.contextCellThird]}>
@@ -887,6 +891,16 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     children: React.ReactNode
   ) {
     const isOpen = activeSections.includes(sectionKey);
+    const sectionIcon =
+      sectionKey === 'context'
+        ? 'clipboard-outline'
+        : sectionKey === 'composition'
+          ? 'body-outline'
+          : sectionKey === 'perimeters'
+            ? 'resize-outline'
+            : sectionKey === 'skinfolds'
+              ? 'analytics-outline'
+              : 'document-text-outline';
     const sectionHint =
       sectionKey === 'context'
         ? 'Cliente, fecha, fase y peso'
@@ -897,6 +911,26 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
             : sectionKey === 'skinfolds'
               ? 'Pliegues y comparación'
               : 'Observaciones de la sesión';
+    const sectionProgress =
+      sectionKey === 'context'
+        ? [form.phase, form.reviewedAt, form.weightKg].filter((value) => value.trim()).length
+        : sectionKey === 'composition'
+          ? countCompletedFields(form, COMPOSITION_FIELDS)
+          : sectionKey === 'perimeters'
+            ? completedRequiredPerimeters
+            : sectionKey === 'skinfolds'
+              ? completedSkinfolds
+              : form.notes.trim() ? 1 : 0;
+    const sectionTotal =
+      sectionKey === 'context'
+        ? 3
+        : sectionKey === 'composition'
+          ? COMPOSITION_FIELDS.length
+          : sectionKey === 'perimeters'
+            ? perimeterFieldGroups.required.length
+            : sectionKey === 'skinfolds'
+              ? activeSkinfoldFields.length
+              : 1;
 
     function toggleSection() {
       setActiveSections((currentSections) =>
@@ -908,19 +942,38 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
 
     return (
       <View style={[styles.sectionCard, styles.sectionCardCreate, { borderColor: theme.backgroundSelected }]}>
-        <Pressable onPress={toggleSection} style={[styles.sectionToggle, styles.sectionToggleCreate]}>
+        <Pressable
+          onPress={toggleSection}
+          accessibilityRole="button"
+          accessibilityLabel={`${isOpen ? 'Cerrar' : 'Abrir'} sección ${title}`}
+          style={({ pressed }) => [
+            styles.sectionToggle,
+            styles.sectionToggleCreate,
+            { opacity: pressed ? 0.92 : 1 },
+          ]}>
           <View style={styles.sectionTitleArea}>
-            <View style={[styles.sectionMarker, isOpen && styles.sectionMarkerActive]} />
+            <View style={[styles.sectionIconWrap, isOpen && styles.sectionIconWrapActive]}>
+              <Ionicons name={sectionIcon} size={18} color={isOpen ? '#FFFFFF' : Accent.primary} />
+            </View>
             <View style={styles.sectionTitleBlock}>
               <ThemedText type="smallBold" style={styles.sectionTitle}>{title}</ThemedText>
-              {isCreateMode ? (
-                <ThemedText type="small" themeColor="textSecondary" style={styles.sectionHint}>
-                  {sectionHint}
-                </ThemedText>
-              ) : null}
+              <ThemedText type="small" themeColor="textSecondary" style={styles.sectionHint}>
+                {sectionHint}
+              </ThemedText>
             </View>
           </View>
-          <ThemedText type="smallBold" style={[styles.sectionChevron, isOpen && styles.sectionChevronOpen]}>{isOpen ? '−' : '+'}</ThemedText>
+          <View style={styles.sectionToggleMeta}>
+            <View style={styles.sectionCountPill}>
+              <ThemedText type="smallBold" style={styles.sectionCountText}>
+                {sectionProgress}/{sectionTotal || '—'}
+              </ThemedText>
+            </View>
+            <Ionicons
+              name={isOpen ? 'chevron-up' : 'chevron-down'}
+              size={18}
+              color={isOpen ? Accent.primary : '#7B8AA0'}
+            />
+          </View>
         </Pressable>
         {isOpen ? <View style={styles.sectionBody}>{children}</View> : null}
       </View>
@@ -931,9 +984,12 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     return (
       <View style={styles.contextGrid}>
         <View style={[styles.contextCell, isMedium && styles.contextCellThird]}>
-          <View style={styles.contextClientRow}> 
-            <ThemedText type="small" themeColor="textSecondary" style={styles.contextClientLabel}>Cliente</ThemedText>
-            <View style={styles.contextClientValueWrap}> 
+          <View style={styles.contextClientRow}>
+            <View style={styles.contextClientIcon}>
+              <Ionicons name="person-outline" size={17} color={Accent.primary} />
+            </View>
+            <View style={styles.contextClientCopy}>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.contextClientLabel}>Cliente</ThemedText>
               <ThemedText type="smallBold" style={styles.clientPillText}>{client?.name ?? '--'}</ThemedText>
             </View>
           </View>
@@ -1131,50 +1187,72 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
 
   return (
     <ScreenContainer contentStyle={styles.screenContent}>
+      <View style={styles.topBar}>
+        <Pressable
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Volver"
+          style={({ pressed }) => [
+            styles.backButton,
+            {
+              borderColor: theme.backgroundSelected,
+              backgroundColor: pressed ? '#EFF5FF' : '#FFFFFF',
+              opacity: pressed ? 0.92 : 1,
+            },
+          ]}>
+          <Ionicons name="chevron-back" size={18} color={Accent.primary} />
+          <ThemedText type="smallBold" style={styles.backButtonText}>Volver</ThemedText>
+        </Pressable>
+        <AppButton label="Cancelar" variant="ghost" size="compact" fullWidth={false} onPress={() => router.back()} disabled={isSubmitting} />
+      </View>
+
       <View style={[styles.headerCard, styles.headerCardCreate, { borderColor: theme.backgroundSelected }]}>
-        <View style={styles.headerCardTopAccent} />
         <View style={styles.headerRow}>
-          <Pressable
-            onPress={() => router.back()}
-            accessibilityLabel="Volver"
-            style={({ pressed }) => [
-              styles.backButton,
-              {
-                borderColor: theme.backgroundSelected,
-                backgroundColor: pressed ? '#F6F9FE' : '#FFFFFF',
-                opacity: pressed ? 0.92 : 1,
-              },
-            ]}>
-            <ThemedText type="smallBold" style={styles.backIcon}>←</ThemedText>
-          </Pressable>
+          <View style={styles.headerIconWrap}>
+            <Ionicons name={mode === 'create' ? 'add-circle-outline' : 'create-outline'} size={26} color={Accent.primary} />
+          </View>
           <View style={styles.headerCopy}>
-            <ThemedText type="label" style={styles.headerEyebrow}>{mode === 'create' ? 'Revision' : 'Actualizacion'}</ThemedText>
-            <ThemedText type="headline">{mode === 'create' ? 'Nueva revision' : 'Editar revision'}</ThemedText>
+            <ThemedText type="label" style={styles.headerEyebrow}>{mode === 'create' ? 'Nueva evaluación' : 'Actualización'}</ThemedText>
+            <ThemedText type="headline" style={styles.headerTitle}>{mode === 'create' ? 'Crear revisión' : 'Editar revisión'}</ThemedText>
             <ThemedText type="small" themeColor="textSecondary" style={styles.headerSubtitle}>
               {mode === 'create'
-                ? 'Registro guiado para una evaluación clara y fiable.'
-                : 'Actualiza la revisión y mantén un historial consistente y fiable.'}
+                ? 'Completa contexto, medidas, composición y notas sin salir del flujo.'
+                : 'Actualiza los datos de la revisión manteniendo el historial del cliente.'}
             </ThemedText>
-            {isCreateMode ? (
-              <View style={styles.clientTag}>
-                <ThemedText type="smallBold" style={styles.clientTagText}>Cliente: {client.name}</ThemedText>
-              </View>
-            ) : null}
           </View>
-          <AppButton label="Cancelar" variant="ghost" size="compact" fullWidth={false} onPress={() => router.back()} disabled={isSubmitting} />
+        </View>
+
+        <View style={styles.headerMetaGrid}>
+          <View style={styles.headerMetaItem}>
+            <ThemedText type="small" themeColor="textSecondary">Cliente</ThemedText>
+            <ThemedText type="smallBold" style={styles.headerMetaValue}>{client.name}</ThemedText>
+          </View>
+          <View style={styles.headerMetaItem}>
+            <ThemedText type="small" themeColor="textSecondary">Fecha</ThemedText>
+            <ThemedText type="smallBold" style={styles.headerMetaValue}>
+              {reviewedAtDate ? formatDateForDisplay(reviewedAtDate) : 'Sin fecha'}
+            </ThemedText>
+          </View>
+          <View style={styles.headerMetaItem}>
+            <ThemedText type="small" themeColor="textSecondary">Fase</ThemedText>
+            <ThemedText type="smallBold" style={styles.headerMetaValue}>{selectedPhaseLabel}</ThemedText>
+          </View>
         </View>
       </View>
 
       {isCreateMode ? (
         <View style={[styles.createGuide, { borderColor: theme.backgroundSelected }]}>
           <View style={styles.guideStep}>
-            <ThemedText type="smallBold" style={styles.guideText}>1. Contexto</ThemedText>
+            <Ionicons name="checkmark-circle-outline" size={16} color={Accent.primary} />
+            <ThemedText type="smallBold" style={styles.guideText}>Contexto</ThemedText>
           </View>
           <View style={styles.guideStep}>
-            <ThemedText type="smallBold" style={styles.guideText}>2. Medidas</ThemedText>
+            <Ionicons name="resize-outline" size={16} color={Accent.primary} />
+            <ThemedText type="smallBold" style={styles.guideText}>Medidas</ThemedText>
           </View>
           <View style={styles.guideStep}>
-            <ThemedText type="smallBold" style={styles.guideText}>3. Guardar</ThemedText>
+            <Ionicons name="save-outline" size={16} color={Accent.primary} />
+            <ThemedText type="smallBold" style={styles.guideText}>Guardar</ThemedText>
           </View>
         </View>
       ) : null}
@@ -1376,27 +1454,47 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
 
 const styles = StyleSheet.create({
   screenContent: {
-    gap: 12,
+    gap: 14,
+    paddingTop: 14,
   },
   formCanvas: {
-    gap: 10,
+    gap: 12,
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  backButton: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#DFE7F2',
+    borderRadius: Radius.pill,
+    paddingHorizontal: 14,
+  },
+  backButtonText: {
+    color: '#10203B',
+    lineHeight: 16,
   },
   headerCard: {
     borderWidth: 1,
-    borderRadius: Radius.large,
+    borderColor: '#DFE7F2',
+    borderRadius: 24,
     backgroundColor: '#FFFFFF',
-    overflow: 'hidden',
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 12,
+    padding: 16,
+    gap: 16,
     shadowColor: '#12336E',
-    shadowOpacity: 0.05,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 2,
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 3,
   },
   headerCardCreate: {
-    backgroundColor: '#F8FBFF',
+    backgroundColor: '#FFFFFF',
   },
   headerCardTopAccent: {
     position: 'absolute',
@@ -1408,10 +1506,11 @@ const styles = StyleSheet.create({
   },
   createGuide: {
     borderWidth: 1,
-    borderRadius: Radius.medium,
+    borderColor: '#DFE7F2',
+    borderRadius: 18,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 8,
@@ -1419,10 +1518,14 @@ const styles = StyleSheet.create({
   guideStep: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 0,
+    gap: 6,
+    borderRadius: Radius.pill,
+    backgroundColor: '#F6F9FE',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
   guideText: {
-    color: '#355079',
+    color: '#10203B',
     lineHeight: 16,
     fontSize: 12,
   },
@@ -1442,14 +1545,16 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
+    alignItems: 'center',
+    gap: 14,
   },
-  backButton: {
-    width: 38,
-    height: 38,
+  headerIconWrap: {
+    width: 58,
+    height: 58,
     borderWidth: 1,
-    borderRadius: Radius.pill,
+    borderColor: '#D2E0FA',
+    borderRadius: 20,
+    backgroundColor: '#E8F0FF',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -1461,18 +1566,43 @@ const styles = StyleSheet.create({
   },
   headerCopy: {
     flex: 1,
-    gap: 2,
+    minWidth: 0,
+    gap: 3,
   },
   headerEyebrow: {
     color: Accent.primary,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   headerSubtitle: {
     lineHeight: 18,
   },
   headerTitle: {
-    fontSize: 20,
-    lineHeight: 24,
-    fontWeight: '700',
+    color: '#10203B',
+    fontSize: 31,
+    lineHeight: 36,
+  },
+  headerMetaGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E6EDF7',
+  },
+  headerMetaItem: {
+    flexGrow: 1,
+    flexBasis: '30%',
+    minWidth: 120,
+    borderRadius: 16,
+    backgroundColor: '#F6F9FE',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 2,
+  },
+  headerMetaValue: {
+    color: '#10203B',
+    lineHeight: 18,
   },
   contextCard: {
     borderWidth: 1,
@@ -1490,14 +1620,29 @@ const styles = StyleSheet.create({
     gap: Spacing.one,
   },
   contextClientRow: {
-    minHeight: 36,
-    borderRadius: 8,
-    paddingHorizontal: 2,
-    paddingVertical: 2,
+    minHeight: 56,
+    borderRadius: Radius.medium,
+    borderWidth: 1,
+    borderColor: '#DFE7F2',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: 'transparent',
+    gap: 10,
+    backgroundColor: '#FFFFFF',
+  },
+  contextClientIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF5FF',
+  },
+  contextClientCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
   },
   contextClientValueWrap: {
     paddingHorizontal: 8,
@@ -1544,28 +1689,28 @@ const styles = StyleSheet.create({
   },
   sectionCard: {
     borderWidth: 1,
-    borderRadius: Radius.large,
+    borderColor: '#DFE7F2',
+    borderRadius: 22,
     backgroundColor: '#FFFFFF',
     overflow: 'hidden',
   },
   sectionCardCreate: {
     shadowColor: '#12336E',
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 1,
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
   },
   sectionToggle: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
   },
   sectionToggleCreate: {
-    backgroundColor: '#F9FCFF',
-    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
   },
   sectionTitleArea: {
     flex: 1,
@@ -1574,24 +1719,25 @@ const styles = StyleSheet.create({
     gap: 8,
     minWidth: 0,
   },
-  sectionMarker: {
-    marginTop: 6,
-    width: 8,
-    height: 8,
-    borderRadius: Radius.pill,
-    backgroundColor: '#C4D6F4',
+  sectionIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF5FF',
   },
-  sectionMarkerActive: {
+  sectionIconWrapActive: {
     backgroundColor: Accent.primary,
   },
   sectionTitleBlock: {
     flex: 1,
-    gap: 1,
+    gap: 2,
   },
   sectionTitle: {
     color: '#10203B',
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 18,
+    lineHeight: 23,
     flexShrink: 1,
   },
   sectionHint: {
@@ -1606,15 +1752,15 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   sectionCountPill: {
-    borderRadius: 999,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    backgroundColor: '#F3F7FC',
+    borderRadius: Radius.pill,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    backgroundColor: '#EEF4FF',
   },
   sectionCountText: {
     color: Accent.primary,
-    fontSize: 10,
-    lineHeight: 12,
+    fontSize: 11,
+    lineHeight: 14,
   },
   sectionChevron: {
     color: '#6C7A92',
@@ -1625,9 +1771,9 @@ const styles = StyleSheet.create({
     color: Accent.primary,
   },
   sectionBody: {
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 12,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 14,
     borderTopWidth: 1,
     borderTopColor: '#EDF2FB',
   },

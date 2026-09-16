@@ -8,7 +8,7 @@ import Svg, { Circle, Path, Text as SvgText } from 'react-native-svg';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { ScreenContainer } from '@/components/layout/screen-container';
 import { ThemedText } from '@/components/themed-text';
-import { Accent, Shadows, Spacing } from '@/constants/theme';
+import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { clientPaymentsService } from '@/services/client-payments';
 import { clientsService } from '@/services/clients';
@@ -238,12 +238,14 @@ function SummaryMetricCard({ icon, iconColor, iconBackground, label, value }: {
   value: string;
 }) {
   return (
-    <View style={[styles.metricCard, { borderColor: '#EDF3FB' }]}>
-      <View style={[styles.metricIcon, { backgroundColor: iconBackground }]}>
-        {icon}
+    <View accessible accessibilityLabel={`${label}: ${value}`} style={styles.metricCard}>
+      <View style={styles.metricTopRow}>
+        <View style={[styles.metricIcon, { backgroundColor: iconBackground }]}>
+          {icon}
+        </View>
+        <ThemedText style={[styles.metricValue, { color: iconColor }]}>{value}</ThemedText>
       </View>
       <ThemedText type="small" themeColor="textSecondary" style={styles.metricLabel}>{label}</ThemedText>
-      <ThemedText style={[styles.metricValue, { color: iconColor }]}>{value}</ThemedText>
     </View>
   );
 }
@@ -252,7 +254,7 @@ function PaymentSectionHeader({ title, actionLabel, onPress }: { title: string; 
   return (
     <View style={styles.sectionHeaderRow}>
       <ThemedText style={styles.sectionTitle}>{title}</ThemedText>
-      <Pressable onPress={onPress} hitSlop={8}>
+      <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={actionLabel} hitSlop={8} style={({ pressed }) => pressed && styles.pressed}>
         <ThemedText type="smallBold" style={styles.sectionAction}>{actionLabel}</ThemedText>
       </Pressable>
     </View>
@@ -484,23 +486,142 @@ export function PaymentsScreen() {
   }
 
   const hasResults = sortedHistoryEntries.length > 0 || filteredPendingClients.length > 0 || filteredUpcomingClients.length > 0;
+  const renderHistoryPreview = () => (
+    <View style={styles.sectionCard}>
+      <PaymentSectionHeader title="Historial de pagos" actionLabel="Ver todos" onPress={() => goToSection('history')} />
+
+      {isLoading ? (
+        <StatusBanner tone="info" loading message="Sincronizando pagos." />
+      ) : sortedHistoryEntries.length === 0 ? (
+        <StatusBanner tone="info" message="Aún no hay pagos registrados." />
+      ) : (
+        <View style={styles.listShell}>
+          {sortedHistoryEntries.slice(0, 4).map((entry, index) => (
+            <Pressable
+              key={entry.id}
+              onPress={() => openClientPayments(entry.clientId)}
+              accessibilityRole="button"
+              accessibilityLabel={`${entry.clientName}, ${formatBillingFrequencyLabel(entry.frequency)}, ${formatMoney(entry.amount)}, ${formatShortDate(entry.paymentDate)}`}
+              style={({ pressed }) => [styles.historyRow, index === Math.min(sortedHistoryEntries.length, 4) - 1 && styles.historyRowLast, pressed && styles.rowPressed]}>
+              <View style={styles.avatarCircle}>
+                <ThemedText type="smallBold" style={styles.avatarText}>{getInitials(entry.clientName) || 'P'}</ThemedText>
+              </View>
+              <View style={styles.rowCopy}>
+                <ThemedText type="smallBold" style={styles.rowTitle} numberOfLines={1}>{entry.clientName}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>{formatBillingFrequencyLabel(entry.frequency)}</ThemedText>
+              </View>
+              <View style={styles.rowMeta}>
+                <ThemedText type="small" themeColor="textSecondary" style={styles.rowDate}>{formatShortDate(entry.paymentDate)}</ThemedText>
+                <ThemedText type="smallBold" style={styles.rowAmount}>{formatMoney(entry.amount)}</ThemedText>
+                <View style={styles.statusPaidPill}>
+                  <ThemedText type="smallBold" style={styles.statusPaidText}>Pagado</ThemedText>
+                </View>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+  const renderPaymentQueues = () => (
+    <View style={styles.dualGrid}>
+      <View style={styles.sectionCardHalf}>
+        <PaymentSectionHeader title="Pendientes" actionLabel="Ver todos" onPress={() => goToSection('pending')} />
+
+        {isLoading ? (
+          <StatusBanner tone="info" loading message="Sincronizando pagos." />
+        ) : filteredPendingClients.length === 0 ? (
+          <StatusBanner tone="info" message="No hay pagos pendientes." />
+        ) : (
+          <View style={styles.compactList}>
+            {filteredPendingClients.slice(0, 3).map(({ client, paymentStatus }) => (
+              <Pressable
+                key={client.id}
+                onPress={() => openClientPayments(client.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`${client.name}, pago pendiente, ${formatMoney(client.coachingPrice)}`}
+                style={({ pressed }) => [styles.compactRow, pressed && styles.rowPressed]}>
+                <View style={styles.avatarCircleSmall}>
+                  <ThemedText type="smallBold" style={styles.avatarText}>{getInitials(client.name) || 'C'}</ThemedText>
+                </View>
+                <View style={styles.rowCopySmall}>
+                  <ThemedText type="smallBold" style={styles.rowTitleSmall} numberOfLines={1}>{client.name}</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                    {paymentStatus.nextPaymentDate ? `Vence el ${formatShortDate(paymentStatus.nextPaymentDate.toISOString())}` : 'Sin fecha'}
+                  </ThemedText>
+                </View>
+                <View style={styles.rowMetaSmall}>
+                  <ThemedText type="smallBold" style={styles.rowAmountSmall}>{formatMoney(client.coachingPrice)}</ThemedText>
+                  <View style={styles.statusPendingPill}>
+                    <ThemedText type="smallBold" style={styles.statusPendingText}>Pendiente</ThemedText>
+                  </View>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        )}
+      </View>
+
+      <View style={styles.sectionCardHalf}>
+        <PaymentSectionHeader title="Próximos" actionLabel="Ver todos" onPress={() => goToSection('upcoming')} />
+
+        {isLoading ? (
+          <StatusBanner tone="info" loading message="Sincronizando pagos." />
+        ) : filteredUpcomingClients.length === 0 ? (
+          <StatusBanner tone="info" message="No hay próximos cobros." />
+        ) : (
+          <View style={styles.compactList}>
+            {filteredUpcomingClients.slice(0, 3).map(({ client, paymentStatus }) => (
+              <Pressable
+                key={client.id}
+                onPress={() => openClientPayments(client.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`${client.name}, próximo pago, ${formatMoney(client.coachingPrice)}`}
+                style={({ pressed }) => [styles.compactRow, pressed && styles.rowPressed]}>
+                <View style={styles.avatarCircleSmall}>
+                  <ThemedText type="smallBold" style={styles.avatarText}>{getInitials(client.name) || 'C'}</ThemedText>
+                </View>
+                <View style={styles.rowCopySmall}>
+                  <ThemedText type="smallBold" style={styles.rowTitleSmall} numberOfLines={1}>{client.name}</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                    {paymentStatus.nextPaymentDate ? formatShortDate(paymentStatus.nextPaymentDate.toISOString()) : 'Sin fecha'}
+                  </ThemedText>
+                </View>
+                <View style={styles.rowMetaSmall}>
+                  <ThemedText type="smallBold" style={styles.rowAmountSmall}>{formatMoney(client.coachingPrice)}</ThemedText>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        )}
+      </View>
+    </View>
+  );
 
   return (
     <ScreenContainer contentStyle={styles.screenContent}>
-      <View style={styles.headerRow}>
-        <View style={styles.headerCopy}>
-          <ThemedText style={styles.title}>{sectionTitle}</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
-            {sectionSubtitle}
-          </ThemedText>
-        </View>
+      <View style={styles.headerPanel}>
+        <View style={styles.headerRow}>
+          <View style={styles.headerIcon}>
+            <Ionicons name="card-outline" size={25} color={Accent.primary} />
+          </View>
+          <View style={styles.headerCopy}>
+            <ThemedText type="label" style={styles.headerEyebrow}>Finanzas</ThemedText>
+            <ThemedText style={styles.title}>{sectionTitle}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
+              {sectionSubtitle}
+            </ThemedText>
+          </View>
 
-        <Pressable
-          onPress={onHeaderActionPress}
-          style={({ pressed }) => [styles.headerActionButton, { opacity: pressed ? 0.86 : 1 }]}
-          accessibilityLabel={headerAction}>
-          <ThemedText type="smallBold" style={styles.headerActionText}>{headerAction}</ThemedText>
-        </Pressable>
+          <Pressable
+            onPress={onHeaderActionPress}
+            style={({ pressed }) => [styles.headerActionButton, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel={headerAction}>
+            <ThemedText type="smallBold" style={styles.headerActionText}>{headerAction}</ThemedText>
+            <Ionicons name={isSectionView ? 'grid-outline' : 'people-outline'} size={17} color={Accent.primary} />
+          </Pressable>
+        </View>
       </View>
 
       {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
@@ -537,7 +658,9 @@ export function PaymentsScreen() {
                 <Pressable
                   key={entry.id}
                   onPress={() => openClientPayments(entry.clientId)}
-                  style={({ pressed }) => [styles.historyRow, index === sectionPageItems.length - 1 && styles.historyRowLast, { opacity: pressed ? 0.92 : 1 }]}>
+                  accessibilityRole="button"
+                  accessibilityLabel={`${entry.clientName}, ${entry.secondaryLabel}, ${formatMoney(entry.amount)}, ${entry.dateLabel}`}
+                  style={({ pressed }) => [styles.historyRow, index === sectionPageItems.length - 1 && styles.historyRowLast, pressed && styles.rowPressed]}>
                   <View style={styles.avatarCircle}>
                     <ThemedText type="smallBold" style={styles.avatarText}>{getInitials(entry.clientName) || 'P'}</ThemedText>
                   </View>
@@ -561,7 +684,9 @@ export function PaymentsScreen() {
                 <Pressable
                   key={entry.id}
                   onPress={() => openClientPayments(entry.clientId)}
-                  style={({ pressed }) => [styles.compactRow, index === sectionPageItems.length - 1 && styles.compactRowLast, { opacity: pressed ? 0.92 : 1 }]}>
+                  accessibilityRole="button"
+                  accessibilityLabel={`${entry.clientName}, ${entry.secondaryLabel}, ${formatMoney(entry.amount)}`}
+                  style={({ pressed }) => [styles.compactRow, index === sectionPageItems.length - 1 && styles.compactRowLast, pressed && styles.rowPressed]}>
                   <View style={styles.avatarCircleSmall}>
                     <ThemedText type="smallBold" style={styles.avatarText}>{getInitials(entry.clientName) || 'C'}</ThemedText>
                   </View>
@@ -587,7 +712,10 @@ export function PaymentsScreen() {
               <Pressable
                 onPress={goToPreviousSectionPage}
                 disabled={currentSectionPage === 1}
-                style={({ pressed }) => [styles.paginationButton, currentSectionPage === 1 && styles.paginationButtonDisabled, { opacity: pressed && currentSectionPage > 1 ? 0.9 : 1 }]}>
+                accessibilityRole="button"
+                accessibilityLabel="Página anterior"
+                accessibilityState={{ disabled: currentSectionPage === 1 }}
+                style={({ pressed }) => [styles.paginationButton, currentSectionPage === 1 && styles.paginationButtonDisabled, pressed && currentSectionPage > 1 && styles.pressed]}>
                 <ThemedText type="smallBold" style={[styles.paginationButtonText, currentSectionPage === 1 && styles.paginationButtonTextDisabled]}>
                   Anterior
                 </ThemedText>
@@ -595,7 +723,10 @@ export function PaymentsScreen() {
               <Pressable
                 onPress={goToNextSectionPage}
                 disabled={currentSectionPage === totalSectionPages}
-                style={({ pressed }) => [styles.paginationButton, currentSectionPage === totalSectionPages && styles.paginationButtonDisabled, { opacity: pressed && currentSectionPage < totalSectionPages ? 0.9 : 1 }]}>
+                accessibilityRole="button"
+                accessibilityLabel="Página siguiente"
+                accessibilityState={{ disabled: currentSectionPage === totalSectionPages }}
+                style={({ pressed }) => [styles.paginationButton, currentSectionPage === totalSectionPages && styles.paginationButtonDisabled, pressed && currentSectionPage < totalSectionPages && styles.pressed]}>
                 <ThemedText type="smallBold" style={[styles.paginationButtonText, currentSectionPage === totalSectionPages && styles.paginationButtonTextDisabled]}>
                   Siguiente
                 </ThemedText>
@@ -636,99 +767,8 @@ export function PaymentsScreen() {
             deltaColor={trendDeltaColor}
           />
 
-          <View style={styles.sectionCard}>
-            <PaymentSectionHeader title="Historial de pagos" actionLabel="Ver todos" onPress={() => goToSection('history')} />
-
-            {isLoading ? (
-              <StatusBanner tone="info" loading message="Sincronizando pagos." />
-            ) : sortedHistoryEntries.length === 0 ? (
-              <StatusBanner tone="info" message="Aún no hay pagos registrados." />
-            ) : (
-              <View style={styles.listShell}>
-                {sortedHistoryEntries.slice(0, 4).map((entry, index) => (
-                  <Pressable key={entry.id} onPress={() => openClientPayments(entry.clientId)} style={({ pressed }) => [styles.historyRow, index === sortedHistoryEntries.length - 1 && styles.historyRowLast, { opacity: pressed ? 0.92 : 1 }]}>
-                    <View style={styles.avatarCircle}>
-                      <ThemedText type="smallBold" style={styles.avatarText}>{getInitials(entry.clientName) || 'P'}</ThemedText>
-                    </View>
-                    <View style={styles.rowCopy}>
-                      <ThemedText type="smallBold" style={styles.rowTitle} numberOfLines={1}>{entry.clientName}</ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>{formatBillingFrequencyLabel(entry.frequency)}</ThemedText>
-                    </View>
-                    <View style={styles.rowMeta}>
-                      <ThemedText type="small" themeColor="textSecondary" style={styles.rowDate}>{formatShortDate(entry.paymentDate)}</ThemedText>
-                      <ThemedText type="smallBold" style={styles.rowAmount}>{formatMoney(entry.amount)}</ThemedText>
-                      <View style={styles.statusPaidPill}>
-                        <ThemedText type="smallBold" style={styles.statusPaidText}>Pagado</ThemedText>
-                      </View>
-                    </View>
-                  </Pressable>
-                ))}
-              </View>
-            )}
-          </View>
-
-          <View style={styles.dualGrid}>
-            <View style={styles.sectionCardHalf}>
-              <PaymentSectionHeader title="Pendientes" actionLabel="Ver todos" onPress={() => goToSection('pending')} />
-
-              {isLoading ? (
-                <StatusBanner tone="info" loading message="Sincronizando pagos." />
-              ) : filteredPendingClients.length === 0 ? (
-                <StatusBanner tone="info" message="No hay pagos pendientes." />
-              ) : (
-                <View style={styles.compactList}>
-                  {filteredPendingClients.slice(0, 3).map(({ client, paymentStatus }) => (
-                    <Pressable key={client.id} onPress={() => openClientPayments(client.id)} style={({ pressed }) => [styles.compactRow, { opacity: pressed ? 0.92 : 1 }]}>
-                      <View style={styles.avatarCircleSmall}>
-                        <ThemedText type="smallBold" style={styles.avatarText}>{getInitials(client.name) || 'C'}</ThemedText>
-                      </View>
-                      <View style={styles.rowCopySmall}>
-                        <ThemedText type="smallBold" style={styles.rowTitleSmall} numberOfLines={1}>{client.name}</ThemedText>
-                        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                          {paymentStatus.nextPaymentDate ? `Vence el ${formatShortDate(paymentStatus.nextPaymentDate.toISOString())}` : 'Sin fecha'}
-                        </ThemedText>
-                      </View>
-                      <View style={styles.rowMetaSmall}>
-                        <ThemedText type="smallBold" style={styles.rowAmountSmall}>{formatMoney(client.coachingPrice)}</ThemedText>
-                        <View style={styles.statusPendingPill}>
-                          <ThemedText type="smallBold" style={styles.statusPendingText}>Pendiente</ThemedText>
-                        </View>
-                      </View>
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-            </View>
-
-            <View style={styles.sectionCardHalf}>
-              <PaymentSectionHeader title="Próximos" actionLabel="Ver todos" onPress={() => goToSection('upcoming')} />
-
-              {isLoading ? (
-                <StatusBanner tone="info" loading message="Sincronizando pagos." />
-              ) : filteredUpcomingClients.length === 0 ? (
-                <StatusBanner tone="info" message="No hay próximos cobros." />
-              ) : (
-                <View style={styles.compactList}>
-                  {filteredUpcomingClients.slice(0, 3).map(({ client, paymentStatus }) => (
-                    <Pressable key={client.id} onPress={() => openClientPayments(client.id)} style={({ pressed }) => [styles.compactRow, { opacity: pressed ? 0.92 : 1 }]}>
-                      <View style={styles.avatarCircleSmall}>
-                        <ThemedText type="smallBold" style={styles.avatarText}>{getInitials(client.name) || 'C'}</ThemedText>
-                      </View>
-                      <View style={styles.rowCopySmall}>
-                        <ThemedText type="smallBold" style={styles.rowTitleSmall} numberOfLines={1}>{client.name}</ThemedText>
-                        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                          {paymentStatus.nextPaymentDate ? formatShortDate(paymentStatus.nextPaymentDate.toISOString()) : 'Sin fecha'}
-                        </ThemedText>
-                      </View>
-                      <View style={styles.rowMetaSmall}>
-                        <ThemedText type="smallBold" style={styles.rowAmountSmall}>{formatMoney(client.coachingPrice)}</ThemedText>
-                      </View>
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-            </View>
-          </View>
+          {renderPaymentQueues()}
+          {renderHistoryPreview()}
         </>
       )}
 
@@ -741,95 +781,116 @@ export function PaymentsScreen() {
 
 const styles = StyleSheet.create({
   screenContent: {
-    gap: 18,
-    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    gap: 16,
+  },
+  headerPanel: {
+    gap: 12,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.three,
+    gap: 12,
     width: '100%',
-    paddingBottom: 4,
+  },
+  headerIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E8F0FF',
+    borderWidth: 1,
+    borderColor: '#D2E0FA',
   },
   headerCopy: {
     flex: 1,
-    gap: 4,
+    minWidth: 0,
+    gap: 2,
+  },
+  headerEyebrow: {
+    color: Accent.primary,
+    lineHeight: 18,
+    textTransform: 'uppercase',
   },
   title: {
     color: '#10203B',
-    fontSize: 26,
-    lineHeight: 30,
-    fontWeight: '700',
-    letterSpacing: -0.4,
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: '800',
+    letterSpacing: -0.6,
   },
   subtitle: {
-    lineHeight: 18,
+    lineHeight: 19,
   },
   headerActionButton: {
-    minHeight: 34,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#FFFFFF',
+    minHeight: 44,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    ...Shadows.soft,
+    gap: 7,
+    paddingHorizontal: 13,
+    borderRadius: 15,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D8E4F6',
   },
   headerActionText: {
     color: Accent.primary,
   },
+  pressed: {
+    opacity: 0.74,
+    transform: [{ scale: 0.98 }],
+  },
   metricRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
     gap: 10,
     width: '100%',
   },
   metricCard: {
     flex: 1,
-    minWidth: 104,
-    minHeight: 136,
-    borderRadius: 22,
+    minWidth: 0,
+    minHeight: 112,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#EDF3FB',
-    backgroundColor: '#FCFDFF',
-    padding: 14,
-    gap: 8,
+    borderColor: '#DFE7F2',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 13,
+    gap: 11,
+  },
+  metricTopRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    ...Shadows.card,
+    justifyContent: 'space-between',
+    gap: 8,
   },
   metricIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   metricLabel: {
     lineHeight: 16,
-    textAlign: 'center',
+    color: '#607086',
   },
   metricValue: {
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: '700',
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: '800',
     letterSpacing: -0.2,
-    textAlign: 'center',
-  },
-  metricHelper: {
-    lineHeight: 16,
-    textAlign: 'center',
   },
   trendCard: {
     borderWidth: 1,
-    borderColor: '#EDF3FB',
-    borderRadius: 24,
-    backgroundColor: '#FCFDFF',
+    borderColor: '#DFE7F2',
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
     padding: 16,
-    gap: 14,
+    gap: 12,
     width: '100%',
-    ...Shadows.card,
   },
   trendHeader: {
     flexDirection: 'row',
@@ -843,21 +904,21 @@ const styles = StyleSheet.create({
   },
   trendLabel: {
     color: Accent.primary,
-    letterSpacing: 0.3,
+    lineHeight: 18,
   },
   trendValue: {
     color: '#10203B',
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: '700',
+    fontSize: 22,
+    lineHeight: 27,
+    fontWeight: '800',
   },
   trendBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   chartWrap: {
     alignItems: 'center',
@@ -866,13 +927,12 @@ const styles = StyleSheet.create({
   },
   sectionCard: {
     borderWidth: 1,
-    borderColor: '#EDF3FB',
-    borderRadius: 24,
-    backgroundColor: '#FCFDFF',
-    padding: 16,
-    gap: 14,
+    borderColor: '#DFE7F2',
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    gap: 12,
     width: '100%',
-    ...Shadows.card,
   },
   sectionHeaderTop: {
     alignItems: 'flex-end',
@@ -886,16 +946,16 @@ const styles = StyleSheet.create({
   },
   sectionHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'baseline',
     justifyContent: 'space-between',
-    gap: Spacing.two,
+    gap: 12,
   },
   sectionTitle: {
-    color: Accent.primary,
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: '700',
-    textTransform: 'uppercase',
+    color: '#10203B',
+    fontSize: 19,
+    lineHeight: 24,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
   sectionAction: {
     color: Accent.primary,
@@ -907,32 +967,41 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 14,
+    minHeight: 78,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#EEF3FA',
+    borderBottomColor: '#E9EEF5',
+  },
+  rowPressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.993 }],
   },
   historyRowLast: {
     borderBottomWidth: 0,
     paddingBottom: 0,
   },
   avatarCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#EAF2FF',
+    width: 46,
+    height: 46,
+    borderRadius: 15,
+    backgroundColor: '#E8F0FF',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#D3E1FA',
   },
   avatarCircleSmall: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#EAF2FF',
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: '#E8F0FF',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#D3E1FA',
   },
   avatarText: {
-    color: '#2A5BDC',
+    color: Accent.primary,
   },
   rowCopy: {
     flex: 1,
@@ -946,13 +1015,13 @@ const styles = StyleSheet.create({
   },
   rowTitle: {
     color: '#10203B',
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 16,
+    lineHeight: 20,
   },
   rowTitleSmall: {
     color: '#10203B',
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 19,
   },
   rowMeta: {
     alignItems: 'flex-end',
@@ -968,24 +1037,28 @@ const styles = StyleSheet.create({
   },
   rowAmount: {
     color: '#10203B',
-    fontSize: 16,
-    lineHeight: 18,
-    fontWeight: '700',
+    fontSize: 17,
+    lineHeight: 20,
+    fontWeight: '800',
   },
   rowAmountSmall: {
     color: '#10203B',
-    fontSize: 15,
-    lineHeight: 17,
-    fontWeight: '700',
+    fontSize: 16,
+    lineHeight: 19,
+    fontWeight: '800',
   },
   statusPaidPill: {
-    backgroundColor: '#E7F8EC',
-    borderRadius: 999,
+    backgroundColor: '#ECFDF5',
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    borderColor: '#C7EFDC',
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
   statusPaidText: {
-    color: '#2E9A50',
+    color: '#14734C',
+    fontSize: 11,
+    lineHeight: 13,
   },
   dualGrid: {
     flexDirection: 'column',
@@ -996,37 +1069,41 @@ const styles = StyleSheet.create({
   sectionCardHalf: {
     width: '100%',
     borderWidth: 1,
-    borderColor: '#EDF3FB',
-    borderRadius: 24,
-    backgroundColor: '#FCFDFF',
-    padding: 16,
-    gap: 14,
+    borderColor: '#DFE7F2',
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    gap: 12,
     minWidth: 0,
-    ...Shadows.card,
   },
   compactList: {
-    gap: 12,
+    gap: 0,
   },
   compactRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    minHeight: 72,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#EEF3FA',
+    borderBottomColor: '#E9EEF5',
   },
   compactRowLast: {
     borderBottomWidth: 0,
     paddingBottom: 0,
   },
   statusPendingPill: {
-    backgroundColor: '#FFF1E8',
-    borderRadius: 999,
+    backgroundColor: '#FFF7ED',
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
   statusPendingText: {
-    color: '#F97316',
+    color: '#9A3412',
+    fontSize: 11,
+    lineHeight: 13,
   },
   paginationRow: {
     flexDirection: 'row',
@@ -1036,15 +1113,14 @@ const styles = StyleSheet.create({
   },
   paginationButton: {
     minWidth: 104,
-    minHeight: 36,
-    borderRadius: 999,
+    minHeight: 40,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#FFFFFF',
+    borderColor: '#D8E4F6',
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 14,
-    ...Shadows.soft,
   },
   paginationButtonDisabled: {
     opacity: 0.45,
@@ -1054,11 +1130,5 @@ const styles = StyleSheet.create({
   },
   paginationButtonTextDisabled: {
     color: '#8EA0B7',
-  },
-  sectionSpacing: {
-    marginTop: 0,
-  },
-  contentSpacer: {
-    height: 8,
   },
 });

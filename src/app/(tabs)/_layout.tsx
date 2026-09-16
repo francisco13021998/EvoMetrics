@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { Platform, TouchableOpacity, View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Accent, SystemChromeInset } from '@/constants/theme';
@@ -11,21 +11,14 @@ const INACTIVE_COLOR = '#9DB0D1';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
-function DisabledTabButton(props: React.ComponentProps<typeof TouchableOpacity>) {
-  return (
-    <TouchableOpacity
-      {...props}
-      disabled
-      activeOpacity={1}
-      style={[props.style, { opacity: 0.45 }]}
-    />
-  );
-}
-
 function tabIcon(name: IoniconsName, outlineName: IoniconsName) {
-  return ({ color, focused }: { color: string; focused: boolean }) => (
+  function TabIcon({ color, focused }: { color: string; focused: boolean }) {
+    return (
     <Ionicons name={focused ? name : outlineName} size={24} color={color} />
-  );
+    );
+  }
+
+  return TabIcon;
 }
 
 function TabBarBackground({ bottomInset }: { bottomInset: number }) {
@@ -49,7 +42,6 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: ACTIVE_COLOR,
         tabBarInactiveTintColor: INACTIVE_COLOR,
-        tabBarSafeAreaInsets: { bottom: 0 },
         tabBarStyle: {
           backgroundColor: 'transparent',
           borderTopColor: '#FFFFFF',

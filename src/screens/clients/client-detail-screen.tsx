@@ -43,6 +43,8 @@ const REVISION_FREQUENCY_UNIT_OPTIONS = [
   { label: 'Meses', value: 'month' },
 ];
 
+const REVISIONS_PER_PAGE = 5;
+
 function formatRevisionFrequencyLabel(value: number, unit: RevisionFrequencyUnit) {
   const label = unit === 'week' ? 'semana' : 'mes';
 
@@ -67,11 +69,13 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [payments, setPayments] = useState<ClientPayment[]>([]);
   const [isClientMenuOpen, setIsClientMenuOpen] = useState(false);
+  const [isProfileDataOpen, setIsProfileDataOpen] = useState(false);
   const [isRevisionSettingsOpen, setIsRevisionSettingsOpen] = useState(false);
   const [isSavingRevisionSettings, setIsSavingRevisionSettings] = useState(false);
   const [revisionFrequencyEnabled, setRevisionFrequencyEnabled] = useState(false);
   const [revisionFrequencyValueInput, setRevisionFrequencyValueInput] = useState('4');
   const [revisionFrequencyUnit, setRevisionFrequencyUnit] = useState<RevisionFrequencyUnit>('week');
+  const [revisionPage, setRevisionPage] = useState(1);
 
   const showInitialLoading = isLoading && !client;
 
@@ -102,6 +106,7 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
           clientPaymentsService.listByClient(nextClient.id),
         ]);
         setRevisions(nextRevisions);
+        setRevisionPage(1);
         setPayments(nextPayments);
       } else {
         setRevisions([]);
@@ -275,159 +280,172 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
   const clientStatusLabel = client.estado === 'activo' ? 'Activo' : 'Baja';
   const clientStatusIcon = client.estado === 'activo' ? 'checkmark-circle' : 'remove-circle';
   const clientStatusColor = client.estado === 'activo' ? Accent.success : Accent.warning;
+  const initials = client.name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'CL';
 
-  const summaryItems = [
-    { label: 'Sexo', value: formatSex(client.sex) },
-    { label: 'Edad', value: formatClientAge(client) },
-    { label: 'Altura', value: client.heightCm ? `${client.heightCm} cm` : '-' },
+  const profileMetrics = [
+    { label: 'Sexo', value: formatSex(client.sex), icon: 'person-outline' as const },
+    { label: 'Edad', value: formatClientAge(client), icon: 'calendar-outline' as const },
+    { label: 'Altura', value: client.heightCm ? `${client.heightCm} cm` : '-', icon: 'resize-outline' as const },
+    { label: 'Nivel', value: formatAthleteLevelLabel(client.athleteLevel), icon: 'barbell-outline' as const },
   ];
+  const revisionPageCount = Math.max(1, Math.ceil(revisions.length / REVISIONS_PER_PAGE));
+  const visibleRevisions = revisions.slice((revisionPage - 1) * REVISIONS_PER_PAGE, revisionPage * REVISIONS_PER_PAGE);
+
   return (
     <ScreenContainer contentStyle={styles.screenContent}>
-      <View style={[styles.heroCard, { borderColor: theme.backgroundSelected }]}>
-        <View style={styles.heroTopAccent} />
-
-        <View style={styles.brandRow}>
-          <View style={styles.brandCopy}>
-            <ThemedText type="label" style={styles.brandEyebrow}>Ficha de cliente</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">Control y seguimiento profesional</ThemedText>
-          </View>
-          <View style={styles.brandActions}>
-            <Pressable
-              onPress={() => router.back()}
-              accessibilityLabel="Volver"
-              style={({ pressed }) => [
-                styles.backButton,
-                {
-                  borderColor: theme.backgroundSelected,
-                  backgroundColor: pressed ? '#F6F9FE' : '#FFFFFF',
-                  opacity: pressed ? 0.9 : 1,
-                },
-              ]}>
-              <ThemedText type="smallBold" style={styles.backButtonIcon}>←</ThemedText>
-              <ThemedText type="smallBold" style={styles.backButtonText}>Volver</ThemedText>
-            </Pressable>
-
-            {!isAthlete && (
-              <Pressable
-                onPress={() => setIsClientMenuOpen(true)}
-                accessibilityLabel="Más opciones"
-                style={({ pressed }) => [
-                  styles.menuIconButton,
-                  {
-                    borderColor: theme.backgroundSelected,
-                    backgroundColor: pressed ? '#F6F9FE' : '#FFFFFF',
-                    opacity: pressed ? 0.92 : 1,
-                  },
-                ]}>
-                <ThemedText type="headline" style={styles.menuDots}>⋯</ThemedText>
-              </Pressable>
-            )}
-          </View>
-        </View>
-
-        <View style={styles.heroCopy}>
-          <ThemedText type="label" style={styles.heroEyebrow}>Perfil activo</ThemedText>
-          <View style={styles.heroTitleRow}>
-            <ThemedText type="headline" style={styles.heroTitle}>{client.name}</ThemedText>
-            <Pressable
-              onPress={() => { void handleToggleClientStatus(); }}
-              disabled={isAthlete || isUpdatingStatus}
-              accessibilityRole="button"
-              accessibilityLabel={client.estado === 'activo' ? 'Marcar cliente como baja' : 'Marcar cliente como activo'}
-              style={({ pressed }) => [
-                styles.statusToggleButton,
-                {
-                  borderColor: client.estado === 'activo' ? '#BBF7D0' : '#FED7AA',
-                  backgroundColor: client.estado === 'activo' ? '#F0FDF4' : '#FFFBF3',
-                  opacity: pressed && !isAthlete ? 0.92 : 1,
-                },
-              ]}>
-              <Ionicons name={clientStatusIcon} size={16} color={clientStatusColor} />
-              <ThemedText type="smallBold" style={[styles.statusToggleText, { color: clientStatusColor }]}>
-                {isUpdatingStatus ? 'Guardando...' : clientStatusLabel}
-              </ThemedText>
-            </Pressable>
-          </View>
-        </View>
-
-        <View style={styles.summaryGrid}>
-          {summaryItems.map((item) => (
-            <View
-              key={item.label}
-              style={[
-                styles.summaryItem,
-                { borderColor: theme.backgroundSelected, backgroundColor: '#F8FBFF' },
-              ]}>
-              <ThemedText type="small" themeColor="textSecondary" style={styles.summaryLabel}>{item.label}</ThemedText>
-              <ThemedText type="smallBold" style={styles.summaryValue}>{item.value}</ThemedText>
-            </View>
-          ))}
-        </View>
-
-        {paymentStatus.isPending ? (
-          <StatusBanner
-            tone="warning"
-            title="Pendiente de pago"
-            message="Este cliente no está al corriente de pago. Revisa su historial antes de continuar."
-          />
-        ) : null}
+      <View style={styles.topBar}>
+        <Pressable
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Volver"
+          style={({ pressed }) => [
+            styles.backButton,
+            {
+              borderColor: theme.backgroundSelected,
+              backgroundColor: pressed ? '#EFF5FF' : '#FFFFFF',
+              opacity: pressed ? 0.92 : 1,
+            },
+          ]}>
+          <Ionicons name="chevron-back" size={18} color={Accent.primary} />
+          <ThemedText type="smallBold" style={styles.backButtonText}>Clientes</ThemedText>
+        </Pressable>
 
         {!isAthlete ? (
-          <View style={[styles.paymentShortcutPanel, { borderColor: theme.backgroundSelected, backgroundColor: '#F8FBFF' }]}>
-            <View style={styles.paymentShortcutCopy}>
-              <ThemedText type="small" themeColor="textSecondary">Pagos</ThemedText>
-              <ThemedText type="smallBold" style={styles.paymentShortcutTitle}>Accede a la gestión de cobros</ThemedText>
-            </View>
-            <AppButton
-              label="Pagos"
-              variant="surface"
-              size="compact"
-              fullWidth={false}
-              onPress={() => router.push(`/clients/${client.id}/payments`)}
-            />
-          </View>
+          <Pressable
+            onPress={() => setIsClientMenuOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Más opciones del cliente"
+            style={({ pressed }) => [
+              styles.menuIconButton,
+              {
+                borderColor: theme.backgroundSelected,
+                backgroundColor: pressed ? '#EFF5FF' : '#FFFFFF',
+                opacity: pressed ? 0.92 : 1,
+              },
+            ]}>
+            <Ionicons name="ellipsis-horizontal" size={20} color="#1F3D69" />
+          </Pressable>
         ) : null}
+      </View>
 
-        <View style={[styles.levelPanel, { borderColor: theme.backgroundSelected, backgroundColor: '#F8FBFF' }]}>
-          <View style={styles.levelPanelHeader}>
-            <ThemedText type="small" themeColor="textSecondary">Nivel del cliente</ThemedText>
-            <View style={[styles.levelBadge, { backgroundColor: Accent.primaryMuted }]}>
-              <ThemedText type="smallBold" style={styles.levelBadgeText}>{formatAthleteLevelLabel(client.athleteLevel)}</ThemedText>
-            </View>
+      <View style={[styles.heroCard, { borderColor: theme.backgroundSelected }]}>
+        <View style={styles.heroIdentityRow}>
+          <View style={styles.avatarWrap}>
+            <ThemedText type="headline" style={styles.avatarText}>{initials}</ThemedText>
           </View>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.levelHint}>
-            Orienta los protocolos por defecto.
-          </ThemedText>
+          <View style={styles.heroCopy}>
+            <ThemedText type="headline" style={styles.heroTitle}>{client.name}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.heroSubtitle}>Perfil de cliente</ThemedText>
+          </View>
+          <Pressable
+            onPress={() => { void handleToggleClientStatus(); }}
+            disabled={isAthlete || isUpdatingStatus}
+            accessibilityRole="button"
+            accessibilityLabel={client.estado === 'activo' ? 'Marcar cliente como baja' : 'Marcar cliente como activo'}
+            style={({ pressed }) => [
+              styles.statusToggleButton,
+              {
+                borderColor: client.estado === 'activo' ? '#BBF7D0' : '#FED7AA',
+                backgroundColor: client.estado === 'activo' ? '#F0FDF4' : '#FFFBF3',
+                opacity: pressed && !isAthlete ? 0.92 : 1,
+              },
+            ]}>
+            <Ionicons name={clientStatusIcon} size={17} color={clientStatusColor} />
+            <ThemedText type="smallBold" style={[styles.statusToggleText, { color: clientStatusColor }]}>
+              {isUpdatingStatus ? 'Guardando...' : clientStatusLabel}
+            </ThemedText>
+          </Pressable>
         </View>
 
-        <Modal transparent visible={isClientMenuOpen} animationType="fade" onRequestClose={() => setIsClientMenuOpen(false)}>
-          <Pressable style={styles.menuBackdrop} onPress={() => setIsClientMenuOpen(false)}>
-            <Pressable style={[styles.menuPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
-              <AppButton
-                label="Editar cliente"
-                variant="surface"
-                size="compact"
-                onPress={() => {
-                  setIsClientMenuOpen(false);
-                  router.push(`/clients/${client.id}/edit`);
-                }}
-              />
-              <AppButton
-                label="Eliminar cliente"
-                variant="danger"
-                size="compact"
-                onPress={handleDelete}
-                loading={isDeleting}
-              />
-            </Pressable>
+        <Pressable
+          onPress={() => setIsProfileDataOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Ver datos del cliente"
+          style={({ pressed }) => [styles.dataButton, pressed && styles.dataButtonPressed]}>
+          <View style={styles.dataButtonIcon}>
+            <Ionicons name="person-outline" size={18} color={Accent.primary} />
+          </View>
+          <View style={styles.dataButtonCopy}>
+            <ThemedText type="smallBold" style={styles.dataButtonTitle}>Datos del cliente</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">Información general y nivel</ThemedText>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#6B7E9C" />
+        </Pressable>
+      </View>
+
+      {paymentStatus.isPending ? (
+        <StatusBanner
+          tone="warning"
+          title="Pendiente de pago"
+          message="Este cliente no está al corriente de pago. Revisa su historial antes de continuar."
+        />
+      ) : null}
+
+      <View style={styles.actionsSection}>
+        <View>
+          <ThemedText type="headline" style={styles.actionSectionTitle}>Acciones principales</ThemedText>
+        </View>
+
+        {!isAthlete ? (
+          <Pressable
+            onPress={() => router.push(`/revisions/new?clientId=${client.id}`)}
+            accessibilityRole="button"
+            accessibilityLabel="Registrar nueva revisión"
+            style={({ pressed }) => [styles.primaryAction, pressed && styles.actionPressed]}>
+            <View style={styles.primaryActionIcon}>
+              <Ionicons name="add" size={24} color={Accent.primary} />
+            </View>
+            <View style={styles.primaryActionCopy}>
+              <ThemedText type="smallBold" style={styles.primaryActionTitle}>Nueva revisión</ThemedText>
+              <ThemedText type="small" style={styles.primaryActionSubtitle}>Registra medidas y evolución</ThemedText>
+            </View>
+            <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
           </Pressable>
-        </Modal>
+        ) : null}
+
+        <View style={styles.secondaryActionsGrid}>
+          <Pressable
+            onPress={() => router.push(`/clients/${client.id}/photos`)}
+            accessibilityRole="button"
+            accessibilityLabel="Ver fotos del cliente"
+            style={({ pressed }) => [styles.secondaryAction, { borderColor: theme.backgroundSelected }, pressed && styles.actionPressed]}>
+            <View style={styles.secondaryActionIcon}><Ionicons name="images-outline" size={21} color={Accent.primary} /></View>
+            <ThemedText type="smallBold" style={styles.secondaryActionTitle}>Fotos</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.secondaryActionSubtitle}>Progreso visual</ThemedText>
+          </Pressable>
+          <Pressable
+            onPress={() => router.push(`/clients/${client.id}/metrics`)}
+            accessibilityRole="button"
+            accessibilityLabel="Abrir análisis del cliente"
+            style={({ pressed }) => [styles.secondaryAction, { borderColor: theme.backgroundSelected }, pressed && styles.actionPressed]}>
+            <View style={styles.secondaryActionIcon}><Ionicons name="analytics-outline" size={21} color={Accent.primary} /></View>
+            <ThemedText type="smallBold" style={styles.secondaryActionTitle}>Análisis</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.secondaryActionSubtitle}>Tendencias y métricas</ThemedText>
+          </Pressable>
+          {!isAthlete ? (
+            <Pressable
+              onPress={() => router.push(`/clients/${client.id}/payments`)}
+              accessibilityRole="button"
+              accessibilityLabel="Abrir pagos del cliente"
+              style={({ pressed }) => [styles.secondaryAction, { borderColor: theme.backgroundSelected }, pressed && styles.actionPressed]}>
+              <View style={styles.secondaryActionIcon}><Ionicons name="card-outline" size={21} color={Accent.primary} /></View>
+              <ThemedText type="smallBold" style={styles.secondaryActionTitle}>Pagos</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.secondaryActionSubtitle}>Historial y cobros</ThemedText>
+            </Pressable>
+          ) : null}
+        </View>
       </View>
 
       <View style={[styles.section, { borderColor: theme.backgroundSelected }]}>
         <View style={styles.sectionHeader}>
-          <View style={styles.revisionHeaderCopy}>
-            <ThemedText type="headline">Revisiones</ThemedText>
+          <View style={styles.sectionHeaderCopy}>
+            <ThemedText type="label" style={styles.sectionEyebrow}>Seguimiento</ThemedText>
+            <ThemedText type="headline" style={styles.sectionTitle}>Revisiones</ThemedText>
             <ThemedText type="small" themeColor="textSecondary" style={styles.revisionFrequencyText}>
               {revisionFrequencySummary}
             </ThemedText>
@@ -439,14 +457,11 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
                   styles.revisionStatusPill,
                   { backgroundColor: revisionStatus.isPending ? '#FFF7E8' : '#ECF9F3' },
                 ]}>
-                <ThemedText
-                  type="smallBold"
-                  style={[
-                    styles.revisionStatusIcon,
-                    { color: revisionStatus.isPending ? Accent.warning : Accent.success },
-                  ]}>
-                  {revisionStatus.isPending ? '!' : '✓'}
-                </ThemedText>
+                <Ionicons
+                  name={revisionStatus.isPending ? 'alert-circle-outline' : 'checkmark-circle-outline'}
+                  size={16}
+                  color={revisionStatus.isPending ? Accent.warning : Accent.success}
+                />
                 <ThemedText
                   type="smallBold"
                   style={{ color: revisionStatus.isPending ? Accent.warning : Accent.success }}>
@@ -457,448 +472,592 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
             {!isAthlete ? (
               <Pressable
                 onPress={openRevisionSettings}
+                accessibilityRole="button"
                 accessibilityLabel="Configurar frecuencia de revisiones"
                 style={({ pressed }) => [
                   styles.revisionSettingsButton,
                   {
                     borderColor: theme.backgroundSelected,
-                    backgroundColor: pressed ? '#F6F9FE' : '#FFFFFF',
+                    backgroundColor: pressed ? '#EFF5FF' : '#FFFFFF',
                     opacity: pressed ? 0.92 : 1,
                   },
                 ]}>
-                <ThemedText type="smallBold" style={styles.revisionSettingsIcon}>⚙</ThemedText>
+                <Ionicons name="settings-outline" size={18} color={Accent.primary} />
               </Pressable>
             ) : null}
           </View>
         </View>
 
-        <View style={styles.actionsBlock}>
-          <View style={styles.actionsTopRow}>
-            <View style={styles.actionCell}>
-              <AppButton label="Fotos" variant="surface" size="compact" onPress={() => router.push(`/clients/${client.id}/photos`)} />
-            </View>
-            <View style={styles.actionCell}>
-              <AppButton label="Análisis" variant="surface" size="compact" onPress={() => router.push(`/clients/${client.id}/metrics`)} />
-            </View>
-            {!isAthlete && (
-              <View style={styles.actionCell}>
-                <AppButton
-                  label="Revision"
-                  size="compact"
-                  leadingIcon={<ThemedText type="smallBold" style={styles.newRevisionIcon}>+</ThemedText>}
-                  onPress={() => router.push(`/revisions/new?clientId=${client.id}`)}
-                />
-              </View>
-            )}
-          </View>
-          {!isAthlete && client.athleteUserId === null && (
-            <AppButton
-              label="PIN Atleta"
-              variant="surface"
-              size="compact"
-              disabled
-            />
-          )}
-          {!isAthlete && client.athleteUserId !== null && (
-            <View style={[styles.athleteLinkedBadge, { borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' }]}>
-              <View style={[styles.timerDot, { backgroundColor: '#22C55E' }]} />
-              <ThemedText type="small" style={{ color: '#15803D' }}>Atleta vinculado</ThemedText>
-            </View>
-          )}
-        </View>
-
         <View style={[styles.revisionsPanel, { borderColor: theme.backgroundSelected }]}>
           {revisions.length === 0 ? (
             <View style={styles.emptyRevisions}>
+              <Ionicons name="clipboard-outline" size={22} color="#7B8AA0" />
               <ThemedText type="small" themeColor="textSecondary">Sin revisiones registradas.</ThemedText>
             </View>
           ) : (
             <View>
-              {revisions.map((revision, index) => (
+              {visibleRevisions.map((revision, index) => (
                 <RevisionRow
                   key={revision.id}
                   phase={revision.phase}
                   date={new Date(revision.reviewedAt).toLocaleDateString('es-ES')}
                   weight={revision.weightKg ? `${revision.weightKg} kg` : '-'}
                   onPress={() => router.push(`/revisions/${revision.id}`)}
-                  last={index === revisions.length - 1}
+                  last={index === visibleRevisions.length - 1}
                 />
               ))}
+              {revisionPageCount > 1 ? (
+                <View style={styles.revisionPagination}>
+                  <Pressable
+                    onPress={() => setRevisionPage((page) => Math.max(1, page - 1))}
+                    disabled={revisionPage === 1}
+                    accessibilityRole="button"
+                    accessibilityLabel="Página anterior de revisiones"
+                    style={({ pressed }) => [styles.paginationButton, (revisionPage === 1 || pressed) && styles.paginationButtonMuted]}>
+                    <Ionicons name="chevron-back" size={18} color={Accent.primary} />
+                  </Pressable>
+                  <ThemedText type="smallBold" style={styles.paginationLabel}>
+                    Página {revisionPage} de {revisionPageCount}
+                  </ThemedText>
+                  <Pressable
+                    onPress={() => setRevisionPage((page) => Math.min(revisionPageCount, page + 1))}
+                    disabled={revisionPage === revisionPageCount}
+                    accessibilityRole="button"
+                    accessibilityLabel="Página siguiente de revisiones"
+                    style={({ pressed }) => [styles.paginationButton, (revisionPage === revisionPageCount || pressed) && styles.paginationButtonMuted]}>
+                    <Ionicons name="chevron-forward" size={18} color={Accent.primary} />
+                  </Pressable>
+                </View>
+              ) : null}
             </View>
           )}
         </View>
-
-        <Modal transparent visible={isRevisionSettingsOpen} animationType="fade" onRequestClose={closeRevisionSettings}>
-          <Pressable style={styles.menuBackdrop} onPress={closeRevisionSettings}>
-            <Pressable style={[styles.menuPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
-              <View style={styles.revisionSettingsHeader}>
-                <View>
-                  <ThemedText type="smallBold">Frecuencia de revisiones</ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    Define cada cuánto debe volver este cliente a revisión.
-                  </ThemedText>
-                </View>
-                <Pressable onPress={closeRevisionSettings} style={styles.revisionSettingsCloseButton}>
-                  <ThemedText type="smallBold" style={styles.revisionSettingsCloseText}>×</ThemedText>
-                </Pressable>
-              </View>
-
-              <AppInput
-                label="Numero"
-                placeholder="4"
-                keyboardType="number-pad"
-                inputMode="numeric"
-                value={revisionFrequencyValueInput}
-                onChangeText={setRevisionFrequencyValueInput}
-                containerStyle={styles.revisionSettingsField}
-              />
-              <AppCheckbox
-                label="Usar frecuencia de revisiones"
-                checked={revisionFrequencyEnabled}
-                onChange={setRevisionFrequencyEnabled}
-                helper="Desmárcalo para quitar la frecuencia guardada."
-              />
-              {revisionFrequencyEnabled ? (
-                <>
-                  <AppSelect
-                    label="Unidad"
-                    value={revisionFrequencyUnit}
-                    options={REVISION_FREQUENCY_UNIT_OPTIONS}
-                    onChange={(value) => setRevisionFrequencyUnit(value as RevisionFrequencyUnit)}
-                    containerStyle={styles.revisionSettingsField}
-                  />
-                  <View style={styles.revisionSettingsPreview}>
-                    <ThemedText type="small" themeColor="textSecondary">Configuración actual</ThemedText>
-                    <ThemedText type="smallBold">{formatRevisionFrequencyLabel(Number(revisionFrequencyValueInput) || 0, revisionFrequencyUnit)}</ThemedText>
-                  </View>
-                </>
-              ) : (
-                <StatusBanner tone="info" message="Al guardar, la frecuencia quedará desactivada para este cliente." />
-              )}
-
-              <View style={styles.revisionSettingsActions}>
-                <AppButton
-                  label="Cancelar"
-                  variant="ghost"
-                  size="compact"
-                  fullWidth={false}
-                  onPress={closeRevisionSettings}
-                  disabled={isSavingRevisionSettings}
-                />
-                <AppButton
-                  label="Guardar"
-                  onPress={() => void handleSaveRevisionSettings()}
-                  loading={isSavingRevisionSettings}
-                />
-              </View>
-            </Pressable>
-          </Pressable>
-        </Modal>
       </View>
 
+      <Modal transparent visible={isProfileDataOpen} animationType="fade" onRequestClose={() => setIsProfileDataOpen(false)}>
+        <Pressable style={styles.dataBackdrop} onPress={() => setIsProfileDataOpen(false)}>
+          <Pressable style={[styles.dataPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
+            <View style={styles.dataPanelHeader}>
+              <View>
+                <ThemedText type="label" style={styles.sectionEyebrow}>Perfil</ThemedText>
+                <ThemedText type="headline" style={styles.dataPanelTitle}>Datos del cliente</ThemedText>
+              </View>
+              <Pressable
+                onPress={() => setIsProfileDataOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar datos del cliente"
+                style={styles.dataPanelCloseButton}>
+                <Ionicons name="close" size={20} color={Accent.primary} />
+              </Pressable>
+            </View>
+            <View style={styles.dataPanelGrid}>
+              {profileMetrics.map((item) => (
+                <View key={item.label} style={styles.dataPanelItem}>
+                  <View style={styles.dataPanelItemIcon}>
+                    <Ionicons name={item.icon} size={17} color={Accent.primary} />
+                  </View>
+                  <View style={styles.dataPanelItemCopy}>
+                    <ThemedText type="small" themeColor="textSecondary">{item.label}</ThemedText>
+                    <ThemedText type="smallBold" style={styles.dataPanelItemValue}>{item.value}</ThemedText>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal transparent visible={isClientMenuOpen} animationType="fade" onRequestClose={() => setIsClientMenuOpen(false)}>
+        <Pressable style={styles.menuBackdrop} onPress={() => setIsClientMenuOpen(false)}>
+          <Pressable style={[styles.menuPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
+            <AppButton
+              label="Editar cliente"
+              variant="surface"
+              size="compact"
+              onPress={() => {
+                setIsClientMenuOpen(false);
+                router.push(`/clients/${client.id}/edit`);
+              }}
+            />
+            <AppButton
+              label="Eliminar cliente"
+              variant="danger"
+              size="compact"
+              onPress={handleDelete}
+              loading={isDeleting}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal transparent visible={isRevisionSettingsOpen} animationType="fade" onRequestClose={closeRevisionSettings}>
+        <Pressable style={styles.menuBackdrop} onPress={closeRevisionSettings}>
+          <Pressable style={[styles.menuPanel, styles.revisionSettingsPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
+            <View style={styles.revisionSettingsHeader}>
+              <View style={styles.revisionSettingsCopy}>
+                <ThemedText type="smallBold">Frecuencia de revisiones</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Define cada cuánto debe volver este cliente a revisión.
+                </ThemedText>
+              </View>
+              <Pressable onPress={closeRevisionSettings} style={styles.revisionSettingsCloseButton} accessibilityLabel="Cerrar configuración de revisiones">
+                <Ionicons name="close" size={18} color={Accent.primary} />
+              </Pressable>
+            </View>
+
+            <AppInput
+              label="Número"
+              placeholder="4"
+              keyboardType="number-pad"
+              inputMode="numeric"
+              value={revisionFrequencyValueInput}
+              onChangeText={setRevisionFrequencyValueInput}
+              containerStyle={styles.revisionSettingsField}
+            />
+            <AppCheckbox
+              label="Usar frecuencia de revisiones"
+              checked={revisionFrequencyEnabled}
+              onChange={setRevisionFrequencyEnabled}
+              helper="Desmárcalo para quitar la frecuencia guardada."
+            />
+            {revisionFrequencyEnabled ? (
+              <>
+                <AppSelect
+                  label="Unidad"
+                  value={revisionFrequencyUnit}
+                  options={REVISION_FREQUENCY_UNIT_OPTIONS}
+                  onChange={(value) => setRevisionFrequencyUnit(value as RevisionFrequencyUnit)}
+                  containerStyle={styles.revisionSettingsField}
+                />
+                <View style={styles.revisionSettingsPreview}>
+                  <ThemedText type="small" themeColor="textSecondary">Configuración actual</ThemedText>
+                  <ThemedText type="smallBold">{formatRevisionFrequencyLabel(Number(revisionFrequencyValueInput) || 0, revisionFrequencyUnit)}</ThemedText>
+                </View>
+              </>
+            ) : (
+              <StatusBanner tone="info" message="Al guardar, la frecuencia quedará desactivada para este cliente." />
+            )}
+
+            <View style={styles.revisionSettingsActions}>
+              <AppButton
+                label="Cancelar"
+                variant="ghost"
+                size="compact"
+                fullWidth={false}
+                onPress={closeRevisionSettings}
+                disabled={isSavingRevisionSettings}
+              />
+              <AppButton
+                label="Guardar"
+                onPress={() => void handleSaveRevisionSettings()}
+                loading={isSavingRevisionSettings}
+              />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScreenContainer>
   );
 }
-
 const styles = StyleSheet.create({
   screenContent: {
-    gap: 12,
+    gap: 14,
+    paddingTop: 14,
   },
-  heroCard: {
-    borderWidth: 1,
-    borderRadius: Radius.large,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: Spacing.three,
-    paddingTop: 12,
-    paddingBottom: Spacing.three,
-    gap: 12,
-    overflow: 'hidden',
-    shadowColor: '#12336E',
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
-  },
-  heroTopAccent: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 4,
-    backgroundColor: '#2D66E0',
-  },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E1EAF8',
-    paddingBottom: 8,
-  },
-  brandActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  brandCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 0,
-  },
-  brandEyebrow: {
-    color: '#1E4FBF',
-  },
-  heroCopy: {
-    gap: 2,
-  },
-  heroTitleRow: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.two,
   },
-  heroEyebrow: {
-    color: Accent.primary,
-  },
-  heroTitle: {
-    flex: 1,
-    color: '#10203B',
-    fontSize: 32,
-    lineHeight: 36,
-  },
-  statusToggleButton: {
+  backButton: {
+    minHeight: 42,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     borderWidth: 1,
+    borderColor: '#DFE7F2',
     borderRadius: Radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginLeft: 8,
-  },
-  statusToggleText: {
-    lineHeight: 16,
-  },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1,
-    borderRadius: Radius.pill,
-    minHeight: 32,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-  },
-  backButtonIcon: {
-    color: Accent.primary,
-    fontSize: 12,
-    lineHeight: 14,
+    paddingHorizontal: 14,
   },
   backButtonText: {
     color: '#10203B',
-    fontSize: 12,
-    lineHeight: 14,
+    lineHeight: 16,
   },
   menuIconButton: {
-    width: 32,
-    height: 32,
+    width: 42,
+    height: 42,
     borderWidth: 1,
+    borderColor: '#DFE7F2',
     borderRadius: Radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
-  menuDots: {
-    color: '#1F3D69',
-    marginTop: -2,
-    lineHeight: 20,
-  },
-  newRevisionIcon: {
-    color: Accent.primary,
-    lineHeight: 16,
-    marginTop: -1,
-  },
-  summaryGrid: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  summaryItem: {
-    flex: 1,
+  heroCard: {
     borderWidth: 1,
-    borderRadius: Radius.medium,
-    paddingVertical: 12,
-    paddingHorizontal: Spacing.two,
-    gap: 2,
-    alignItems: 'flex-start',
+    borderColor: '#DFE7F2',
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    gap: 16,
+    shadowColor: '#12336E',
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 3,
   },
-  summaryLabel: {
-    textAlign: 'left',
-  },
-  summaryValue: {
-    textAlign: 'left',
-    color: '#10203B',
-  },
-  levelPanel: {
-    borderWidth: 1,
-    borderRadius: Radius.medium,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 12,
-    gap: 4,
-  },
-  levelPanelHeader: {
+  heroIdentityRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
+    gap: 14,
   },
-  levelBadge: {
-    borderRadius: Radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+  avatarWrap: {
+    width: 68,
+    height: 68,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E8F0FF',
+    borderWidth: 1,
+    borderColor: '#D2E0FA',
   },
-  levelBadgeText: {
+  avatarText: {
     color: Accent.primary,
+    fontSize: 24,
+    lineHeight: 28,
   },
-  levelHint: {
+  heroCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  heroTitle: {
+    color: '#10203B',
+    fontSize: 28,
+    lineHeight: 34,
+  },
+  heroSubtitle: {
     lineHeight: 18,
   },
-  paymentShortcutPanel: {
-    borderWidth: 1,
-    borderRadius: Radius.medium,
-    padding: Spacing.two,
-    gap: Spacing.two,
+  statusToggleButton: {
+    minHeight: 36,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 7,
+    borderWidth: 1,
+    borderColor: '#DFE7F2',
+    borderRadius: Radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    flexShrink: 0,
+    alignSelf: 'flex-start',
   },
-  paymentShortcutCopy: {
-    flex: 1,
-    gap: 2,
+  statusToggleText: {
+    lineHeight: 16,
   },
-  paymentShortcutTitle: {
-    color: '#10203B',
-  },
-  paymentMetaGrid: {
+  dataButton: {
+    minHeight: 58,
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    alignItems: 'center',
+    gap: 10,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E6EDF7',
+    paddingHorizontal: 2,
   },
-  paymentMetaItem: {
-    width: '48.5%',
-    borderWidth: 1,
-    borderRadius: Radius.small,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 10,
+  dataButtonIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF5FF',
+  },
+  dataButtonCopy: {
+    flex: 1,
+    minWidth: 0,
     gap: 2,
   },
-  paymentMetaValue: {
+  dataButtonTitle: {
     color: '#10203B',
+    lineHeight: 18,
   },
-  menuBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(16, 32, 59, 0.16)',
-    paddingHorizontal: Spacing.three,
-    paddingTop: 96,
-  },
-  menuPanel: {
-    alignSelf: 'flex-end',
-    width: 240,
-    borderWidth: 1,
-    borderRadius: Radius.large,
-    backgroundColor: '#FFFFFF',
-    padding: Spacing.two,
-    gap: Spacing.two,
+  dataButtonPressed: {
+    opacity: 0.72,
   },
   section: {
     borderWidth: 1,
-    borderRadius: Radius.large,
+    borderColor: '#DFE7F2',
+    borderRadius: 22,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 12,
-    gap: Spacing.two,
+    padding: 14,
+    gap: 12,
   },
   sectionHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: Spacing.two,
+  },
+  sectionHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  sectionEyebrow: {
+    color: Accent.primary,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  sectionTitle: {
+    color: '#10203B',
+  },
+  actionsSection: {
+    gap: 12,
+  },
+  actionSectionTitle: {
+    color: '#10203B',
+    fontSize: 22,
+    lineHeight: 27,
+  },
+  primaryAction: {
+    minHeight: 84,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 20,
+    backgroundColor: Accent.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  primaryActionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryActionCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  primaryActionTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    lineHeight: 20,
+  },
+  primaryActionSubtitle: {
+    color: '#DCE6FF',
+    lineHeight: 17,
+  },
+  secondaryActionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  secondaryAction: {
+    flexGrow: 1,
+    flexBasis: '30%',
+    minWidth: 0,
+    minHeight: 118,
+    borderWidth: 1,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    padding: 13,
+    gap: 5,
+  },
+  secondaryActionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#EEF5FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+  },
+  secondaryActionTitle: {
+    color: '#10203B',
+    lineHeight: 18,
+  },
+  secondaryActionSubtitle: {
+    lineHeight: 17,
+  },
+  actionPressed: {
+    opacity: 0.86,
+    transform: [{ scale: 0.98 }],
   },
   revisionHeaderActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
   },
-  revisionHeaderCopy: {
-    flex: 1,
-    gap: 2,
-  },
   revisionStatusPill: {
+    minHeight: 34,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     borderRadius: Radius.pill,
     paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  revisionStatusIcon: {
-    fontSize: 12,
-    lineHeight: 14,
+    paddingVertical: 6,
   },
   revisionSettingsButton: {
-    width: 32,
-    height: 32,
+    width: 38,
+    height: 38,
     borderWidth: 1,
+    borderColor: '#DFE7F2',
     borderRadius: Radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
-  revisionSettingsIcon: {
-    color: Accent.primary,
-    fontSize: 16,
-    lineHeight: 16,
-    marginTop: -1,
-  },
   revisionFrequencyText: {
     lineHeight: 18,
   },
-  actionsBlock: {
+  revisionsPanel: {
     borderWidth: 1,
-    borderColor: Accent.border,
-    borderRadius: Radius.large,
+    borderColor: '#DFE7F2',
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  revisionPagination: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E6EDF7',
+    paddingTop: 12,
+    marginTop: 4,
+  },
+  paginationButton: {
+    width: 36,
+    height: 36,
+    borderWidth: 1,
+    borderColor: '#D4E3FA',
+    borderRadius: Radius.pill,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  paginationButtonMuted: {
+    opacity: 0.45,
+  },
+  paginationLabel: {
+    color: '#304766',
+    minWidth: 108,
+    textAlign: 'center',
+  },
+  emptyRevisions: {
+    minHeight: 86,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: Spacing.three,
+  },
+  dataBackdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(16, 32, 59, 0.32)',
+    paddingHorizontal: Spacing.three,
+  },
+  dataPanel: {
+    width: '100%',
+    maxWidth: 440,
+    alignSelf: 'center',
+    borderWidth: 1,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    gap: 16,
+    shadowColor: '#10203B',
+    shadowOpacity: 0.16,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 6,
+  },
+  dataPanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  dataPanelTitle: {
+    color: '#10203B',
+    fontSize: 24,
+    lineHeight: 29,
+  },
+  dataPanelCloseButton: {
+    width: 38,
+    height: 38,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F3F7FD',
+  },
+  dataPanelGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  dataPanelItem: {
+    flexGrow: 1,
+    flexBasis: '45%',
+    minWidth: 140,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 16,
+    backgroundColor: '#F8FAFD',
+    padding: 12,
+  },
+  dataPanelItemIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E8F0FF',
+  },
+  dataPanelItemCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  dataPanelItemValue: {
+    color: '#10203B',
+    lineHeight: 18,
+  },
+  menuBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(16, 32, 59, 0.18)',
+    paddingHorizontal: Spacing.three,
+    paddingTop: 96,
+  },
+  menuPanel: {
+    alignSelf: 'flex-end',
+    width: 250,
+    borderWidth: 1,
+    borderColor: '#DFE7F2',
+    borderRadius: 22,
     backgroundColor: '#FFFFFF',
     padding: Spacing.two,
     gap: Spacing.two,
+    shadowColor: '#12336E',
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 5,
   },
-  actionsTopRow: {
-    flexDirection: 'row',
-    gap: 10,
-    flexWrap: 'wrap',
-  },
-  actionCell: {
-    flex: 1,
-    minWidth: 96,
-  },
-  revisionsPanel: {
-    borderWidth: 1,
-    borderRadius: Radius.medium,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-  },
-  emptyRevisions: {
-    paddingVertical: Spacing.two,
-  },
-  athleteLinkedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: Radius.small,
-    borderWidth: 1,
+  revisionSettingsPanel: {
+    width: '100%',
+    maxWidth: 420,
+    alignSelf: 'center',
+    padding: 14,
+    gap: 12,
   },
   revisionSettingsHeader: {
     flexDirection: 'row',
@@ -906,17 +1065,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: Spacing.two,
   },
+  revisionSettingsCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
   revisionSettingsCloseButton: {
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     borderRadius: Radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#F8FBFF',
-  },
-  revisionSettingsCloseText: {
-    color: Accent.primary,
-    lineHeight: 20,
   },
   revisionSettingsField: {
     minHeight: 56,
@@ -941,5 +1101,6 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
+    backgroundColor: '#22C55E',
   },
 });

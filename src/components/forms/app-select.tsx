@@ -20,6 +20,7 @@ type AppSelectProps = {
   placeholder?: string;
   onChange: (value: string) => void;
   helper?: string;
+  hideLabel?: boolean;
   containerStyle?: StyleProp<ViewStyle>;
   pickerTextStyle?: StyleProp<TextStyle>;
 };
@@ -31,6 +32,7 @@ export function AppSelect({
   placeholder,
   onChange,
   helper,
+  hideLabel = false,
   containerStyle,
   pickerTextStyle,
 }: AppSelectProps) {
@@ -38,18 +40,23 @@ export function AppSelect({
 
   return (
     <View style={styles.wrapper}>
-      <View style={styles.header}>
-        <ThemedText type="small" themeColor="textSecondary">
-          {label}
-        </ThemedText>
-        {helper ? (
-          <ThemedText type="small" themeColor="textSecondary" style={styles.helper}>
-            {helper}
-          </ThemedText>
-        ) : null}
-      </View>
+      {!hideLabel || helper ? (
+        <View style={styles.header}>
+          {!hideLabel ? (
+            <ThemedText type="small" themeColor="textSecondary">
+              {label}
+            </ThemedText>
+          ) : null}
+          {helper ? (
+            <ThemedText type="small" themeColor="textSecondary" style={styles.helper}>
+              {helper}
+            </ThemedText>
+          ) : null}
+        </View>
+      ) : null}
       <View style={[styles.shell, { borderColor: theme.backgroundSelected, backgroundColor: '#FFFFFF' }, containerStyle]}>
         <Picker
+          accessibilityLabel={label}
           selectedValue={value ?? ''}
           onValueChange={(nextValue) => onChange(String(nextValue))}
           style={[styles.picker, { color: theme.text, backgroundColor: '#FFFFFF' }, pickerTextStyle]}

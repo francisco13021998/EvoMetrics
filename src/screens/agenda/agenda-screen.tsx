@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Modal, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { ScreenContainer } from '@/components/layout/screen-container';
@@ -248,6 +248,8 @@ function buildAgendaEvents({ clientData, events, occurrences }: AgendaBuildInput
 
 export function AgendaScreen() {
   const { user } = useAuth();
+  const { width } = useWindowDimensions();
+  const isCompactWidth = width < 390;
   const [clientData, setClientData] = useState<AgendaClientData[]>([]);
   const [eventSeries, setEventSeries] = useState<Event[]>([]);
   const [eventOccurrences, setEventOccurrences] = useState<EventOccurrence[]>([]);
@@ -311,6 +313,7 @@ export function AgendaScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
+      setSelectedMode('day');
       void loadAgenda();
     }, [loadAgenda])
   );
@@ -487,24 +490,28 @@ export function AgendaScreen() {
   }
 
   return (
-    <ScreenContainer>
-      <View style={styles.headerRow}>
-        <View style={styles.headerCopy}>
-          <ThemedText style={styles.title}>Calendario</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
-            Agenda de hoy
-          </ThemedText>
+    <ScreenContainer contentStyle={styles.screenContent}>
+      <View style={styles.headerPanel}>
+        <View style={styles.headerRow}>
+          <View style={styles.headerIcon}>
+            <Ionicons name="calendar-outline" size={25} color={Accent.primary} />
+          </View>
+          <View style={styles.headerCopy}>
+            <ThemedText type="label" style={styles.eyebrow}>Agenda</ThemedText>
+            <ThemedText style={styles.title}>Agenda</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
+              {formatSpanishLongDate(selectedDate)}
+            </ThemedText>
+          </View>
+          <Pressable
+            onPress={openEventForm}
+            style={({ pressed }) => [styles.createEventButton, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Crear evento">
+            <Ionicons name="add" size={22} color="#FFFFFF" />
+          </Pressable>
         </View>
-        <Pressable
-          onPress={openEventForm}
-          style={({ pressed }) => [styles.createEventButton, { opacity: pressed ? 0.92 : 1 }]}
-          accessibilityRole="button"
-          accessibilityLabel="Crear evento">
-          <Ionicons name="add" size={16} color="#FFFFFF" />
-          <ThemedText type="smallBold" style={styles.createEventButtonText}>
-            Nuevo
-          </ThemedText>
-        </Pressable>
+
       </View>
 
       <View style={styles.modeShell}>
@@ -516,7 +523,10 @@ export function AgendaScreen() {
             <Pressable
               key={mode}
               onPress={() => setSelectedMode(mode)}
-              style={({ pressed }) => [styles.modeButton, isActive && styles.modeButtonActive, { opacity: pressed ? 0.92 : 1 }]}>
+              accessibilityRole="button"
+              accessibilityLabel={`Ver agenda por ${label.toLowerCase()}`}
+              accessibilityState={{ selected: isActive }}
+              style={({ pressed }) => [styles.modeButton, isActive && styles.modeButtonActive, pressed && styles.pressed]}>
               <ThemedText type="smallBold" style={[styles.modeButtonText, isActive && styles.modeButtonTextActive]}>
                 {label}
               </ThemedText>
@@ -528,14 +538,14 @@ export function AgendaScreen() {
       {selectedMode === 'week' ? (
         <View style={styles.weekContainer}>
           <View style={styles.weekHeaderRow}>
-            <Pressable onPress={handlePreviousWeek} style={({ pressed }) => [styles.weekNavButton, { opacity: pressed ? 0.88 : 1 }]} accessibilityLabel="Semana anterior">
-              <Ionicons name="chevron-back" size={16} color={Accent.primary} />
+            <Pressable onPress={handlePreviousWeek} style={({ pressed }) => [styles.navButton, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="Semana anterior">
+              <Ionicons name="chevron-back" size={18} color={Accent.primary} />
             </Pressable>
             <ThemedText type="smallBold" style={styles.weekHeaderLabel}>
               Semana del {formatShortDay(weekStart)} {formatDayNumber(weekStart)}
             </ThemedText>
-            <Pressable onPress={handleNextWeek} style={({ pressed }) => [styles.weekNavButton, { opacity: pressed ? 0.88 : 1 }]} accessibilityLabel="Semana siguiente">
-              <Ionicons name="chevron-forward" size={16} color={Accent.primary} />
+            <Pressable onPress={handleNextWeek} style={({ pressed }) => [styles.navButton, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="Semana siguiente">
+              <Ionicons name="chevron-forward" size={18} color={Accent.primary} />
             </Pressable>
           </View>
 
@@ -546,7 +556,12 @@ export function AgendaScreen() {
               const hasEvents = weekEvents.some((event) => getDateKey(event.date) === dayKey);
 
               return (
-                <Pressable key={dayKey} onPress={() => { setSelectedDate(day); setSelectedMode('day'); }} style={[styles.weekDay, isToday && styles.weekDaySelected]}>
+                <Pressable
+                  key={dayKey}
+                  onPress={() => { setSelectedDate(day); setSelectedMode('day'); }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${formatSpanishLongDate(day)}${hasEvents ? ', con eventos' : ', sin eventos'}`}
+                  style={({ pressed }) => [styles.weekDay, isToday && styles.weekDaySelected, pressed && styles.pressed]}>
                   <ThemedText type="small" style={[styles.weekDayLabel, isToday && styles.weekDayLabelSelected]}>
                     {formatShortDay(day)}
                   </ThemedText>
@@ -594,10 +609,12 @@ export function AgendaScreen() {
                         <Pressable
                           key={event.id}
                           onPress={() => openAgendaItem(event)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${event.timeLabel}, ${event.title}, ${event.clientName}`}
                           style={({ pressed }) => [
                             styles.timelineEvent,
                             { backgroundColor: getEventColor(event.kind).soft, borderColor: getEventColor(event.kind).border },
-                            { opacity: pressed ? 0.92 : 1 },
+                            pressed && styles.pressed,
                           ]}>
                           <View style={[styles.timelineEventDot, { backgroundColor: event.color }]} />
                         </Pressable>
@@ -614,24 +631,25 @@ export function AgendaScreen() {
       {selectedMode === 'month' ? (
         <View style={styles.calendarCard}>
           <View style={styles.calendarHeader}>
-            <ThemedText type="label" style={styles.calendarLabel}>
-              Calendario
-            </ThemedText>
+            <View>
+              <ThemedText style={styles.calendarTitle}>Próximos vencimientos</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">Pagos, revisiones y eventos programados</ThemedText>
+            </View>
           </View>
 
-          <View style={styles.calendarControlsRow}>
-            <Pressable onPress={handlePreviousMonth} style={styles.calendarNavButton} accessibilityLabel="Mes anterior">
+          <View style={[styles.calendarControlsRow, isCompactWidth && styles.calendarControlsRowCompact]}>
+            <Pressable onPress={handlePreviousMonth} style={({ pressed }) => [styles.calendarNavButton, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="Mes anterior">
               <Ionicons name="chevron-back" size={16} color={Accent.primary} />
             </Pressable>
             <ThemedText type="smallBold" style={styles.calendarMonthLabel}>
               {calendarMonthLabel}
             </ThemedText>
-            <Pressable onPress={handleNextMonth} style={styles.calendarNavButton} accessibilityLabel="Mes siguiente">
+            <Pressable onPress={handleNextMonth} style={({ pressed }) => [styles.calendarNavButton, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="Mes siguiente">
               <Ionicons name="chevron-forward" size={16} color={Accent.primary} />
             </Pressable>
           </View>
 
-          <View style={styles.calendarWeekRow}>
+          <View style={[styles.calendarWeekRow, isCompactWidth && styles.calendarWeekRowCompact]}>
             {calendarWeekdayLabels.map((label) => (
               <ThemedText key={label} type="small" themeColor="textSecondary" style={styles.calendarWeekLabel}>
                 {label}
@@ -639,7 +657,7 @@ export function AgendaScreen() {
             ))}
           </View>
 
-          <View style={styles.calendarGrid}>
+          <View style={[styles.calendarGrid, isCompactWidth && styles.calendarGridCompact]}>
             {calendarGrid.map((day, index) => {
               if (day === null) {
                 return <View key={`empty-${index}`} style={styles.calendarCellSpacer} />;
@@ -659,10 +677,13 @@ export function AgendaScreen() {
                 <Pressable
                   key={`day-${day}`}
                   onPress={() => openCalendarDayDetail(currentDate)}
-                  style={[
+                  accessibilityRole="button"
+                  accessibilityLabel={`${formatSpanishLongDate(currentDate)}${hasPayment || hasRevision || hasEvent ? ', con elementos programados' : ', sin elementos programados'}`}
+                  style={({ pressed }) => [
                     styles.calendarCell,
                     isToday && styles.calendarCellToday,
                     hasPayment || hasRevision || hasEvent ? styles.calendarCellBusy : null,
+                    pressed && styles.pressed,
                   ]}>
                   <ThemedText
                     type="smallBold"
@@ -726,10 +747,8 @@ export function AgendaScreen() {
                   {selectedCalendarDate ? formatSpanishLongDate(selectedCalendarDate) : 'Día'}
                 </ThemedText>
               </View>
-              <Pressable onPress={closeCalendarDayDetail} style={styles.calendarDetailCloseButton}>
-                <ThemedText type="smallBold" style={styles.calendarDetailCloseText}>
-                  ×
-                </ThemedText>
+              <Pressable onPress={closeCalendarDayDetail} accessibilityRole="button" accessibilityLabel="Cerrar detalle del día" style={({ pressed }) => [styles.calendarDetailCloseButton, pressed && styles.pressed]}>
+                <Ionicons name="close" size={21} color={Accent.primary} />
               </Pressable>
             </View>
 
@@ -738,7 +757,12 @@ export function AgendaScreen() {
                 <StatusBanner tone="info" message="Ese día no tiene eventos programados." />
               ) : (
                 selectedCalendarItems.map((event) => (
-                  <Pressable key={event.id} onPress={() => openAgendaItem(event)} style={styles.calendarDetailItem}>
+                  <Pressable
+                    key={event.id}
+                    onPress={() => openAgendaItem(event)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${event.timeLabel}, ${event.title}, ${event.clientName}, ${event.statusLabel}`}
+                    style={({ pressed }) => [styles.calendarDetailItem, pressed && styles.pressed]}>
                     <View style={[styles.calendarDetailMarker, { backgroundColor: `${event.color}18`, borderColor: `${event.color}30` }]}>
                       <ThemedText type="smallBold" style={[styles.calendarDetailMarkerText, { color: event.color }]}>
                         {event.kind === 'payment' ? 'P' : event.kind === 'revision' ? 'R' : 'E'}
@@ -769,17 +793,19 @@ export function AgendaScreen() {
       {selectedMode === 'day' ? (
         <View style={styles.dayContainer}>
           <View style={styles.dayHeaderRow}>
-            <Pressable onPress={handlePreviousDay} style={({ pressed }) => [styles.dayNavButton, { opacity: pressed ? 0.88 : 1 }]} accessibilityLabel="Día anterior">
-              <Ionicons name="chevron-back" size={16} color={Accent.primary} />
+            <Pressable onPress={handlePreviousDay} style={({ pressed }) => [styles.navButton, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="Día anterior">
+              <Ionicons name="chevron-back" size={18} color={Accent.primary} />
             </Pressable>
             <View style={styles.dayHeaderCenter}>
               <ThemedText type="smallBold" style={styles.dayHeaderLabel}>
                 {formatShortDay(selectedDate)} {formatDayNumber(selectedDate)}
               </ThemedText>
-              <View style={styles.dayHeaderDot} />
+              <ThemedText type="small" themeColor="textSecondary" style={styles.dayHeaderMeta}>
+                {selectedDayEvents.length} {selectedDayEvents.length === 1 ? 'elemento' : 'elementos'}
+              </ThemedText>
             </View>
-            <Pressable onPress={handleNextDay} style={({ pressed }) => [styles.dayNavButton, { opacity: pressed ? 0.88 : 1 }]} accessibilityLabel="Día siguiente">
-              <Ionicons name="chevron-forward" size={16} color={Accent.primary} />
+            <Pressable onPress={handleNextDay} style={({ pressed }) => [styles.navButton, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="Día siguiente">
+              <Ionicons name="chevron-forward" size={18} color={Accent.primary} />
             </Pressable>
           </View>
 
@@ -790,7 +816,13 @@ export function AgendaScreen() {
               const hasEvents = agendaEvents.some((event) => getDateKey(event.date) === dayKey);
 
               return (
-                <Pressable key={dayKey} onPress={() => setSelectedDate(day)} style={[styles.weekDay, isSelected && styles.weekDaySelected]}>
+                <Pressable
+                  key={dayKey}
+                  onPress={() => setSelectedDate(day)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${formatSpanishLongDate(day)}${hasEvents ? ', con eventos' : ', sin eventos'}`}
+                  accessibilityState={{ selected: isSelected }}
+                  style={({ pressed }) => [styles.weekDay, isSelected && styles.weekDaySelected, pressed && styles.pressed]}>
                   <ThemedText type="small" style={[styles.weekDayLabel, isSelected && styles.weekDayLabelSelected]}>
                     {formatShortDay(day)}
                   </ThemedText>
@@ -808,6 +840,9 @@ export function AgendaScreen() {
           <View style={styles.sectionHeader}>
             <View>
               <ThemedText style={styles.sectionTitle}>Agenda del día</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.sectionSubtitle}>
+                {formatSpanishLongDate(selectedDate)}
+              </ThemedText>
             </View>
           </View>
 
@@ -820,10 +855,12 @@ export function AgendaScreen() {
               <Pressable
                 key={event.id}
                 onPress={() => openAgendaItem(event)}
+                accessibilityRole="button"
+                accessibilityLabel={`${event.timeLabel}, ${event.title}, ${event.clientName}, ${event.statusLabel}`}
                 style={({ pressed }) => [
                   styles.dayRow,
                   index !== selectedDayEvents.length - 1 && styles.dayRowSpacing,
-                  { opacity: pressed ? 0.92 : 1 },
+                  pressed && styles.dayRowPressed,
                 ]}>
                 <View style={[styles.dayRowAccent, { backgroundColor: event.color }]} />
                 <View style={styles.dayRowTime}>
@@ -869,59 +906,74 @@ export function AgendaScreen() {
 }
 
 const styles = StyleSheet.create({
+  screenContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    gap: 16,
+  },
+  headerPanel: {
+    gap: 14,
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
-    paddingBottom: 8,
+    gap: 12,
+  },
+  headerIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E8F0FF',
+    borderWidth: 1,
+    borderColor: '#D2E0FA',
   },
   headerCopy: {
     flex: 1,
     gap: 2,
   },
-  createEventButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: 999,
-    backgroundColor: Accent.primary,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    shadowColor: Accent.primary,
-    shadowOpacity: 0.16,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+  eyebrow: {
+    color: Accent.primary,
+    lineHeight: 18,
+    textTransform: 'uppercase',
   },
-  createEventButtonText: {
-    color: '#FFFFFF',
+  createEventButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Accent.primary,
+  },
+  pressed: {
+    opacity: 0.74,
+    transform: [{ scale: 0.98 }],
   },
   title: {
     color: '#10203B',
-    fontSize: 26,
-    lineHeight: 30,
-    fontWeight: '700',
-    letterSpacing: -0.3,
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: '800',
+    letterSpacing: -0.6,
   },
   subtitle: {
-    lineHeight: 18,
+    lineHeight: 19,
   },
   modeShell: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 20,
-    backgroundColor: '#F4F7FC',
+    borderRadius: 16,
+    backgroundColor: '#EAF0FA',
     borderWidth: 1,
-    borderColor: '#E0E8F4',
+    borderColor: '#D9E3F1',
     padding: 4,
     gap: 4,
-    marginTop: 8,
   },
   modeButton: {
     flex: 1,
-    height: 40,
-    borderRadius: 16,
+    minHeight: 42,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -929,69 +981,76 @@ const styles = StyleSheet.create({
     backgroundColor: Accent.primary,
   },
   modeButtonText: {
-    color: '#5F6E87',
+    color: '#526179',
+    fontSize: 13,
+    lineHeight: 16,
   },
   modeButtonTextActive: {
     color: '#FFFFFF',
   },
   weekContainer: {
-    marginTop: 12,
-    gap: 8,
+    gap: 10,
   },
   weekHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
+    gap: 10,
   },
   weekHeaderLabel: {
     flex: 1,
     textAlign: 'center',
     color: '#10203B',
+    fontSize: 15,
+    lineHeight: 19,
   },
-  weekNavButton: {
-    width: 32,
-    height: 32,
-    borderRadius: Radius.pill,
+  navButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F7FAFF',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D8E4F6',
   },
   weekStripCard: {
-    marginTop: 0,
-    borderRadius: 22,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#E3EAF5',
+    borderColor: '#DFE7F2',
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 6,
-    paddingVertical: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 9,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: 4,
+    gap: 5,
   },
   weekDay: {
     flex: 1,
     minWidth: 0,
+    minHeight: 62,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 6,
-    gap: 2,
+    paddingVertical: 7,
+    gap: 3,
   },
   weekDaySelected: {
     backgroundColor: Accent.primary,
   },
   weekDayLabel: {
-    color: '#5F6E87',
+    color: '#64748B',
+    fontSize: 11,
+    lineHeight: 14,
   },
   weekDayLabelSelected: {
-    color: '#DDE7FF',
+    color: '#DCE7FF',
   },
   weekDayNumber: {
     color: '#112746',
-    fontSize: 16,
-    lineHeight: 18,
-    fontWeight: '700',
+    fontSize: 17,
+    lineHeight: 20,
+    fontWeight: '800',
   },
   weekDayNumberSelected: {
     color: '#FFFFFF',
@@ -1003,71 +1062,63 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   weekDayDotVisible: {
-    backgroundColor: '#8AA0C2',
+    backgroundColor: '#91A0B5',
   },
   weekDayDotToday: {
     backgroundColor: '#FFFFFF',
   },
   dayContainer: {
-    marginTop: 12,
-    gap: 8,
+    gap: 10,
   },
   dayHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
+    gap: 10,
   },
   dayHeaderCenter: {
     flex: 1,
     alignItems: 'center',
-    gap: 4,
+    gap: 1,
   },
   dayHeaderLabel: {
     color: '#10203B',
     textTransform: 'capitalize',
+    fontSize: 16,
+    lineHeight: 20,
   },
-  dayHeaderDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Accent.primary,
-  },
-  dayNavButton: {
-    width: 32,
-    height: 32,
-    borderRadius: Radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F7FAFF',
+  dayHeaderMeta: {
+    lineHeight: 16,
   },
   dayStripCard: {
-    borderRadius: 22,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#E3EAF5',
+    borderColor: '#DFE7F2',
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 9,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 5,
   },
   timelineCard: {
-    marginTop: 12,
-    borderRadius: 24,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#E3EAF5',
+    borderColor: '#DFE7F2',
     backgroundColor: '#FFFFFF',
-    padding: 2,
-    gap: 2,
+    paddingHorizontal: 8,
+    paddingTop: 10,
+    paddingBottom: 8,
+    gap: 6,
   },
   timelineHeaderRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    paddingBottom: 1,
+    paddingBottom: 6,
   },
   timelineDayLabelsSpacer: {
-    width: 40,
+    width: 42,
   },
   timelineDayLabelCell: {
     flex: 1,
@@ -1075,59 +1126,63 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   timelineDayLabel: {
-    color: '#6A7891',
+    color: '#64748B',
+    fontSize: 10,
+    lineHeight: 13,
+  },
+  timelineDayNumber: {
+    color: '#10203B',
+    fontSize: 13,
+    lineHeight: 16,
   },
   timelineBody: {
     gap: 0,
   },
   timelineRow: {
     flexDirection: 'row',
-    minHeight: 18,
+    minHeight: 24,
   },
   timelineTimeCell: {
-    width: 28,
+    width: 42,
     alignItems: 'flex-end',
-    paddingRight: 3,
-    paddingTop: 0,
+    paddingRight: 7,
+    paddingTop: 2,
   },
   timelineTimeText: {
-    fontSize: 8,
-    lineHeight: 9,
+    fontSize: 9,
+    lineHeight: 12,
   },
   timelineCell: {
     flex: 1,
-    minHeight: 18,
+    minHeight: 24,
     borderLeftWidth: 1,
-    borderLeftColor: '#F0F4FA',
-    paddingHorizontal: 1,
-    paddingVertical: 0,
-    gap: 0,
+    borderLeftColor: '#EEF3FA',
+    borderTopWidth: 1,
+    borderTopColor: '#F4F7FB',
+    paddingHorizontal: 2,
     justifyContent: 'center',
   },
   timelineEvent: {
     borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 0,
-    paddingVertical: 0,
+    borderRadius: 7,
     alignSelf: 'center',
-    width: 8,
-    height: 8,
+    width: 12,
+    height: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
   timelineEventDot: {
-    width: 2,
-    height: 2,
-    borderRadius: 1,
+    width: 5,
+    height: 5,
+    borderRadius: 3,
   },
   calendarCard: {
-    marginTop: 12,
-    borderRadius: Radius.large,
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: '#D9E5F5',
-    backgroundColor: '#FAFCFF',
-    padding: 12,
-    gap: 10,
+    borderColor: '#DFE7F2',
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    gap: 14,
     shadowColor: '#10203B',
     shadowOpacity: 0.05,
     shadowRadius: 10,
@@ -1135,23 +1190,28 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   calendarHeader: {
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'flex-start',
   },
-  calendarLabel: {
-    color: Accent.primary,
-    textAlign: 'center',
+  calendarTitle: {
+    color: '#10203B',
+    fontSize: 19,
+    lineHeight: 24,
+    fontWeight: '700',
+    letterSpacing: -0.2,
   },
   calendarControlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
+    gap: 10,
     marginTop: 4,
   },
+  calendarControlsRowCompact: {
+    gap: 8,
+  },
   calendarNavButton: {
-    width: 30,
-    height: 30,
+    width: 44,
+    height: 44,
     borderRadius: Radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1162,55 +1222,65 @@ const styles = StyleSheet.create({
   calendarMonthLabel: {
     flex: 1,
     textAlign: 'center',
-    color: '#27406A',
-    textTransform: 'capitalize',
+    color: '#1D2E4A',
   },
   calendarWeekRow: {
     flexDirection: 'row',
-    justifyContent: 'flex-start',
-    gap: 4,
-    marginTop: 14,
-    marginBottom: 12,
+    justifyContent: 'space-between',
+    gap: 0,
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  calendarWeekRowCompact: {
+    marginTop: 8,
   },
   calendarWeekLabel: {
-    width: '13%',
+    width: '13.2%',
     textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '700',
   },
   calendarGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'flex-start',
-    gap: 4,
+    justifyContent: 'space-between',
+    gap: 0,
+    rowGap: 6,
+  },
+  calendarGridCompact: {
+    rowGap: 8,
   },
   calendarCellSpacer: {
-    width: '13%',
+    width: '13.2%',
     aspectRatio: 1,
   },
   calendarCell: {
-    width: '13%',
+    width: '13.2%',
     aspectRatio: 1,
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E5ECF7',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8FAFD',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 3,
+    padding: 5,
   },
   calendarCellBusy: {
     backgroundColor: '#FAFCFF',
-    justifyContent: 'flex-start',
-    paddingTop: 10,
   },
   calendarCellToday: {
     borderColor: Accent.primary,
+    backgroundColor: '#EAF1FF',
   },
   calendarDayLabel: {
     color: '#112746',
+    lineHeight: 15,
+    textAlign: 'center',
   },
   calendarDayLabelBusy: {
-    fontSize: 11,
-    lineHeight: 13,
+    fontSize: 12,
+    lineHeight: 14,
   },
   calendarDayLabelMuted: {
     color: '#9DB0D1',
@@ -1219,7 +1289,7 @@ const styles = StyleSheet.create({
     color: Accent.primary,
   },
   calendarCellMarkers: {
-    gap: 6,
+    gap: 4,
   },
   calendarMarkerRow: {
     flexDirection: 'row',
@@ -1242,18 +1312,19 @@ const styles = StyleSheet.create({
   },
   calendarMarkerCount: {
     color: '#60738F',
-    fontSize: 11,
-    lineHeight: 12,
+    fontSize: 9,
+    lineHeight: 11,
   },
   calendarDetailBackdrop: {
     flex: 1,
-    marginBottom: 12,
     justifyContent: 'center',
     paddingHorizontal: Spacing.three,
+    backgroundColor: 'rgba(15, 27, 51, 0.36)',
   },
   calendarDetailPanel: {
     borderWidth: 1,
-    borderRadius: Radius.large,
+    borderRadius: 22,
+    borderColor: '#E1E8F3',
     backgroundColor: '#FFFFFF',
     padding: Spacing.three,
     gap: Spacing.three,
@@ -1278,6 +1349,7 @@ const styles = StyleSheet.create({
   },
   calendarDetailLabel: {
     color: Accent.primary,
+    lineHeight: 18,
   },
   calendarDetailTitle: {
     color: '#10203B',
@@ -1287,16 +1359,14 @@ const styles = StyleSheet.create({
     textTransform: 'capitalize',
   },
   calendarDetailCloseButton: {
-    width: 32,
-    height: 32,
-    borderRadius: Radius.pill,
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#F8FBFF',
-  },
-  calendarDetailCloseText: {
-    color: Accent.primary,
-    lineHeight: 20,
+    borderWidth: 1,
+    borderColor: '#D8E4F6',
   },
   calendarDetailList: {
     gap: 8,
@@ -1306,24 +1376,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     borderWidth: 1,
-    borderColor: '#E3EBF7',
-    borderRadius: Radius.medium,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
+    borderColor: '#E6EDF7',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     backgroundColor: '#FBFDFF',
   },
   calendarDetailMarker: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 36,
+    height: 36,
+    borderRadius: 13,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
   calendarDetailMarkerText: {
-    fontSize: 11,
-    lineHeight: 12,
+    fontSize: 12,
+    lineHeight: 14,
   },
   calendarDetailItemCopy: {
     flex: 1,
@@ -1339,15 +1409,15 @@ const styles = StyleSheet.create({
   calendarDetailItemDate: {
     flexShrink: 0,
     lineHeight: 16,
+    textAlign: 'right',
   },
   sectionCard: {
-    marginTop: 12,
-    borderRadius: 24,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#E3EAF5',
+    borderColor: '#DFE7F2',
     backgroundColor: '#FFFFFF',
     padding: 14,
-    gap: 12,
+    gap: 10,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -1357,23 +1427,29 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: '#10203B',
-    fontSize: 18,
-    lineHeight: 22,
-    fontWeight: '700',
+    fontSize: 19,
+    lineHeight: 24,
+    fontWeight: '800',
+  },
+  sectionSubtitle: {
+    marginTop: 1,
+    lineHeight: 17,
   },
   dayRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    borderWidth: 1,
-    borderColor: '#E8EEF6',
-    borderRadius: 18,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    backgroundColor: '#FBFDFF',
+    gap: 12,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: '#F8FAFD',
   },
   dayRowSpacing: {
-    marginBottom: 8,
+    marginBottom: 7,
+  },
+  dayRowPressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.993 }],
   },
   dayRowAccent: {
     width: 4,
@@ -1381,7 +1457,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   dayRowTime: {
-    width: 50,
+    width: 52,
     alignItems: 'center',
     gap: 6,
   },
@@ -1390,9 +1466,9 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   dayRowAvatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 38,
+    height: 38,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1403,10 +1479,12 @@ const styles = StyleSheet.create({
   dayRowInfo: {
     flex: 1,
     minWidth: 0,
-    gap: 2,
+    gap: 3,
   },
   dayRowTitle: {
     color: '#10203B',
+    fontSize: 16,
+    lineHeight: 20,
   },
   dayRowStatusWrap: {
     alignItems: 'center',
@@ -1414,12 +1492,13 @@ const styles = StyleSheet.create({
   },
   dayRowStatus: {
     borderWidth: 1,
-    borderRadius: 18,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    maxWidth: 116,
   },
   dayRowStatusText: {
-    fontSize: 12,
-    lineHeight: 14,
+    fontSize: 11,
+    lineHeight: 13,
   },
 });

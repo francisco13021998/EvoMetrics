@@ -102,7 +102,11 @@ export default function MasTab() {
     <ScreenContainer contentStyle={styles.screenContent}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.headerRow}>
+          <View style={styles.headerIcon}>
+            <Ionicons name="ellipsis-horizontal" size={25} color={Accent.primary} />
+          </View>
           <View style={styles.headerCopy}>
+            <ThemedText type="label" style={styles.eyebrow}>Configuración</ThemedText>
             <ThemedText style={styles.title}>Más</ThemedText>
             <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
               Ajustes, herramientas y cuenta
@@ -198,20 +202,36 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.three,
+    gap: 12,
+  },
+  headerIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E8F0FF',
+    borderWidth: 1,
+    borderColor: '#D2E0FA',
   },
   headerCopy: {
+    flex: 1,
     gap: 2,
+  },
+  eyebrow: {
+    color: Accent.primary,
+    lineHeight: 18,
+    textTransform: 'uppercase',
   },
   title: {
     color: '#10203B',
-    fontSize: 24,
-    lineHeight: 28,
-    fontWeight: '700',
-    letterSpacing: -0.3,
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: '800',
+    letterSpacing: -0.6,
   },
   subtitle: {
-    lineHeight: 18,
+    lineHeight: 19,
   },
   profileCard: {
     flexDirection: 'row',

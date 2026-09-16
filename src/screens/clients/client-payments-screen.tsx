@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
@@ -325,132 +326,115 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
 
   return (
     <ScreenContainer contentStyle={styles.screenContent}>
-      <PageHeader
-        eyebrow="Pagos"
-        title={client.name}
-        subtitle="Control de cobros y configuración de la cuota"
-        rightSlot={
-          <AppButton
-            variant="surface"
-            size="compact"
-            fullWidth={false}
-            onPress={() => router.back()}
-            leadingIcon={<ThemedText type="smallBold" style={styles.backIcon}>←</ThemedText>}
-            accessibilityLabel="Volver"
-          />
-        }
-      />
+      <View style={styles.topBar}>
+        <Pressable
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Volver al cliente"
+          style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+          <Ionicons name="chevron-back" size={18} color={Accent.primary} />
+          <ThemedText type="smallBold" style={styles.backButtonText}>Cliente</ThemedText>
+        </Pressable>
+        {!isAthlete ? (
+          <Pressable
+            onPress={() => setIsConfigModalOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Configurar cobro"
+            style={({ pressed }) => [styles.configButton, pressed && styles.pressed]}>
+            <Ionicons name="settings-outline" size={20} color={Accent.primary} />
+          </Pressable>
+        ) : null}
+      </View>
 
       {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
 
-      <PageSection first style={styles.sectionSpacing}>
-        <View style={[styles.statusCard, { borderColor: theme.backgroundSelected, backgroundColor: paymentStatus.isPending ? '#FFF7E8' : '#ECF9F3' }]}>
-          <View style={styles.statusTopRow}>
-            <View>
-              <ThemedText type="label" style={styles.statusEyebrow}>Estado</ThemedText>
-              <ThemedText type="headline" style={styles.statusTitle}>{paymentStatus.label}</ThemedText>
-            </View>
-            {!isAthlete ? (
-              <AppButton
-                variant="surface"
-                size="compact"
-                fullWidth={false}
-                onPress={() => setIsConfigModalOpen(true)}
-                accessibilityLabel="Configurar cobro"
-                leadingIcon={<ThemedText type="smallBold" style={styles.settingsIcon}>⚙</ThemedText>}
-              />
-            ) : (
-              <View style={[styles.statusBadge, { backgroundColor: paymentStatus.isPending ? Accent.warning : Accent.success }]}>
-                <ThemedText type="smallBold" style={styles.statusBadgeText}>{paymentStatus.label}</ThemedText>
-              </View>
-            )}
+      <View style={[styles.billingHero, { borderColor: theme.backgroundSelected }]}>
+        <View style={styles.billingHeroHeader}>
+          <View style={styles.clientAvatar}>
+            <ThemedText type="smallBold" style={styles.clientAvatarText}>
+              {client.name.split(' ').filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'CL'}
+            </ThemedText>
           </View>
-
-          <View style={styles.statusMetaGrid}>
-            <View style={[styles.metaItem, { borderColor: theme.backgroundSelected }]}>
-              <ThemedText type="small" themeColor="textSecondary">Último pago</ThemedText>
-              <ThemedText type="smallBold" style={styles.metaValue}>
-                {lastPayment ? formatPaymentDate(lastPayment.paymentDate) : 'Sin pagos'}
-              </ThemedText>
-            </View>
-            <View style={[styles.metaItem, { borderColor: theme.backgroundSelected }]}>
-              <ThemedText type="small" themeColor="textSecondary">Siguiente pago</ThemedText>
-              <ThemedText type="smallBold" style={styles.metaValue}>
-                {paymentStatus.nextPaymentDate ? formatPaymentDate(paymentStatus.nextPaymentDate.toISOString()) : 'No aplica'}
-              </ThemedText>
-            </View>
-            <View style={[styles.metaItem, { borderColor: theme.backgroundSelected }]}>
-              <ThemedText type="small" themeColor="textSecondary">Precio</ThemedText>
-              <ThemedText type="smallBold" style={styles.metaValue}>{formatAmount(client.coachingPrice)}</ThemedText>
-            </View>
-            <View style={[styles.metaItem, { borderColor: theme.backgroundSelected }]}>
-              <ThemedText type="small" themeColor="textSecondary">Frecuencia</ThemedText>
-              <ThemedText type="smallBold" style={styles.metaValue}>{formatBillingFrequencyLabel(client.billingFrequency)}</ThemedText>
-            </View>
+          <View style={styles.billingHeroCopy}>
+            <ThemedText type="label" style={styles.billingEyebrow}>Facturación</ThemedText>
+            <ThemedText type="headline" style={styles.clientName}>{client.name}</ThemedText>
           </View>
-
-          {!isAthlete ? (
-            <View style={styles.statusActions}>
-              <AppButton
-                label="Pago realizado"
-                onPress={openRegisterPaymentModal}
-                disabled={!canRegisterPayment}
-                loading={isRegisteringPayment}
-              />
-              {paymentStatus.isPending ? (
-                <ThemedText type="small" themeColor="textSecondary" style={styles.statusHint}>
-                  Se puede registrar un pago aunque la fecha prevista de cobro siga siendo futura.
-                </ThemedText>
-              ) : null}
-            </View>
-          ) : null}
+          <View style={[styles.statusPill, { backgroundColor: paymentStatus.isPending ? '#FFF1D9' : '#E4F8EC' }]}>
+            <View style={[styles.statusDot, { backgroundColor: paymentStatus.isPending ? Accent.warning : Accent.success }]} />
+            <ThemedText type="smallBold" style={{ color: paymentStatus.isPending ? '#A65D00' : '#16803D' }}>{paymentStatus.label}</ThemedText>
+          </View>
         </View>
-      </PageSection>
 
-      <PageSection title="Historial de pagos" style={styles.sectionSpacing}>
+        <View style={styles.amountSummary}>
+          <View>
+            <ThemedText type="small" themeColor="textSecondary">Cuota</ThemedText>
+            <ThemedText type="headline" style={styles.amountValue}>{formatAmount(client.coachingPrice)}</ThemedText>
+          </View>
+          <View style={styles.frequencyPill}>
+            <Ionicons name="repeat-outline" size={15} color={Accent.primary} />
+            <ThemedText type="smallBold" style={styles.frequencyPillText}>{formatBillingFrequencyLabel(client.billingFrequency)}</ThemedText>
+          </View>
+        </View>
+
+        <View style={styles.nextPaymentRow}>
+          <View style={styles.nextPaymentIcon}><Ionicons name="calendar-outline" size={20} color={Accent.primary} /></View>
+          <View style={styles.nextPaymentCopy}>
+            <ThemedText type="small" themeColor="textSecondary">Próximo cobro</ThemedText>
+            <ThemedText type="smallBold" style={styles.nextPaymentValue}>
+              {paymentStatus.nextPaymentDate ? formatPaymentDate(paymentStatus.nextPaymentDate.toISOString()) : 'Sin fecha programada'}
+            </ThemedText>
+          </View>
+          {lastPayment ? <ThemedText type="small" themeColor="textSecondary">Último: {formatPaymentDate(lastPayment.paymentDate)}</ThemedText> : null}
+        </View>
+
+        {!isAthlete ? (
+          <AppButton
+            label="Registrar pago"
+            onPress={openRegisterPaymentModal}
+            disabled={!canRegisterPayment}
+            loading={isRegisteringPayment}
+            leadingIcon={<Ionicons name="add" size={18} color="#FFFFFF" />}
+          />
+        ) : null}
+      </View>
+
+      <View style={styles.historySection}>
+        <View style={styles.historyHeader}>
+          <View>
+            <ThemedText type="label" style={styles.sectionEyebrow}>Movimientos</ThemedText>
+            <ThemedText type="headline" style={styles.historyTitle}>Historial de pagos</ThemedText>
+          </View>
+          <View style={styles.historyCount}><ThemedText type="smallBold" style={styles.historyCountText}>{payments.length}</ThemedText></View>
+        </View>
+
         <View style={[styles.historyCard, { borderColor: theme.backgroundSelected }]}>
           {payments.length === 0 ? (
             <View style={styles.emptyHistory}>
-              <ThemedText type="small" themeColor="textSecondary">
-                Todavía no hay pagos registrados.
-              </ThemedText>
+              <Ionicons name="receipt-outline" size={24} color="#7B8AA0" />
+              <ThemedText type="small" themeColor="textSecondary">Todavía no hay pagos registrados.</ThemedText>
             </View>
           ) : (
             payments.map((payment, index) => (
-              <View
-                key={payment.id}
-                style={[
-                  styles.paymentRow,
-                  { borderColor: theme.backgroundSelected },
-                  index === payments.length - 1 && styles.paymentRowLast,
-                ]}>
+              <View key={payment.id} style={[styles.paymentRow, { borderColor: theme.backgroundSelected }, index === payments.length - 1 && styles.paymentRowLast]}>
+                <View style={styles.paymentRowIcon}><Ionicons name="card-outline" size={19} color={Accent.primary} /></View>
                 <View style={styles.paymentRowInfo}>
-                  <ThemedText type="smallBold">{formatAmount(payment.amount)}</ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    Fecha de pago: {formatPaymentDate(payment.paymentDate)}
-                  </ThemedText>
+                  <ThemedText type="smallBold" style={styles.paymentAmount}>{formatAmount(payment.amount)}</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">{formatPaymentDate(payment.paymentDate)}</ThemedText>
                 </View>
-                <View style={styles.paymentRowActions}>
-                  <View style={styles.paymentDatePill}>
-                    <ThemedText type="small" style={styles.paymentDatePillText}>
-                      Pago {formatPaymentDate(payment.paymentDate)}
-                    </ThemedText>
-                  </View>
-                  {!isAthlete ? (
-                    <AppButton
-                      label="Opciones"
-                      variant="surface"
-                      size="compact"
-                      fullWidth={false}
-                      onPress={() => openPaymentActions(payment)}
-                    />
-                  ) : null}
-                </View>
+                {!isAthlete ? (
+                  <Pressable
+                    onPress={() => openPaymentActions(payment)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Opciones del pago de ${formatAmount(payment.amount)}`}
+                    style={({ pressed }) => [styles.paymentOptionsButton, pressed && styles.pressed]}>
+                    <Ionicons name="ellipsis-horizontal" size={20} color={Accent.primary} />
+                  </Pressable>
+                ) : null}
               </View>
             ))
           )}
         </View>
-      </PageSection>
+      </View>
 
       <Modal transparent visible={isPaymentActionsModalOpen} animationType="fade" onRequestClose={closePaymentActionsModal}>
         <Pressable style={styles.modalBackdrop} onPress={closePaymentActionsModal}>
@@ -670,75 +654,177 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
 
 const styles = StyleSheet.create({
   screenContent: {
-    gap: 8,
+    gap: 16,
+    paddingTop: 14,
   },
-  backIcon: {
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  backButton: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#DFE7F2',
+    borderRadius: Radius.pill,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 13,
+  },
+  backButtonText: {
+    color: '#10203B',
+  },
+  configButton: {
+    width: 42,
+    height: 42,
+    borderWidth: 1,
+    borderColor: '#DFE7F2',
+    borderRadius: Radius.pill,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pressed: {
+    opacity: 0.74,
+    transform: [{ scale: 0.98 }],
+  },
+  billingHero: {
+    borderWidth: 1,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    gap: 16,
+    ...Shadows.card,
+  },
+  billingHeroHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  clientAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: '#E8F0FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clientAvatarText: {
     color: Accent.primary,
     fontSize: 16,
-    lineHeight: 16,
-    textAlign: 'center',
+    lineHeight: 20,
   },
-  sectionSpacing: {
-    gap: Spacing.two,
+  billingHeroCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
   },
-  statusCard: {
-    borderWidth: 1,
-    borderRadius: Radius.large,
-    padding: Spacing.three,
-    gap: Spacing.three,
-    ...Shadows.soft,
-  },
-  statusTopRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
-  },
-  statusEyebrow: {
+  billingEyebrow: {
     color: Accent.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  statusTitle: {
+  clientName: {
     color: '#10203B',
-    fontSize: 24,
-    lineHeight: 30,
+    fontSize: 22,
+    lineHeight: 27,
   },
-  statusBadge: {
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     borderRadius: Radius.pill,
     paddingHorizontal: 10,
     paddingVertical: 6,
-  },
-  statusBadgeText: {
-    color: '#FFFFFF',
-  },
-  settingsIcon: {
-    color: Accent.primary,
-    fontSize: 16,
-    lineHeight: 16,
-    textAlign: 'center',
-  },
-  statusMetaGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: 10,
-  },
-  metaItem: {
-    width: '49%',
     flexShrink: 0,
-    borderWidth: 1,
-    borderRadius: Radius.medium,
-    backgroundColor: '#FFFFFF',
-    padding: Spacing.two,
-    gap: 4,
   },
-  metaValue: {
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: Radius.pill,
+  },
+  amountSummary: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#E6EDF7',
+  },
+  amountValue: {
     color: '#10203B',
+    fontSize: 29,
+    lineHeight: 35,
   },
-  statusActions: {
-    gap: Spacing.one,
+  frequencyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: Radius.pill,
+    backgroundColor: '#EEF5FF',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
-  statusHint: {
+  frequencyPillText: {
+    color: Accent.primary,
+  },
+  nextPaymentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 16,
+    backgroundColor: '#F7FAFF',
+    padding: 12,
+  },
+  nextPaymentIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    backgroundColor: '#E8F0FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nextPaymentCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  nextPaymentValue: {
+    color: '#10203B',
     lineHeight: 18,
+  },
+  historySection: {
+    gap: 10,
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  sectionEyebrow: {
+    color: Accent.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  historyTitle: {
+    color: '#10203B',
+    fontSize: 22,
+    lineHeight: 27,
+  },
+  historyCount: {
+    minWidth: 30,
+    height: 30,
+    borderRadius: Radius.pill,
+    backgroundColor: '#E8F0FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  historyCountText: {
+    color: Accent.primary,
   },
   configField: {
     minHeight: 56,
@@ -787,20 +873,23 @@ const styles = StyleSheet.create({
   },
   historyCard: {
     borderWidth: 1,
-    borderRadius: Radius.large,
+    borderRadius: 20,
     backgroundColor: '#FFFFFF',
     overflow: 'hidden',
   },
   emptyHistory: {
+    minHeight: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
     padding: Spacing.three,
   },
   paymentRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
     borderBottomWidth: 1,
   },
   paymentRowLast: {
@@ -810,18 +899,25 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  paymentRowActions: {
-    alignItems: 'flex-end',
-    gap: 8,
+  paymentRowIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    backgroundColor: '#EEF5FF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  paymentDatePill: {
+  paymentAmount: {
+    color: '#10203B',
+    lineHeight: 19,
+  },
+  paymentOptionsButton: {
+    width: 38,
+    height: 38,
     borderRadius: Radius.pill,
-    backgroundColor: '#F8FBFF',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  paymentDatePillText: {
-    color: Accent.primary,
+    backgroundColor: '#F4F8FE',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   paymentActionsSummary: {
     gap: 2,

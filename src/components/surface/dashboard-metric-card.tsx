@@ -28,8 +28,11 @@ export function DashboardMetricCard({
 
   if (icon !== undefined) {
     return (
-      <View style={[styles.cardIconBase, { borderColor: theme.backgroundSelected }]}>
-        <View style={styles.iconCircle}>{icon}</View>
+      <View
+        accessible
+        accessibilityLabel={`${label}: ${value}`}
+        style={[styles.cardIconBase, isPrimary && styles.cardIconPrimary, { borderColor: theme.backgroundSelected }]}>
+        <View style={[styles.iconCircle, isPrimary && styles.iconCirclePrimary]}>{icon}</View>
         <ThemedText adjustsFontSizeToFit numberOfLines={2} minimumFontScale={0.5} style={styles.iconLabel}>
           {label}
         </ThemedText>
@@ -108,31 +111,31 @@ const styles = StyleSheet.create({
   },
   cardIconBase: {
     flex: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 12,
+    minHeight: 132,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     borderRadius: Radius.medium,
     borderWidth: 1,
     backgroundColor: '#FFFFFF',
-    gap: 6,
+    gap: 8,
     overflow: 'hidden',
   },
-  cardIcon: {
-    minHeight: 100,
-    paddingHorizontal: 8,
-    paddingVertical: 10,
-    gap: 4,
+  cardIconPrimary: {
+    backgroundColor: '#F3F7FF',
   },
   iconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     backgroundColor: Accent.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 2,
+  },
+  iconCirclePrimary: {
+    backgroundColor: '#1647B5',
   },
   iconLabel: {
-    fontSize: 10,
+    fontSize: 11,
     letterSpacing: 0.2,
     textTransform: 'uppercase',
     color: '#4A5E81',
@@ -140,9 +143,9 @@ const styles = StyleSheet.create({
   },
   iconValue: {
     color: '#10203B',
-    fontSize: 20,
-    lineHeight: 24,
-    fontWeight: '700',
+    fontSize: 26,
+    lineHeight: 31,
+    fontWeight: '800',
     letterSpacing: -0.3,
   },
   iconDivider: {

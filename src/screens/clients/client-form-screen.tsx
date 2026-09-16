@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
@@ -14,7 +15,7 @@ import { PageSection } from '@/components/layout/page-section';
 import { ScreenContainer } from '@/components/layout/screen-container';
 import { ThemedText } from '@/components/themed-text';
 import { ATHLETE_LEVEL_OPTIONS, DEFAULT_ATHLETE_LEVEL, normalizeAthleteLevel } from '@/constants/athlete-level';
-import { Accent, Radius, Spacing } from '@/constants/theme';
+import { Accent, Radius } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
 import { clientsService } from '@/services/clients';
@@ -179,38 +180,41 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
 
   return (
     <ScreenContainer contentStyle={styles.screenContent}>
-      <PageHeader
-        eyebrow={mode === 'create' ? 'Alta' : 'Edicion'}
-        title={mode === 'create' ? 'Nuevo cliente' : 'Editar cliente'}
-        subtitle={mode === 'create' ? 'Ficha rápida y limpia.' : 'Actualiza la ficha del cliente.'}
-        rightSlot={
-          <AppButton
-            variant="surface"
-            size="compact"
-            fullWidth={false}
-            onPress={() => router.back()}
-            disabled={isSubmitting}
-            accessibilityLabel="Volver"
-            leadingIcon={
-              <View style={styles.backIconWrap}>
-                <ThemedText type="smallBold" style={styles.backIcon}>←</ThemedText>
-              </View>
-            }
-          />
-        }
-      />
+      <View style={styles.topBar}>
+        <Pressable
+          onPress={() => router.back()}
+          disabled={isSubmitting}
+          accessibilityRole="button"
+          accessibilityLabel="Volver"
+          style={({ pressed }) => [styles.backButton, (pressed || isSubmitting) && styles.pressed]}>
+          <Ionicons name="chevron-back" size={18} color={Accent.primary} />
+          <ThemedText type="smallBold" style={styles.backButtonText}>Clientes</ThemedText>
+        </Pressable>
+      </View>
+
+      <View style={styles.pageHeader}>
+        <View style={styles.pageHeaderIcon}>
+          <Ionicons name={mode === 'create' ? 'person-add-outline' : 'create-outline'} size={25} color={Accent.primary} />
+        </View>
+        <View style={styles.pageHeaderCopy}>
+          <ThemedText type="label" style={styles.pageEyebrow}>{mode === 'create' ? 'Nuevo registro' : 'Ficha del cliente'}</ThemedText>
+          <ThemedText type="headline" style={styles.pageTitle}>{mode === 'create' ? 'Nuevo cliente' : 'Editar cliente'}</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.pageSubtitle}>
+            {mode === 'create' ? 'Completa solo los datos necesarios para empezar.' : 'Actualiza la información de este cliente.'}
+          </ThemedText>
+        </View>
+      </View>
 
       <PageSection first style={styles.formSection}>
         {isSubmitting ? <StatusBanner tone="info" loading message="Guardando..." /> : null}
         {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
 
         <View style={[styles.formCard, { borderColor: theme.backgroundSelected }]}>
-          <View style={styles.formCardTopAccent} />
           <View style={styles.formIntro}>
+            <View style={styles.formIntroIcon}><Ionicons name="person-outline" size={19} color={Accent.primary} /></View>
             <View style={styles.formIntroCopy}>
-              <ThemedText type="label" style={styles.formEyebrow}>Ficha principal</ThemedText>
-              <ThemedText type="smallBold" style={styles.formTitle}>Datos del cliente</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary" style={styles.formDescription}>Información básica para empezar y automatizar su seguimiento.</ThemedText>
+              <ThemedText type="smallBold" style={styles.formTitle}>Información básica</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.formDescription}>Identificación y perfil general.</ThemedText>
             </View>
           </View>
 
@@ -225,28 +229,32 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
             containerStyle={styles.formField}
           />
 
-          <AppSelect
-            label="Sexo"
-            value={sex ?? ''}
-            options={SEX_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
-            placeholder="Selecciona una opción"
-            onChange={(value) => setSex(value as ClientSex)}
-            containerStyle={styles.formField}
-          />
-
-          <AppSelect
-            label="Nivel"
-            value={athleteLevel}
-            options={ATHLETE_LEVEL_OPTIONS.map((option) => ({
-              label: option.displayLabel,
-              value: option.value,
-              disabled: !option.enabled,
-            }))}
-            placeholder="Selecciona el nivel"
-            onChange={(value) => setAthleteLevel(normalizeAthleteLevel(value))}
-            helper="Orienta los protocolos por defecto."
-            containerStyle={styles.formField}
-          />
+          <View style={[styles.formRow, !isWide && styles.formRowStacked]}>
+            <View style={styles.formCell}>
+              <AppSelect
+                label="Sexo"
+                value={sex ?? ''}
+                options={SEX_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
+                placeholder="Selecciona"
+                onChange={(value) => setSex(value as ClientSex)}
+                containerStyle={styles.formField}
+              />
+            </View>
+            <View style={styles.formCell}>
+              <AppSelect
+                label="Nivel"
+                value={athleteLevel}
+                options={ATHLETE_LEVEL_OPTIONS.map((option) => ({
+                  label: option.displayLabel,
+                  value: option.value,
+                  disabled: !option.enabled,
+                }))}
+                placeholder="Selecciona"
+                onChange={(value) => setAthleteLevel(normalizeAthleteLevel(value))}
+                containerStyle={styles.formField}
+              />
+            </View>
+          </View>
 
           <View style={[styles.formRow, !isWide && styles.formRowStacked]}>
             <View style={styles.formCell}>
@@ -277,11 +285,17 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
           </View>
 
           <View style={[styles.revisionFrequencyCard, { borderColor: theme.backgroundSelected }]}>
+            <View style={styles.revisionFrequencyHeader}>
+              <View style={styles.revisionFrequencyIcon}><Ionicons name="calendar-outline" size={18} color={Accent.primary} /></View>
+              <View style={styles.revisionFrequencyCopy}>
+                <ThemedText type="smallBold" style={styles.revisionFrequencyTitle}>Seguimiento automático</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">Programa la próxima revisión.</ThemedText>
+              </View>
+            </View>
             <AppCheckbox
-              label="Usar frecuencia de revisiones"
+              label="Activar frecuencia de revisiones"
               checked={revisionFrequencyEnabled}
               onChange={setRevisionFrequencyEnabled}
-              helper="Activa esta opción si quieres automatizar la próxima revisión del cliente."
             />
 
             {revisionFrequencyEnabled ? (
@@ -307,16 +321,12 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
                   />
                 </View>
               </View>
-            ) : (
-              <ThemedText type="small" themeColor="textSecondary">
-                Al guardar, la frecuencia quedará desactivada para este cliente.
-              </ThemedText>
-            )}
+            ) : null}
           </View>
         </View>
 
         <View style={[styles.actions, { borderColor: theme.backgroundSelected }]}>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.actionsCopy}>Puedes editar estos datos más adelante.</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.actionsCopy}>Podrás actualizar esta información cuando lo necesites.</ThemedText>
           <AppButton label={mode === 'create' ? 'Crear cliente' : 'Guardar cambios'} onPress={handleSubmit} loading={isSubmitting} />
           {mode === 'edit' ? (
             <AppButton label="Cancelar" variant="surface" onPress={() => router.back()} disabled={isSubmitting} />
@@ -329,55 +339,95 @@ export function ClientFormScreen({ mode, clientId }: ClientFormScreenProps) {
 
 const styles = StyleSheet.create({
   screenContent: {
-    gap: 8,
+    gap: 16,
+    paddingTop: 14,
   },
-  backIcon: {
-    color: Accent.primary,
-    fontSize: 16,
-    lineHeight: 16,
-    textAlign: 'center',
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  backIconWrap: {
-    width: 16,
-    height: 16,
+  backButton: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#DFE7F2',
+    borderRadius: Radius.pill,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 13,
+  },
+  backButtonText: {
+    color: '#10203B',
+  },
+  pressed: {
+    opacity: 0.74,
+    transform: [{ scale: 0.98 }],
+  },
+  pageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  pageHeaderIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#E8F0FF',
+    borderWidth: 1,
+    borderColor: '#D2E0FA',
+  },
+  pageHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  pageEyebrow: {
+    color: Accent.primary,
+    lineHeight: 18,
+    textTransform: 'uppercase',
+  },
+  pageTitle: {
+    color: '#10203B',
+    fontSize: 30,
+    lineHeight: 36,
+  },
+  pageSubtitle: {
+    lineHeight: 19,
   },
   formSection: {
-    paddingTop: 12,
+    gap: 14,
   },
   formCard: {
     borderWidth: 1,
-    borderRadius: Radius.large,
+    borderRadius: 22,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: Spacing.three,
-    paddingTop: Spacing.two,
-    paddingBottom: Spacing.three,
-    gap: Spacing.two,
-    overflow: 'hidden',
+    padding: 16,
+    gap: 14,
     shadowColor: '#12336E',
     shadowOpacity: 0.05,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 6 },
     elevation: 2,
   },
-  formCardTopAccent: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 4,
-    backgroundColor: '#2D66E0',
-  },
   formIntro: {
-    paddingTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  formIntroIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF5FF',
   },
   formIntroCopy: {
     flex: 1,
     gap: 3,
-  },
-  formEyebrow: {
-    color: Accent.primary,
   },
   formTitle: {
     color: '#10203B',
@@ -403,19 +453,38 @@ const styles = StyleSheet.create({
   },
   revisionFrequencyCard: {
     borderWidth: 1,
-    borderRadius: Radius.medium,
+    borderRadius: 18,
     backgroundColor: '#F8FBFF',
-    padding: Spacing.three,
-    gap: Spacing.two,
+    padding: 14,
+    gap: 12,
+  },
+  revisionFrequencyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  revisionFrequencyIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E8F0FF',
+  },
+  revisionFrequencyCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  revisionFrequencyTitle: {
+    color: '#10203B',
   },
   actions: {
     gap: 10,
     borderWidth: 1,
-    borderRadius: Radius.large,
+    borderRadius: 20,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: Spacing.three,
-    paddingTop: Spacing.two,
-    paddingBottom: Spacing.three,
+    padding: 14,
   },
   actionsCopy: {
     lineHeight: 19,

@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
@@ -10,7 +11,7 @@ import { PageSection } from '@/components/layout/page-section';
 import { ScreenContainer } from '@/components/layout/screen-container';
 import { HistoryLineChart } from '@/components/surface/history-line-chart';
 import { ThemedText } from '@/components/themed-text';
-import { Accent, Radius, Spacing } from '@/constants/theme';
+import { Accent, Radius } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
 import { clientsService } from '@/services/clients';
@@ -93,6 +94,13 @@ function getDeltaTone(delta: number | null, direction: TrendDirection) {
   return { color: favorable ? Accent.success : Accent.danger };
 }
 
+function getMetricIcon(unit: MetricUnit): keyof typeof Ionicons.glyphMap {
+  if (unit === 'kg') return 'scale-outline';
+  if (unit === 'pct') return 'water-outline';
+  if (unit === 'cm' || unit === 'mm') return 'resize-outline';
+  return 'analytics-outline';
+}
+
 export function ClientHistoryMetricDetailScreen({ clientId, metricKey }: ClientHistoryMetricDetailScreenProps) {
   const { user, userRole } = useAuth();
   const isAthlete = userRole === 'athlete';
@@ -135,7 +143,7 @@ export function ClientHistoryMetricDetailScreen({ clientId, metricKey }: ClientH
     } finally {
       setIsLoading(false);
     }
-  }, [clientId, user?.id]);
+  }, [clientId, isAthlete, user?.id]);
 
   useEffect(() => {
     void loadContent();
@@ -174,6 +182,7 @@ export function ClientHistoryMetricDetailScreen({ clientId, metricKey }: ClientH
   }, [historicalRevisions, metric]);
 
   const currentEntry = metricEntries[metricEntries.length - 1] ?? null;
+  const historyEntries = useMemo(() => [...metricEntries].reverse(), [metricEntries]);
   const chartWidth = Math.max(width - 48, 260);
 
   if (isLoading) {
@@ -233,138 +242,276 @@ export function ClientHistoryMetricDetailScreen({ clientId, metricKey }: ClientH
   }
 
   const trendTone = getDeltaTone(currentEntry?.deltaFromFirst ?? null, metric.direction);
+  const trendIcon = (currentEntry?.deltaFromFirst ?? 0) < 0 ? 'trending-down' : 'trending-up';
 
   return (
-    <ScreenContainer>
-      <PageHeader
-        eyebrow={`Cliente: ${client.name}`}
+    <ScreenContainer contentStyle={styles.screenContent}>
+      <View style={styles.topBar}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Volver al análisis"
+          onPress={() => router.back()}
+          style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+          <Ionicons name="chevron-back" size={18} color={Accent.primary} />
+          <ThemedText type="smallBold" style={styles.backButtonText}>Análisis</ThemedText>
+        </Pressable>
+        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.clientName}>{client.name}</ThemedText>
+      </View>
+
+      <View style={styles.metricHero}>
+        <View style={styles.metricHeroTop}>
+          <View style={styles.metricIcon}>
+            <Ionicons name={getMetricIcon(metric.unit)} size={26} color="#FFFFFF" />
+          </View>
+          <View style={styles.metricHeroCopy}>
+            <ThemedText type="label" style={styles.metricEyebrow}>Evolución de métrica</ThemedText>
+            <ThemedText type="headline" style={styles.metricTitle}>{metric.label}</ThemedText>
+          </View>
+        </View>
+        <View style={styles.metricHeroDivider} />
+        <View style={styles.metricValueRow}>
+          <View>
+            <ThemedText type="small" style={styles.metricValueLabel}>Valor actual</ThemedText>
+            <ThemedText type="headline" style={styles.metricValue}>{formatMetricValue(currentEntry?.value ?? null, metric.unit)}</ThemedText>
+          </View>
+          <View style={styles.metricProgressWrap}>
+            <ThemedText type="small" style={styles.metricValueLabel}>Desde el inicio</ThemedText>
+            <View style={styles.metricProgressPill}>
+              <Ionicons name={trendIcon} size={15} color={trendTone.color} />
+              <ThemedText type="smallBold" style={{ color: trendTone.color }}>
+                {formatDeltaValue(currentEntry?.deltaFromFirst ?? null, metric.unit)}
+              </ThemedText>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.sectionHeader}>
+        <View>
+          <ThemedText type="headline" style={styles.sectionTitle}>Evolución</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">{metricEntries.length} mediciones registradas</ThemedText>
+        </View>
+      </View>
+
+      <HistoryLineChart
+        hideHeader
         title={metric.label}
-        subtitle="Detalle histórico"
-        rightSlot={<AppButton label="← Volver" variant="ghost" size="compact" fullWidth={false} onPress={() => router.back()} />}
+        valueLabel={formatMetricValue(currentEntry?.value ?? null, metric.unit)}
+        deltaLabel={formatDeltaValue(currentEntry?.deltaFromFirst ?? null, metric.unit)}
+        deltaColor={trendTone.color}
+        width={chartWidth}
+        points={metricEntries.map((entry) => ({
+          label: formatDate(entry.reviewedAt),
+          shortLabel: formatShortDate(entry.reviewedAt),
+          value: entry.value,
+        }))}
+        yUnitSuffix={metric.unit === 'pct' ? '%' : metric.unit === 'bmi' ? '' : ` ${metric.unit}`}
       />
 
-      <PageSection first label="Resumen">
-        <View style={styles.summaryRow}>
-          <View style={[styles.summaryCard, { borderColor: theme.backgroundSelected }]}>
-            <ThemedText type="small" themeColor="textSecondary">Valor actual</ThemedText>
-            <ThemedText type="headline" style={styles.summaryValue}>{formatMetricValue(currentEntry?.value ?? null, metric.unit)}</ThemedText>
-          </View>
-          <View style={[styles.summaryCard, { borderColor: theme.backgroundSelected }]}>
-            <ThemedText type="small" themeColor="textSecondary">Progreso total</ThemedText>
-            <ThemedText type="headline" style={{ color: trendTone.color }}>
-              {formatDeltaValue(currentEntry?.deltaFromFirst ?? null, metric.unit)}
-            </ThemedText>
-          </View>
+      <View style={styles.sectionHeader}>
+        <View>
+          <ThemedText type="headline" style={styles.sectionTitle}>Historial</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">Últimos registros primero</ThemedText>
         </View>
-      </PageSection>
+      </View>
 
-      <PageSection label="Tendencia">
-        <HistoryLineChart
-          title={metric.label}
-          subtitle={`${metricEntries.length} registros con valor`}
-          valueLabel={formatMetricValue(currentEntry?.value ?? null, metric.unit)}
-          deltaLabel={formatDeltaValue(currentEntry?.deltaFromFirst ?? null, metric.unit)}
-          deltaColor={trendTone.color}
-          width={chartWidth}
-          points={metricEntries.map((entry) => ({
-            label: formatDate(entry.reviewedAt),
-            shortLabel: formatShortDate(entry.reviewedAt),
-            value: entry.value,
-          }))}
-          yUnitSuffix={metric.unit === 'pct' ? '%' : metric.unit === 'bmi' ? '' : ` ${metric.unit}`}
-        />
-      </PageSection>
+      <View style={[styles.historyCard, { borderColor: theme.backgroundSelected }]}>
+        {historyEntries.map((entry, index) => {
+          const sessionTone = getDeltaTone(entry.deltaFromPrevious, metric.direction);
+          const isLatest = index === 0;
 
-      <PageSection label="Índices">
-        <View style={[styles.tableCard, { borderColor: theme.backgroundSelected }]}>
-          <View style={[styles.tableHeader, { borderBottomColor: theme.backgroundSelected }]}>
-            <ThemedText type="smallBold" style={[styles.tableHeaderCell, styles.cellDate]}>Fecha</ThemedText>
-            <ThemedText type="smallBold" style={[styles.tableHeaderCell, styles.cellValue]}>Valor</ThemedText>
-            <ThemedText type="smallBold" style={[styles.tableHeaderCell, styles.cellDelta]}>Δ sesión</ThemedText>
-            <ThemedText type="smallBold" style={[styles.tableHeaderCell, styles.cellDelta]}>Δ total</ThemedText>
-          </View>
-          {metricEntries.map((entry, index) => {
-            const sessionTone = getDeltaTone(entry.deltaFromPrevious, metric.direction);
-            const totalTone = getDeltaTone(entry.deltaFromFirst, metric.direction);
-
-            return (
-              <View
-                key={entry.revisionId}
-                style={[
-                  styles.tableRow,
-                  {
-                    borderTopColor: theme.backgroundSelected,
-                    borderTopWidth: index === 0 ? 0 : 1,
-                  },
-                ]}>
-                <ThemedText type="small" style={[styles.cellDate, styles.tableCell]}>{formatDate(entry.reviewedAt)}</ThemedText>
-                <ThemedText type="small" style={[styles.cellValue, styles.tableCell]}>{formatMetricValue(entry.value, metric.unit)}</ThemedText>
-                <ThemedText type="smallBold" style={[styles.cellDelta, styles.tableCell, { color: sessionTone.color }]}>
-                  {formatDeltaValue(entry.deltaFromPrevious, metric.unit)}
-                </ThemedText>
-                <ThemedText type="smallBold" style={[styles.cellDelta, styles.tableCell, { color: totalTone.color }]}>
-                  {formatDeltaValue(entry.deltaFromFirst, metric.unit)}
+          return (
+            <View key={entry.revisionId} style={[styles.historyRow, index > 0 && { borderTopColor: theme.backgroundSelected, borderTopWidth: 1 }]}>
+              <View style={[styles.historyMarker, isLatest && styles.historyMarkerLatest]}>
+                <Ionicons name={isLatest ? 'star' : 'ellipse'} size={isLatest ? 12 : 8} color={isLatest ? '#FFFFFF' : '#7A9CC4'} />
+              </View>
+              <View style={styles.historyCopy}>
+                <View style={styles.historyTitleRow}>
+                  <ThemedText type="smallBold" style={styles.historyDate}>{formatDate(entry.reviewedAt)}</ThemedText>
+                  {isLatest ? <ThemedText type="smallBold" style={styles.currentTag}>Actual</ThemedText> : null}
+                </View>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {entry.deltaFromPrevious === null ? 'Registro inicial' : `Cambio respecto a la anterior: ${formatDeltaValue(entry.deltaFromPrevious, metric.unit)}`}
                 </ThemedText>
               </View>
-            );
-          })}
-        </View>
-      </PageSection>
+              <View style={styles.historyValueWrap}>
+                <ThemedText type="smallBold" style={styles.historyValue}>{formatMetricValue(entry.value, metric.unit)}</ThemedText>
+                {entry.deltaFromPrevious !== null ? <ThemedText type="smallBold" style={{ color: sessionTone.color }}>{formatDeltaValue(entry.deltaFromPrevious, metric.unit)}</ThemedText> : null}
+              </View>
+            </View>
+          );
+        })}
+      </View>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  summaryRow: {
+  screenContent: {
+    gap: 16,
+    paddingTop: 14,
+  },
+  topBar: {
     flexDirection: 'row',
-    gap: Spacing.two,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
   },
-  summaryCard: {
-    flex: 1,
+  backButton: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     borderWidth: 1,
-    borderRadius: Radius.medium,
+    borderColor: '#DFE7F2',
+    borderRadius: Radius.pill,
     backgroundColor: '#FFFFFF',
-    padding: 12,
-    gap: 4,
+    paddingHorizontal: 13,
   },
-  summaryValue: {
+  backButtonText: {
     color: '#10203B',
   },
-  tableCard: {
+  clientName: {
+    flex: 1,
+    textAlign: 'right',
+  },
+  pressed: {
+    opacity: 0.75,
+    transform: [{ scale: 0.98 }],
+  },
+  metricHero: {
+    borderRadius: 24,
+    backgroundColor: '#163A82',
+    padding: 18,
+    gap: 16,
+    shadowColor: '#12336E',
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 7 },
+    elevation: 4,
+  },
+  metricHeroTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  metricIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  metricHeroCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  metricEyebrow: {
+    color: '#AFC8FF',
+    letterSpacing: 0.5,
+  },
+  metricTitle: {
+    color: '#FFFFFF',
+    fontSize: 25,
+    lineHeight: 30,
+  },
+  metricHeroDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  metricValueRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  metricValueLabel: {
+    color: '#AFC8FF',
+  },
+  metricValue: {
+    color: '#FFFFFF',
+    fontSize: 29,
+    lineHeight: 35,
+    marginTop: 3,
+  },
+  metricProgressWrap: {
+    alignItems: 'flex-end',
+    gap: 5,
+  },
+  metricProgressPill: {
+    minHeight: 31,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: Radius.pill,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+  },
+  sectionTitle: {
+    color: '#10203B',
+    fontSize: 21,
+    lineHeight: 26,
+  },
+  historyCard: {
     borderWidth: 1,
     borderRadius: Radius.large,
     overflow: 'hidden',
     backgroundColor: '#FFFFFF',
   },
-  tableHeader: {
+  historyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    backgroundColor: '#F8FBFF',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
   },
-  tableHeaderCell: {
+  historyMarker: {
+    width: 24,
+    height: 24,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF4FC',
+  },
+  historyMarkerLatest: {
+    backgroundColor: Accent.primary,
+  },
+  historyCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  historyTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  historyDate: {
     color: '#10203B',
   },
-  tableRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 10,
+  currentTag: {
+    borderRadius: Radius.pill,
+    backgroundColor: '#E8F0FF',
+    color: Accent.primary,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    fontSize: 10,
+    lineHeight: 12,
   },
-  tableCell: {
-    lineHeight: 18,
+  historyValueWrap: {
+    alignItems: 'flex-end',
+    gap: 3,
   },
-  cellDate: {
-    flex: 1.25,
-  },
-  cellValue: {
-    flex: 1,
-    textAlign: 'right',
-  },
-  cellDelta: {
-    flex: 1,
+  historyValue: {
+    color: '#10203B',
     textAlign: 'right',
   },
 });

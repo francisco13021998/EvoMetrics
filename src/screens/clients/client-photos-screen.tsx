@@ -3,8 +3,11 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Modal, PanResponder, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { captureRef } from 'react-native-view-shot';
 
 import { EmptyState } from '@/components/feedback/empty-state';
@@ -23,8 +26,6 @@ import { clientsService } from '@/services/clients';
 import { CLIENT_IMAGES_BUCKET, photosService } from '@/services/photos';
 import { revisionsService } from '@/services/revisions';
 import { Client, ClientPhoto, Revision } from '@/types/domain';
-import { calculateBodyFatAverage, calculateBodyFatFromPerimeters, calculateBodyFatFromSkinfolds } from '@/utils/calculations';
-import { calculateAgeFromBirthDate } from '@/utils/client-age';
 
 import { ThemedText } from '@/components/themed-text';
 
@@ -36,14 +37,6 @@ type ClientPhotosScreenProps = {
 
 function formatRevisionDate(value: string) {
   return new Date(value).toLocaleDateString('es-ES');
-}
-
-function formatBodyFatAverage(value: number | null) {
-  if (value === null || !Number.isFinite(value)) {
-    return 'Grasa no disponible';
-  }
-
-  return `${Math.round(value)}% grasa`;
 }
 
 function toDateOnlyIso(value: Date) {
@@ -64,32 +57,99 @@ function parseIsoDateOrNow(value: string | null | undefined) {
   return parsedDate;
 }
 
-function getRevisionAverageBodyFat(client: Client, revision: Revision) {
-  if (revision.bodyFatPct !== null) {
-    return revision.bodyFatPct;
+const AnimatedZoomImage = Animated.createAnimatedComponent(Image);
+const ZOOM_MIN_SCALE = 0.6;
+const ZOOM_MAX_SCALE = 4;
+
+function clampZoomScale(value: number) {
+  'worklet';
+  return Math.min(Math.max(value, ZOOM_MIN_SCALE), ZOOM_MAX_SCALE);
+}
+
+function useZoomTransform(resetKey: string) {
+  const scale = useSharedValue(1);
+  const savedScale = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const savedTranslateX = useSharedValue(0);
+  const savedTranslateY = useSharedValue(0);
+
+  useEffect(() => {
+    scale.value = 1;
+    savedScale.value = 1;
+    translateX.value = 0;
+    translateY.value = 0;
+    savedTranslateX.value = 0;
+    savedTranslateY.value = 0;
+    // Nueva foto en este lado de la comparación: se parte siempre de zoom neutro.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey]);
+
+  function resetZoom() {
+    scale.value = withTiming(1);
+    translateX.value = withTiming(0);
+    translateY.value = withTiming(0);
+    savedScale.value = 1;
+    savedTranslateX.value = 0;
+    savedTranslateY.value = 0;
   }
 
-  const perimeter = calculateBodyFatFromPerimeters(client.sex, {
-    neckCm: revision.neckCm,
-    bellyCm: revision.bellyCm,
-    gluteCm: revision.gluteCm,
-    heightCm: client.heightCm,
-  });
-  const skinfold = calculateBodyFatFromSkinfolds(client.sex, calculateAgeFromBirthDate(client.birthDate, new Date(revision.reviewedAt)), {
-    bicepFoldMm: revision.bicepFoldMm,
-    tricepFoldMm: revision.tricepFoldMm,
-    subscapularFoldMm: revision.subscapularFoldMm,
-    suprailiacFoldMm: revision.suprailiacFoldMm,
-    abdominalFoldMm: revision.abdominalFoldMm,
-    frontThighFoldMm: revision.frontThighFoldMm,
-    calfFoldMm: revision.calfFoldMm,
-  });
+  const pinchGesture = Gesture.Pinch()
+    .onUpdate((event) => {
+      scale.value = clampZoomScale(savedScale.value * event.scale);
+    })
+    .onEnd(() => {
+      savedScale.value = scale.value;
+    });
 
-  return calculateBodyFatAverage({
-    visualBodyFatPct: revision.bodyFatVisualPct,
-    perimeterBodyFatPct: perimeter?.bodyFatPct ?? null,
-    skinfoldBodyFatPct: revision.bodyFatSkinfoldsPct ?? skinfold?.bodyFatPct ?? null,
-  })?.bodyFatPct ?? null;
+  const panGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      translateX.value = savedTranslateX.value + event.translationX;
+      translateY.value = savedTranslateY.value + event.translationY;
+    })
+    .onEnd(() => {
+      savedTranslateX.value = translateX.value;
+      savedTranslateY.value = translateY.value;
+    });
+
+  const gesture = Gesture.Simultaneous(pinchGesture, panGesture);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value },
+    ],
+  }));
+
+  return { gesture, animatedStyle, resetZoom };
+}
+
+type ZoomTransform = ReturnType<typeof useZoomTransform>;
+
+type ZoomableCompareImageProps = {
+  uri: string;
+  height: number;
+  gesture: ZoomTransform['gesture'];
+  animatedStyle: ZoomTransform['animatedStyle'];
+  onReset: ZoomTransform['resetZoom'];
+};
+
+function ZoomableCompareImage({ uri, height, gesture, animatedStyle, onReset }: ZoomableCompareImageProps) {
+  return (
+    <View style={[styles.compareImageViewport, { height }]}>
+      <GestureDetector gesture={gesture}>
+        <AnimatedZoomImage source={{ uri }} style={[styles.compareImage, animatedStyle]} contentFit="contain" transition={150} />
+      </GestureDetector>
+      <Pressable
+        onPress={onReset}
+        accessibilityRole="button"
+        accessibilityLabel="Restablecer zoom de la imagen"
+        style={({ pressed }) => [styles.compareZoomResetButton, pressed && styles.pressed]}>
+        <Ionicons name="scan-outline" size={13} color="#FFFFFF" />
+      </Pressable>
+    </View>
+  );
 }
 
 export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpenUpload = false }: ClientPhotosScreenProps) {
@@ -111,14 +171,6 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
   const [compareSourcePhoto, setCompareSourcePhoto] = useState<ClientPhoto | null>(null);
   const [compareTargetPhoto, setCompareTargetPhoto] = useState<ClientPhoto | null>(null);
   const [isComparePickerOpen, setIsComparePickerOpen] = useState(false);
-  const [compareSourceZoom, setCompareSourceZoom] = useState(1);
-  const [compareTargetZoom, setCompareTargetZoom] = useState(1);
-  const [compareSourceZoomInput, setCompareSourceZoomInput] = useState('100');
-  const [compareTargetZoomInput, setCompareTargetZoomInput] = useState('100');
-  const [isCompareSourceZoomEditing, setIsCompareSourceZoomEditing] = useState(false);
-  const [isCompareTargetZoomEditing, setIsCompareTargetZoomEditing] = useState(false);
-  const [compareSourceOffset, setCompareSourceOffset] = useState({ x: 0, y: 0 });
-  const [compareTargetOffset, setCompareTargetOffset] = useState({ x: 0, y: 0 });
   const [hasAutoOpenedUpload, setHasAutoOpenedUpload] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDownloadingComparison, setIsDownloadingComparison] = useState(false);
@@ -127,40 +179,18 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
   const [editRevisionId, setEditRevisionId] = useState<string>('none');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const comparisonExportRef = React.useRef<View>(null);
-  const compareSourceZoomHoldRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const compareTargetZoomHoldRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const compareSourceZoomHoldStartedAtRef = React.useRef<number | null>(null);
-  const compareTargetZoomHoldStartedAtRef = React.useRef<number | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (compareSourceZoomHoldRef.current) {
-        clearTimeout(compareSourceZoomHoldRef.current);
-      }
-
-      if (compareTargetZoomHoldRef.current) {
-        clearTimeout(compareTargetZoomHoldRef.current);
-      }
-    };
-  }, []);
+  const sourceZoom = useZoomTransform(compareSourcePhoto?.id ?? 'none');
+  const targetZoom = useZoomTransform(compareTargetPhoto?.id ?? 'none');
 
   const showInitialLoading = isLoading && !client;
 
-  const filteredPhotos = useMemo(() => {
+  const sortedPhotos = useMemo(() => {
     return [...photos].sort((left, right) => new Date(right.capturedAt).getTime() - new Date(left.capturedAt).getTime());
   }, [photos]);
 
   const revisionById = useMemo(() => {
     return new Map(revisions.map((revision) => [revision.id, revision]));
   }, [revisions]);
-
-  const revisionBodyFatById = useMemo(() => {
-    if (!client) {
-      return new Map<string, number | null>();
-    }
-
-    return new Map(revisions.map((revision) => [revision.id, getRevisionAverageBodyFat(client, revision)]));
-  }, [client, revisions]);
 
   const revisionOptions = useMemo(() => {
     return [
@@ -185,257 +215,29 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
       return [];
     }
 
-    return filteredPhotos.filter((photo) => photo.id !== compareSourcePhoto.id);
-  }, [compareSourcePhoto, filteredPhotos]);
+    return sortedPhotos.filter((photo) => photo.id !== compareSourcePhoto.id);
+  }, [compareSourcePhoto, sortedPhotos]);
 
-  const compareZoomMin = 0.4;
-  const compareZoomMax = 3;
-  const compareZoomStep = 0.01;
-  const isCompareSideBySide = width >= 780;
-  const compareImageHeight = isCompareSideBySide ? 360 : 260;
-  const comparePanelWidth = Math.round(Math.min(Math.max(width - Spacing.three * 2, 0), 900));
-  const compareExportWidth = Math.max(comparePanelWidth - Spacing.three * 2, 0);
+  const compareDaysDiff = compareSourcePhoto && compareTargetPhoto
+    ? Math.round((getPhotoDate(compareTargetPhoto).getTime() - getPhotoDate(compareSourcePhoto).getTime()) / (24 * 60 * 60 * 1000))
+    : null;
+
+  const compareElapsedLabel = compareDaysDiff === null
+    ? ''
+    : compareDaysDiff === 0
+      ? 'Mismo día'
+      : `${Math.abs(compareDaysDiff)} día${Math.abs(compareDaysDiff) === 1 ? '' : 's'} de diferencia`;
+
+  const compareImageHeight = width >= 720 ? 360 : 250;
+  const compareExportWidth = Math.max(Math.min(width - Spacing.three * 2, 720), 280);
   const compareExportLeftWidth = Math.floor(compareExportWidth / 2);
   const compareExportRightWidth = compareExportWidth - compareExportLeftWidth;
-  const sourceZoomPercent = Math.round(compareSourceZoom * 100);
-  const targetZoomPercent = Math.round(compareTargetZoom * 100);
-  const compareSourcePanStartRef = React.useRef({ x: 0, y: 0 });
-  const compareTargetPanStartRef = React.useRef({ x: 0, y: 0 });
-  const compareSourceOffsetRef = React.useRef(compareSourceOffset);
-  const compareTargetOffsetRef = React.useRef(compareTargetOffset);
-
-  useEffect(() => {
-    compareSourceOffsetRef.current = compareSourceOffset;
-  }, [compareSourceOffset]);
-
-  useEffect(() => {
-    compareTargetOffsetRef.current = compareTargetOffset;
-  }, [compareTargetOffset]);
-
-  useEffect(() => {
-    if (!isCompareSourceZoomEditing) {
-      setCompareSourceZoomInput(String(sourceZoomPercent));
-    }
-  }, [isCompareSourceZoomEditing, sourceZoomPercent]);
-
-  useEffect(() => {
-    if (!isCompareTargetZoomEditing) {
-      setCompareTargetZoomInput(String(targetZoomPercent));
-    }
-  }, [isCompareTargetZoomEditing, targetZoomPercent]);
-
-  const updateCompareSourceOffset = useCallback((nextOffset: { x: number; y: number }) => {
-    compareSourceOffsetRef.current = nextOffset;
-    setCompareSourceOffset(nextOffset);
-  }, []);
-
-  const updateCompareTargetOffset = useCallback((nextOffset: { x: number; y: number }) => {
-    compareTargetOffsetRef.current = nextOffset;
-    setCompareTargetOffset(nextOffset);
-  }, []);
-
-  const compareSourcePanResponder = React.useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onStartShouldSetPanResponderCapture: () => true,
-        onMoveShouldSetPanResponder: (_event, gestureState) => Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2,
-        onPanResponderGrant: () => {
-          compareSourcePanStartRef.current = compareSourceOffsetRef.current;
-        },
-        onPanResponderMove: (_event, gestureState) => {
-          updateCompareSourceOffset({
-            x: compareSourcePanStartRef.current.x + gestureState.dx,
-            y: compareSourcePanStartRef.current.y + gestureState.dy,
-          });
-        },
-        onPanResponderTerminationRequest: () => false,
-        onPanResponderRelease: () => null,
-        onPanResponderTerminate: () => null,
-      }),
-    [updateCompareSourceOffset]
-  );
-
-  const compareTargetPanResponder = React.useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onStartShouldSetPanResponderCapture: () => true,
-        onMoveShouldSetPanResponder: (_event, gestureState) => Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2,
-        onPanResponderGrant: () => {
-          compareTargetPanStartRef.current = compareTargetOffsetRef.current;
-        },
-        onPanResponderMove: (_event, gestureState) => {
-          updateCompareTargetOffset({
-            x: compareTargetPanStartRef.current.x + gestureState.dx,
-            y: compareTargetPanStartRef.current.y + gestureState.dy,
-          });
-        },
-        onPanResponderTerminationRequest: () => false,
-        onPanResponderRelease: () => null,
-        onPanResponderTerminate: () => null,
-      }),
-    [updateCompareTargetOffset]
-  );
-
-  function clampCompareZoom(value: number) {
-    return Math.max(compareZoomMin, Math.min(compareZoomMax, value));
-  }
-
-  function setSourceCompareZoom(nextZoom: number | ((currentZoom: number) => number)) {
-    const resolvedZoom = typeof nextZoom === 'function' ? nextZoom(compareSourceZoom) : nextZoom;
-    setCompareSourceZoom(clampCompareZoom(resolvedZoom));
-  }
-
-  function setTargetCompareZoom(nextZoom: number | ((currentZoom: number) => number)) {
-    const resolvedZoom = typeof nextZoom === 'function' ? nextZoom(compareTargetZoom) : nextZoom;
-    setCompareTargetZoom(clampCompareZoom(resolvedZoom));
-  }
-
-  function resetCompareZoom() {
-    setCompareSourceZoom(1);
-    setCompareTargetZoom(1);
-    setCompareSourceZoomInput('100');
-    setCompareTargetZoomInput('100');
-  }
-
-  function resetCompareOffsets() {
-    updateCompareSourceOffset({ x: 0, y: 0 });
-    updateCompareTargetOffset({ x: 0, y: 0 });
-  }
-
-  function adjustSourceCompareZoom(delta: number) {
-    setCompareSourceZoom((currentZoom) => clampCompareZoom(currentZoom + delta));
-  }
-
-  function adjustTargetCompareZoom(delta: number) {
-    setCompareTargetZoom((currentZoom) => clampCompareZoom(currentZoom + delta));
-  }
-
-  function commitSourceZoomInput(nextValue: string) {
-    const trimmedValue = nextValue.trim();
-
-    if (trimmedValue === '') {
-      setCompareSourceZoomInput(String(sourceZoomPercent));
-      return;
-    }
-
-    const parsedZoom = Number(trimmedValue.replace(',', '.'));
-
-    if (Number.isNaN(parsedZoom)) {
-      setCompareSourceZoomInput(String(sourceZoomPercent));
-      return;
-    }
-
-    setSourceCompareZoom(parsedZoom / 100);
-  }
-
-  function commitTargetZoomInput(nextValue: string) {
-    const trimmedValue = nextValue.trim();
-
-    if (trimmedValue === '') {
-      setCompareTargetZoomInput(String(targetZoomPercent));
-      return;
-    }
-
-    const parsedZoom = Number(trimmedValue.replace(',', '.'));
-
-    if (Number.isNaN(parsedZoom)) {
-      setCompareTargetZoomInput(String(targetZoomPercent));
-      return;
-    }
-
-    setTargetCompareZoom(parsedZoom / 100);
-  }
-
-  function handleSourceZoomTextChange(nextValue: string) {
-    setCompareSourceZoomInput(nextValue);
-  }
-
-  function handleTargetZoomTextChange(nextValue: string) {
-    setCompareTargetZoomInput(nextValue);
-  }
-
-  function handleSourceZoomInputBlur() {
-    setIsCompareSourceZoomEditing(false);
-    commitSourceZoomInput(compareSourceZoomInput);
-  }
-
-  function handleTargetZoomInputBlur() {
-    setIsCompareTargetZoomEditing(false);
-    commitTargetZoomInput(compareTargetZoomInput);
-  }
-
-  function scheduleCompareZoomHold(direction: 1 | -1, target: 'source' | 'target') {
-    const startedAtRef = target === 'source' ? compareSourceZoomHoldStartedAtRef : compareTargetZoomHoldStartedAtRef;
-    const holdRef = target === 'source' ? compareSourceZoomHoldRef : compareTargetZoomHoldRef;
-    const adjustZoom = target === 'source' ? adjustSourceCompareZoom : adjustTargetCompareZoom;
-
-    if (!startedAtRef.current) {
-      return;
-    }
-
-    const elapsedMs = Date.now() - startedAtRef.current;
-
-    let delay = 140;
-
-    if (elapsedMs >= 2200) {
-      delay = 40;
-    } else if (elapsedMs >= 1500) {
-      delay = 55;
-    } else if (elapsedMs >= 900) {
-      delay = 70;
-    } else if (elapsedMs >= 450) {
-      delay = 95;
-    }
-
-    holdRef.current = setTimeout(() => {
-      adjustZoom(direction * compareZoomStep);
-      scheduleCompareZoomHold(direction, target);
-    }, delay);
-  }
-
-  function startCompareZoomHold(direction: 1 | -1, target: 'source' | 'target') {
-    stopCompareZoomHold(target);
-
-    if (target === 'source') {
-      compareSourceZoomHoldStartedAtRef.current = Date.now();
-      adjustSourceCompareZoom(direction * compareZoomStep);
-      scheduleCompareZoomHold(direction, target);
-      return;
-    }
-
-    compareTargetZoomHoldStartedAtRef.current = Date.now();
-    adjustTargetCompareZoom(direction * compareZoomStep);
-    scheduleCompareZoomHold(direction, target);
-  }
-
-  function stopCompareZoomHold(target?: 'source' | 'target') {
-    if (!target || target === 'source') {
-      if (compareSourceZoomHoldRef.current) {
-        clearTimeout(compareSourceZoomHoldRef.current);
-        compareSourceZoomHoldRef.current = null;
-      }
-
-      compareSourceZoomHoldStartedAtRef.current = null;
-    }
-
-    if (!target || target === 'target') {
-      if (compareTargetZoomHoldRef.current) {
-        clearTimeout(compareTargetZoomHoldRef.current);
-        compareTargetZoomHoldRef.current = null;
-      }
-
-      compareTargetZoomHoldStartedAtRef.current = null;
-    }
-  }
-
   async function handleDownloadPhoto(photo: ClientPhoto) {
     try {
       setIsDownloading(true);
 
       const { status } = await MediaLibrary.requestPermissionsAsync(true);
-      if (status !== 'granted' && status !== 'limited') {
+      if (status !== 'granted') {
         Alert.alert('Permiso denegado', 'Activa el permiso de galería en los ajustes del dispositivo para descargar imágenes.');
         return;
       }
@@ -473,7 +275,7 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
       setIsDownloadingComparison(true);
 
       const { status } = await MediaLibrary.requestPermissionsAsync(true);
-      if (status !== 'granted' && status !== 'limited') {
+      if (status !== 'granted') {
         Alert.alert('Permiso denegado', 'Activa el permiso de galería en los ajustes del dispositivo para descargar imágenes.');
         return;
       }
@@ -505,8 +307,6 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
     setCompareSourcePhoto(photo);
     setCompareTargetPhoto(null);
     setPreviewPhoto(null);
-    resetCompareZoom();
-    resetCompareOffsets();
     setIsComparePickerOpen(true);
   }
 
@@ -514,26 +314,40 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
     setIsComparePickerOpen(false);
     setCompareSourcePhoto(null);
     setCompareTargetPhoto(null);
-    resetCompareZoom();
-    resetCompareOffsets();
   }
 
   function openCompareView(photo: ClientPhoto) {
-    setCompareTargetPhoto(photo);
+    if (!compareSourcePhoto) {
+      return;
+    }
+
+    if (getPhotoDate(photo).getTime() < getPhotoDate(compareSourcePhoto).getTime()) {
+      setCompareTargetPhoto(compareSourcePhoto);
+      setCompareSourcePhoto(photo);
+    } else {
+      setCompareTargetPhoto(photo);
+    }
+
     setIsComparePickerOpen(false);
-    setCompareTargetZoom(1);
-    setCompareSourceZoom(1);
-    setCompareSourceZoomInput('100');
-    setCompareTargetZoomInput('100');
-    resetCompareOffsets();
   }
 
   function closeCompareView() {
     setCompareSourcePhoto(null);
     setCompareTargetPhoto(null);
-    resetCompareZoom();
-    resetCompareOffsets();
-    stopCompareZoomHold();
+  }
+
+  function swapComparePhotos() {
+    if (!compareSourcePhoto || !compareTargetPhoto) {
+      return;
+    }
+
+    setCompareSourcePhoto(compareTargetPhoto);
+    setCompareTargetPhoto(compareSourcePhoto);
+  }
+
+  function handleChangeComparisonTarget() {
+    setCompareTargetPhoto(null);
+    setIsComparePickerOpen(true);
   }
 
   function closeEditModal() {
@@ -628,7 +442,7 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
     } finally {
       setIsLoading(false);
     }
-  }, [clientId, user?.id]);
+  }, [clientId, isAthlete, user?.id]);
 
   useEffect(() => {
     void loadContent();
@@ -702,8 +516,16 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
     }
   }
 
+  function getPhotoDateIso(photo: ClientPhoto) {
+    return photo.revisionId ? (revisionById.get(photo.revisionId)?.reviewedAt ?? photo.capturedAt) : photo.capturedAt;
+  }
+
   function getPhotoDateLabel(photo: ClientPhoto) {
-    return formatRevisionDate(photo.revisionId ? (revisionById.get(photo.revisionId)?.reviewedAt ?? photo.capturedAt) : photo.capturedAt);
+    return formatRevisionDate(getPhotoDateIso(photo));
+  }
+
+  function getPhotoDate(photo: ClientPhoto) {
+    return parseIsoDateOrNow(getPhotoDateIso(photo));
   }
 
   function handleDeletePhoto(photo: ClientPhoto) {
@@ -781,50 +603,78 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
   }
 
   return (
-    <ScreenContainer>
-      <PageHeader
-        eyebrow={`Cliente: ${client.name}`}
-        title="Galería de fotos"
-        subtitle={`${photos.length} imagen${photos.length !== 1 ? 'es' : ''}`}
-        rightSlot={
-          <AppButton label="← Volver" variant="ghost" size="compact" fullWidth={false} onPress={() => router.back()} />
-        }
-      />
+    <ScreenContainer contentStyle={styles.screenContent}>
+      <View style={styles.topBar}>
+        <Pressable
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Volver al cliente"
+          style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+          <Ionicons name="chevron-back" size={18} color={Accent.primary} />
+          <ThemedText type="smallBold" style={styles.backButtonText}>Cliente</ThemedText>
+        </Pressable>
+        {!isAthlete ? (
+          <Pressable
+            onPress={openUploadModal}
+            accessibilityRole="button"
+            accessibilityLabel="Subir imágenes"
+            style={({ pressed }) => [styles.uploadButton, pressed && styles.pressed]}>
+            <Ionicons name="add" size={24} color="#FFFFFF" />
+          </Pressable>
+        ) : null}
+      </View>
 
-      <PageSection
-        first
-        label="Imágenes"
-        rightSlot={photos.length > 0 && !isAthlete ? <AppButton label="Subir" size="compact" fullWidth={false} onPress={openUploadModal} /> : null}
-      >
-        {isLoading ? <StatusBanner tone="info" loading message="Actualizando galería..." /> : null}
-        {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
+      <View style={[styles.galleryHero, { borderColor: theme.backgroundSelected }]}>
+        <View style={styles.galleryHeroIcon}><Ionicons name="images-outline" size={25} color={Accent.primary} /></View>
+        <View style={styles.galleryHeroCopy}>
+          <ThemedText type="label" style={styles.galleryEyebrow}>Progreso visual</ThemedText>
+          <ThemedText type="headline" style={styles.galleryTitle}>Galería de fotos</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.gallerySubtitle}>{client.name}</ThemedText>
+        </View>
+        <View style={styles.galleryCount}>
+          <ThemedText type="smallBold" style={styles.galleryCountValue}>{photos.length}</ThemedText>
+          <ThemedText type="small" style={styles.galleryCountLabel}>fotos</ThemedText>
+        </View>
+      </View>
 
-        {filteredPhotos.length === 0 ? (
-          <EmptyState
-            title="Galería vacía"
-            description={photos.length === 0 ? (isAthlete ? 'Aún no hay imágenes en tu galería.' : 'Sube la primera imagen del cliente.') : 'No hay imágenes disponibles.'}
-            actionLabel={isAthlete ? undefined : 'Subir imagen'}
-            actionVariant="primary"
-            onAction={isAthlete ? undefined : openUploadModal}
-          />
-        ) : (
-          <View style={styles.grid}>
-            {filteredPhotos.map((photo) => (
-              <Pressable
-                key={photo.id}
-                onPress={() => setPreviewPhoto(photo)}
-                style={({ pressed }) => [styles.tile, { opacity: pressed ? 0.88 : 1 }]}>
-                <Image
-                  source={{ uri: photo.imageUrl }}
-                  style={[styles.preview, { backgroundColor: Accent.primaryMuted }]}
-                  contentFit="cover"
-                  transition={150}
-                />
-              </Pressable>
-            ))}
-          </View>
-        )}
-      </PageSection>
+      {isLoading ? <StatusBanner tone="info" loading message="Actualizando galería..." /> : null}
+      {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
+
+      <View style={styles.gallerySectionHeader}>
+        <View>
+          <ThemedText type="headline" style={styles.gallerySectionTitle}>Todas las fotos</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">Ordenadas de la más reciente a la más antigua.</ThemedText>
+        </View>
+        {sortedPhotos.length > 0 ? <ThemedText type="smallBold" style={styles.gallerySectionCount}>{sortedPhotos.length}</ThemedText> : null}
+      </View>
+
+      {sortedPhotos.length === 0 ? (
+        <View style={[styles.emptyGallery, { borderColor: theme.backgroundSelected }]}>
+          <View style={styles.emptyGalleryIcon}><Ionicons name="images-outline" size={26} color={Accent.primary} /></View>
+          <ThemedText type="smallBold" style={styles.emptyGalleryTitle}>La galería está vacía</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.emptyGalleryDescription}>
+            {isAthlete ? 'Aún no hay imágenes compartidas.' : 'Añade la primera imagen para documentar el progreso.'}
+          </ThemedText>
+          {!isAthlete ? <AppButton label="Subir imágenes" size="compact" fullWidth={false} onPress={openUploadModal} /> : null}
+        </View>
+      ) : (
+        <View style={styles.grid}>
+          {sortedPhotos.map((photo) => (
+            <Pressable
+              key={photo.id}
+              onPress={() => setPreviewPhoto(photo)}
+              accessibilityRole="button"
+              accessibilityLabel={`Abrir foto del ${getPhotoDateLabel(photo)}`}
+              style={({ pressed }) => [styles.tile, pressed && styles.tilePressed]}>
+              <Image source={{ uri: photo.imageUrl }} style={[styles.preview, { backgroundColor: Accent.primaryMuted }]} contentFit="cover" transition={150} />
+              <View style={styles.tileCaption}>
+                <ThemedText type="smallBold" style={styles.tileDate} numberOfLines={1}>{getPhotoDateLabel(photo)}</ThemedText>
+                {photo.revisionId ? <Ionicons name="checkmark-circle" size={14} color={Accent.primary} /> : null}
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      )}
 
       <Modal transparent visible={isUploadModalOpen} animationType="fade" onRequestClose={closeUploadModal}>
         <Pressable style={styles.modalBackdrop} onPress={closeUploadModal}>
@@ -882,57 +732,49 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
             {previewPhoto ? (
               <>
                 <View style={styles.viewerHeader}>
-                  <View style={styles.viewerHeaderCopy}>
-                    <ThemedText type="small" style={styles.viewerHeaderMeta}>
-                      {formatRevisionDate(previewPhoto.revisionId ? (revisionById.get(previewPhoto.revisionId)?.reviewedAt ?? previewPhoto.capturedAt) : previewPhoto.capturedAt)}
-                      {previewPhoto.revisionId && revisionBodyFatById.get(previewPhoto.revisionId) !== undefined
-                        ? `  ·  ${formatBodyFatAverage(revisionBodyFatById.get(previewPhoto.revisionId) ?? null)}`
-                        : null}
-                    </ThemedText>
-                  </View>
                   <Pressable
                     onPress={() => setPreviewPhoto(null)}
-                    style={({ pressed }) => [styles.viewerClose, { backgroundColor: pressed ? '#1C2E50' : '#15294D' }]}>
-                    <ThemedText type="smallBold" style={styles.viewerCloseText}>×</ThemedText>
+                    accessibilityRole="button"
+                    accessibilityLabel="Cerrar foto"
+                    style={({ pressed }) => [styles.viewerClose, pressed && styles.pressed]}>
+                    <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
                   </Pressable>
+                  <View style={styles.viewerHeaderCopy}>
+                    <ThemedText type="smallBold" style={styles.viewerHeaderTitle}>
+                      {getPhotoDateLabel(previewPhoto)}
+                    </ThemedText>
+                    <ThemedText type="small" style={styles.viewerHeaderMeta}>
+                      {previewPhoto.revisionId ? 'Asociada a una revisión' : 'Foto de progreso'}
+                    </ThemedText>
+                  </View>
                 </View>
 
-                <Image source={{ uri: previewPhoto.imageUrl }} style={styles.viewerImage} contentFit="contain" transition={150} />
+                <View style={styles.viewerImageStage}>
+                  <Image source={{ uri: previewPhoto.imageUrl }} style={styles.viewerImage} contentFit="contain" transition={150} />
+                </View>
 
                 <View style={styles.viewerFooter}>
-                  <AppButton
-                    label="Descargar"
-                    variant="surface"
-                    size="compact"
-                    fullWidth={false}
-                    loading={isDownloading}
-                    onPress={() => void handleDownloadPhoto(previewPhoto)}
-                  />
-                  <AppButton
-                    label="Comparar"
-                    variant="surface"
-                    size="compact"
-                    fullWidth={false}
-                    onPress={() => openComparePicker(previewPhoto)}
-                  />
+                  <View style={styles.viewerActionRow}>
+                    <Pressable onPress={() => void handleDownloadPhoto(previewPhoto)} style={({ pressed }) => [styles.viewerAction, pressed && styles.pressed]}>
+                      <Ionicons name="download-outline" size={20} color="#FFFFFF" />
+                      <ThemedText type="smallBold" style={styles.viewerActionLabel}>{isDownloading ? 'Guardando...' : 'Guardar'}</ThemedText>
+                    </Pressable>
+                    <Pressable onPress={() => openComparePicker(previewPhoto)} style={({ pressed }) => [styles.viewerAction, styles.viewerActionSecondary, pressed && styles.pressed]}>
+                      <Ionicons name="git-compare-outline" size={20} color="#FFFFFF" />
+                      <ThemedText type="smallBold" style={styles.viewerActionLabel}>Comparar</ThemedText>
+                    </Pressable>
+                  </View>
                   {!isAthlete && (
-                    <AppButton
-                      label="Editar"
-                      variant="surface"
-                      size="compact"
-                      fullWidth={false}
-                      onPress={() => openEditModal(previewPhoto)}
-                    />
-                  )}
-                  {!isAthlete && (
-                    <AppButton
-                      label="Eliminar"
-                      variant="danger"
-                      size="compact"
-                      fullWidth={false}
-                      loading={deletingPhotoId === previewPhoto.id}
-                      onPress={() => handleDeletePhoto(previewPhoto)}
-                    />
+                    <View style={styles.viewerActionRow}>
+                      <Pressable onPress={() => openEditModal(previewPhoto)} style={({ pressed }) => [styles.viewerTextAction, pressed && styles.pressed]}>
+                        <Ionicons name="create-outline" size={17} color="#9FB4D4" />
+                        <ThemedText type="smallBold" style={styles.viewerTextActionLabel}>Editar detalles</ThemedText>
+                      </Pressable>
+                      <Pressable onPress={() => handleDeletePhoto(previewPhoto)} style={({ pressed }) => [styles.viewerTextAction, pressed && styles.pressed]}>
+                        <Ionicons name="trash-outline" size={17} color="#FF9C9C" />
+                        <ThemedText type="smallBold" style={styles.viewerDeleteActionLabel}>{deletingPhotoId === previewPhoto.id ? 'Eliminando...' : 'Eliminar'}</ThemedText>
+                      </Pressable>
+                    </View>
                   )}
                 </View>
               </>
@@ -946,9 +788,9 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
           <Pressable style={[styles.comparePickerPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
             <View style={styles.modalHeader}>
               <View style={styles.viewerHeaderCopy}>
-                <ThemedText type="smallBold" style={styles.comparePickerTitle}>Comparar imagen</ThemedText>
+                <ThemedText type="smallBold" style={styles.comparePickerTitle}>Elige otra foto</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary" style={styles.comparePickerSubtitle}>
-                  Selecciona otra imagen de la galería para abrir la comparación.
+                  Se ordenarán automáticamente por fecha como antes/después.
                 </ThemedText>
               </View>
               <Pressable onPress={closeComparePicker} style={styles.modalCloseButton}>
@@ -958,22 +800,36 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
 
             {compareSourcePhoto ? (
               compareablePhotos.length > 0 ? (
-                <ScrollView style={styles.comparePickerScroll} contentContainerStyle={styles.comparePickerGrid} showsVerticalScrollIndicator={false}>
-                  {compareablePhotos.map((photo) => (
-                    <Pressable
-                      key={photo.id}
-                      onPress={() => openCompareView(photo)}
-                      style={({ pressed }) => [styles.comparePickerTile, { opacity: pressed ? 0.88 : 1 }]}>
-                      <Image source={{ uri: photo.imageUrl }} style={styles.comparePickerImage} contentFit="cover" transition={150} />
-                      <View style={styles.comparePickerTileCopy}>
-                        <ThemedText type="smallBold" numberOfLines={1}>Seleccionar</ThemedText>
-                        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                          {getPhotoDateLabel(photo)}
-                        </ThemedText>
-                      </View>
-                    </Pressable>
-                  ))}
-                </ScrollView>
+                <>
+                  <View style={styles.compareSourceSummary}>
+                    <Image source={{ uri: compareSourcePhoto.imageUrl }} style={styles.compareSourceThumbnail} contentFit="cover" />
+                    <View style={styles.compareSourceCopy}>
+                      <ThemedText type="small" style={styles.compareSourceLabel}>Foto actual</ThemedText>
+                      <ThemedText type="smallBold" style={styles.compareSourceDate}>{getPhotoDateLabel(compareSourcePhoto)}</ThemedText>
+                    </View>
+                  </View>
+                  <ScrollView style={styles.comparePickerScroll} contentContainerStyle={styles.comparePickerGrid} showsVerticalScrollIndicator={false}>
+                    {compareablePhotos.map((photo) => {
+                      const diffDays = Math.round((getPhotoDate(photo).getTime() - getPhotoDate(compareSourcePhoto).getTime()) / (24 * 60 * 60 * 1000));
+                      const diffLabel = diffDays === 0 ? 'Mismo día' : `${diffDays > 0 ? '+' : ''}${diffDays} d`;
+
+                      return (
+                        <Pressable
+                          key={photo.id}
+                          onPress={() => openCompareView(photo)}
+                          style={({ pressed }) => [styles.comparePickerTile, { opacity: pressed ? 0.88 : 1 }]}>
+                          <Image source={{ uri: photo.imageUrl }} style={styles.comparePickerImage} contentFit="cover" transition={150} />
+                          <View style={styles.comparePickerTileCopy}>
+                            <ThemedText type="smallBold" style={styles.compareCardLabel} numberOfLines={1}>{getPhotoDateLabel(photo)}</ThemedText>
+                            <View style={styles.comparePickerDiffBadge}>
+                              <ThemedText type="small" style={styles.comparePickerDiffBadgeText}>{diffLabel}</ThemedText>
+                            </View>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </>
               ) : (
                 <EmptyState
                   title="No hay otra imagen"
@@ -989,147 +845,98 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
 
       <Modal transparent visible={Boolean(compareSourcePhoto && compareTargetPhoto)} animationType="fade" onRequestClose={closeCompareView}>
         <Pressable style={styles.viewerBackdrop} onPress={closeCompareView}>
-          <View style={[styles.comparePanel, { borderColor: theme.backgroundSelected }]}>
+          <Pressable style={[styles.comparePanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
             {compareSourcePhoto && compareTargetPhoto ? (
               <>
                 <View style={styles.modalHeader}>
+                  <View style={styles.compareHeaderIconWrap}>
+                    <Ionicons name="git-compare" size={20} color={Accent.primary} />
+                  </View>
                   <View style={styles.viewerHeaderCopy}>
-                    <ThemedText type="smallBold" style={styles.comparePickerTitle}>Comparación de imágenes</ThemedText>
+                    <ThemedText type="smallBold" style={styles.comparePickerTitle}>Comparación de progreso</ThemedText>
                     <ThemedText type="small" themeColor="textSecondary" style={styles.comparePickerSubtitle}>
-                      Visualiza ambas imágenes a la vez.
+                      {client.name}
                     </ThemedText>
                   </View>
-                  <Pressable onPress={closeCompareView} style={styles.modalCloseButton}>
+                  <Pressable onPress={closeCompareView} style={styles.modalCloseButton} accessibilityRole="button" accessibilityLabel="Cerrar comparación">
                     <ThemedText type="smallBold" style={styles.modalCloseText}>×</ThemedText>
                   </Pressable>
                 </View>
 
+                <View style={styles.compareMetaRow}>
+                  <View style={styles.compareMetaBadge}>
+                    <Ionicons name="time-outline" size={14} color={Accent.primary} />
+                    <ThemedText type="small" style={styles.compareMetaBadgeText}>{compareElapsedLabel}</ThemedText>
+                  </View>
+                  <Pressable
+                    onPress={swapComparePhotos}
+                    accessibilityRole="button"
+                    accessibilityLabel="Invertir orden de las fotos"
+                    style={({ pressed }) => [styles.compareSwapButton, pressed && styles.pressed]}>
+                    <Ionicons name="swap-horizontal" size={15} color="#FFFFFF" />
+                    <ThemedText type="small" style={styles.compareSwapButtonText}>Invertir</ThemedText>
+                  </Pressable>
+                </View>
+
                 <View style={styles.compareCaptureArea}>
-                  <View style={styles.compareGrid}>
-                  <View style={styles.compareCard}>
-                    <ThemedText type="smallBold" style={styles.compareCardLabel}>Imagen original</ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary" style={styles.compareCardMeta}>
-                      {getPhotoDateLabel(compareSourcePhoto)}
-                    </ThemedText>
-                    <View style={[styles.compareImageViewport, { height: compareImageHeight }]} {...compareSourcePanResponder.panHandlers}>
-                      <View
-                        style={[
-                          styles.compareImageCanvas,
-                          {
-                            transform: [
-                              { scale: compareSourceZoom },
-                              { translateX: compareSourceOffset.x },
-                              { translateY: compareSourceOffset.y },
-                            ],
-                          },
-                        ]}>
-                        <Image
-                          source={{ uri: compareSourcePhoto.imageUrl }}
-                          style={styles.compareImage}
-                          contentFit="contain"
-                          transition={150}
+                  <GestureHandlerRootView style={styles.compareGrid}>
+                    <View style={styles.compareCard}>
+                      <View style={styles.compareImageFrame}>
+                        <ZoomableCompareImage
+                          uri={compareSourcePhoto.imageUrl}
+                          height={compareImageHeight}
+                          gesture={sourceZoom.gesture}
+                          animatedStyle={sourceZoom.animatedStyle}
+                          onReset={sourceZoom.resetZoom}
                         />
+                        <View style={[styles.compareChip, styles.compareChipBefore]}>
+                          <ThemedText type="small" style={styles.compareChipTextBefore}>ANTES</ThemedText>
+                        </View>
+                      </View>
+                      <View style={styles.compareCardFooter}>
+                        <ThemedText type="smallBold" style={styles.compareCardMeta}>{getPhotoDateLabel(compareSourcePhoto)}</ThemedText>
+                        {compareSourcePhoto.revisionId ? <Ionicons name="checkmark-circle" size={13} color="#7A9CC4" /> : null}
                       </View>
                     </View>
-                    <View style={styles.compareCardControls}>
-                      <View style={styles.compareZoomStepper}>
-                        <Pressable
-                          onPressIn={() => startCompareZoomHold(-1, 'source')}
-                          onPressOut={() => stopCompareZoomHold('source')}
-                          style={({ pressed }) => [styles.compareZoomButton, pressed && styles.compareZoomButtonPressed]}>
-                          <ThemedText type="smallBold" style={styles.compareZoomButtonLabel}>−</ThemedText>
-                        </Pressable>
-                        <TextInput
-                          value={compareSourceZoomInput}
-                          onFocus={() => setIsCompareSourceZoomEditing(true)}
-                          onChangeText={handleSourceZoomTextChange}
-                          onBlur={handleSourceZoomInputBlur}
-                          onSubmitEditing={handleSourceZoomInputBlur}
-                          keyboardType="numeric"
-                          maxLength={3}
-                          returnKeyType="done"
-                          selectTextOnFocus
-                          style={styles.compareZoomControlInput}
-                          placeholderTextColor="#7A9CC4"
-                        />
-                        <ThemedText type="smallBold" style={styles.compareZoomControlUnit}>%</ThemedText>
-                        <Pressable
-                          onPressIn={() => startCompareZoomHold(1, 'source')}
-                          onPressOut={() => stopCompareZoomHold('source')}
-                          style={({ pressed }) => [styles.compareZoomButton, pressed && styles.compareZoomButtonPressed]}>
-                          <ThemedText type="smallBold" style={styles.compareZoomButtonLabel}>+</ThemedText>
-                        </Pressable>
-                      </View>
-                    </View>
-                  </View>
 
-                  <View style={styles.compareCard}>
-                    <ThemedText type="smallBold" style={styles.compareCardLabel}>Imagen seleccionada</ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary" style={styles.compareCardMeta}>
-                      {getPhotoDateLabel(compareTargetPhoto)}
-                    </ThemedText>
-                    <View style={[styles.compareImageViewport, { height: compareImageHeight }]} {...compareTargetPanResponder.panHandlers}>
-                      <View
-                        style={[
-                          styles.compareImageCanvas,
-                          {
-                            transform: [
-                              { scale: compareTargetZoom },
-                              { translateX: compareTargetOffset.x },
-                              { translateY: compareTargetOffset.y },
-                            ],
-                          },
-                        ]}>
-                        <Image
-                          source={{ uri: compareTargetPhoto.imageUrl }}
-                          style={styles.compareImage}
-                          contentFit="contain"
-                          transition={150}
+                    <View style={styles.compareCard}>
+                      <View style={styles.compareImageFrame}>
+                        <ZoomableCompareImage
+                          uri={compareTargetPhoto.imageUrl}
+                          height={compareImageHeight}
+                          gesture={targetZoom.gesture}
+                          animatedStyle={targetZoom.animatedStyle}
+                          onReset={targetZoom.resetZoom}
                         />
+                        <View style={[styles.compareChip, styles.compareChipAfter]}>
+                          <ThemedText type="small" style={styles.compareChipTextAfter}>DESPUÉS</ThemedText>
+                        </View>
+                      </View>
+                      <View style={styles.compareCardFooter}>
+                        <ThemedText type="smallBold" style={styles.compareCardMeta}>{getPhotoDateLabel(compareTargetPhoto)}</ThemedText>
+                        {compareTargetPhoto.revisionId ? <Ionicons name="checkmark-circle" size={13} color={Accent.primary} /> : null}
                       </View>
                     </View>
-                    <View style={styles.compareCardControls}>
-                      <View style={styles.compareZoomStepper}>
-                        <Pressable
-                          onPressIn={() => startCompareZoomHold(-1, 'target')}
-                          onPressOut={() => stopCompareZoomHold('target')}
-                          style={({ pressed }) => [styles.compareZoomButton, pressed && styles.compareZoomButtonPressed]}>
-                          <ThemedText type="smallBold" style={styles.compareZoomButtonLabel}>−</ThemedText>
-                        </Pressable>
-                        <TextInput
-                          value={compareTargetZoomInput}
-                          onFocus={() => setIsCompareTargetZoomEditing(true)}
-                          onChangeText={handleTargetZoomTextChange}
-                          onBlur={handleTargetZoomInputBlur}
-                          onSubmitEditing={handleTargetZoomInputBlur}
-                          keyboardType="numeric"
-                          maxLength={3}
-                          returnKeyType="done"
-                          selectTextOnFocus
-                          style={styles.compareZoomControlInput}
-                          placeholderTextColor="#7A9CC4"
-                        />
-                        <ThemedText type="smallBold" style={styles.compareZoomControlUnit}>%</ThemedText>
-                        <Pressable
-                          onPressIn={() => startCompareZoomHold(1, 'target')}
-                          onPressOut={() => stopCompareZoomHold('target')}
-                          style={({ pressed }) => [styles.compareZoomButton, pressed && styles.compareZoomButtonPressed]}>
-                          <ThemedText type="smallBold" style={styles.compareZoomButtonLabel}>+</ThemedText>
-                        </Pressable>
-                      </View>
-                    </View>
-                  </View>
-                  </View>
+                  </GestureHandlerRootView>
 
-                  <ThemedText type="small" themeColor="textSecondary" style={styles.compareHelpText}>
-                    Arrastra cada imagen para centrarla y usa + / - para ajustar el zoom.
+                  <ThemedText type="small" style={styles.compareZoomHint}>
+                    Pellizca o desliza cada foto para ajustar el tamaño del físico. El ajuste se aplicará también al guardar la comparación.
                   </ThemedText>
                 </View>
 
+                <Pressable
+                  onPress={handleChangeComparisonTarget}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cambiar la foto de comparación"
+                  style={({ pressed }) => [styles.compareLinkButton, pressed && styles.pressed]}>
+                  <Ionicons name="image-outline" size={15} color="#9FB4D4" />
+                  <ThemedText type="small" style={styles.compareLinkButtonText}>Cambiar foto de comparación</ThemedText>
+                </Pressable>
+
                 <View style={styles.compareFooter}>
                   <AppButton
-                    label="Descargar comparación"
-                    variant="surface"
+                    label="Guardar comparación"
+                    variant="primary"
                     size="compact"
                     fullWidth={false}
                     onPress={() => void handleDownloadComparison()}
@@ -1140,50 +947,28 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
 
                 <View ref={comparisonExportRef} collapsable={false} pointerEvents="none" style={[styles.comparisonExportHost, { width: compareExportWidth }]}>
                   <View style={styles.compareExportCaptureArea}>
+                    <View style={styles.compareExportHeader}>
+                      <ThemedText type="smallBold" style={styles.compareExportHeaderTitle}>{client.name}</ThemedText>
+                      <ThemedText type="small" style={styles.compareExportHeaderMeta}>{compareElapsedLabel} · EvoMetrics</ThemedText>
+                    </View>
                     <View style={styles.compareExportGrid}>
-                      <View style={[styles.compareExportCard, { width: compareExportLeftWidth }]}>
+                      <View style={[styles.compareExportCard, styles.compareExportCardDivider, { width: compareExportLeftWidth }]}>
                         <View style={[styles.compareExportImageViewport, { height: compareImageHeight }]}>
-                          <View
-                            style={[
-                              styles.compareExportImageCanvas,
-                              {
-                                transform: [
-                                  { scale: compareSourceZoom },
-                                  { translateX: compareSourceOffset.x },
-                                  { translateY: compareSourceOffset.y },
-                                ],
-                              },
-                            ]}>
-                            <Image
-                              source={{ uri: compareSourcePhoto.imageUrl }}
-                              style={styles.compareExportImage}
-                              contentFit="contain"
-                              transition={150}
-                            />
-                          </View>
+                          <AnimatedZoomImage source={{ uri: compareSourcePhoto.imageUrl }} style={[styles.compareExportImage, sourceZoom.animatedStyle]} contentFit="contain" transition={150} />
+                        </View>
+                        <View style={styles.compareExportCaption}>
+                          <ThemedText type="small" style={styles.compareExportCaptionLabel}>ANTES</ThemedText>
+                          <ThemedText type="small" style={styles.compareExportCaptionDate}>{getPhotoDateLabel(compareSourcePhoto)}</ThemedText>
                         </View>
                       </View>
 
                       <View style={[styles.compareExportCard, { width: compareExportRightWidth }]}>
                         <View style={[styles.compareExportImageViewport, { height: compareImageHeight }]}>
-                          <View
-                            style={[
-                              styles.compareExportImageCanvas,
-                              {
-                                transform: [
-                                  { scale: compareTargetZoom },
-                                  { translateX: compareTargetOffset.x },
-                                  { translateY: compareTargetOffset.y },
-                                ],
-                              },
-                            ]}>
-                            <Image
-                              source={{ uri: compareTargetPhoto.imageUrl }}
-                              style={styles.compareExportImage}
-                              contentFit="contain"
-                              transition={150}
-                            />
-                          </View>
+                          <AnimatedZoomImage source={{ uri: compareTargetPhoto.imageUrl }} style={[styles.compareExportImage, targetZoom.animatedStyle]} contentFit="contain" transition={150} />
+                        </View>
+                        <View style={styles.compareExportCaption}>
+                          <ThemedText type="small" style={styles.compareExportCaptionLabel}>DESPUÉS</ThemedText>
+                          <ThemedText type="small" style={styles.compareExportCaptionDate}>{getPhotoDateLabel(compareTargetPhoto)}</ThemedText>
                         </View>
                       </View>
                     </View>
@@ -1191,7 +976,7 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
                 </View>
               </>
             ) : null}
-          </View>
+          </Pressable>
         </Pressable>
       </Modal>
 
@@ -1242,20 +1027,183 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
 }
 
 const styles = StyleSheet.create({
+  screenContent: {
+    gap: 14,
+    paddingTop: 14,
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  backButton: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#DFE7F2',
+    borderRadius: Radius.pill,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 13,
+  },
+  backButtonText: {
+    color: '#10203B',
+  },
+  uploadButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 16,
+    backgroundColor: Accent.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pressed: {
+    opacity: 0.74,
+    transform: [{ scale: 0.98 }],
+  },
+  galleryHero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    shadowColor: '#12336E',
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
+  },
+  galleryHeroIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E8F0FF',
+  },
+  galleryHeroCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  galleryEyebrow: {
+    color: Accent.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  galleryTitle: {
+    color: '#10203B',
+    fontSize: 24,
+    lineHeight: 29,
+  },
+  gallerySubtitle: {
+    lineHeight: 18,
+  },
+  galleryCount: {
+    minWidth: 48,
+    alignItems: 'center',
+    borderRadius: 16,
+    backgroundColor: '#F3F7FD',
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+  },
+  galleryCountValue: {
+    color: Accent.primary,
+    fontSize: 18,
+    lineHeight: 21,
+  },
+  galleryCountLabel: {
+    color: '#6D7E98',
+    fontSize: 10,
+    lineHeight: 12,
+  },
+  gallerySectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  gallerySectionTitle: {
+    color: '#10203B',
+    fontSize: 21,
+    lineHeight: 26,
+  },
+  gallerySectionCount: {
+    minWidth: 28,
+    height: 28,
+    borderRadius: Radius.pill,
+    backgroundColor: '#E8F0FF',
+    color: Accent.primary,
+    textAlign: 'center',
+    paddingTop: 5,
+  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 12,
   },
   tile: {
-    width: '32%',
-    borderRadius: Radius.small,
+    width: '48.3%',
+    borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: Accent.primaryMuted,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E1E9F5',
+    padding: 4,
+  },
+  tilePressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.98 }],
   },
   preview: {
-    aspectRatio: 1,
+    aspectRatio: 0.78,
+    borderRadius: 14,
     width: '100%',
+  },
+  tileCaption: {
+    minHeight: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingTop: 7,
+    paddingBottom: 4,
+  },
+  tileDate: {
+    flex: 1,
+    color: '#334B6D',
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  emptyGallery: {
+    minHeight: 220,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+  },
+  emptyGalleryIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E8F0FF',
+  },
+  emptyGalleryTitle: {
+    color: '#10203B',
+  },
+  emptyGalleryDescription: {
+    maxWidth: 280,
+    textAlign: 'center',
+    lineHeight: 19,
   },
   modalBackdrop: {
     flex: 1,
@@ -1316,25 +1264,19 @@ const styles = StyleSheet.create({
   },
   viewerBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(13, 26, 51, 0.82)',
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.three,
+    backgroundColor: '#0D1A33',
   },
   viewerPanel: {
-    borderWidth: 1,
-    borderRadius: Radius.large,
+    flex: 1,
     backgroundColor: '#0D1A33',
-    overflow: 'hidden',
   },
   viewerHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     gap: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1C2E50',
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    paddingBottom: 14,
   },
   viewerHeaderCopy: {
     flex: 1,
@@ -1347,12 +1289,12 @@ const styles = StyleSheet.create({
     color: '#7A9CC4',
   },
   viewerClose: {
-    width: 30,
-    height: 30,
+    width: 40,
+    height: 40,
     borderRadius: Radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    flexShrink: 0,
+    backgroundColor: '#1B345E',
   },
   viewerCloseText: {
     color: '#FFFFFF',
@@ -1361,18 +1303,61 @@ const styles = StyleSheet.create({
   },
   viewerImage: {
     width: '100%',
-    height: 400,
+    height: '100%',
     backgroundColor: '#15294D',
   },
+  viewerImageStage: {
+    flex: 1,
+    minHeight: 260,
+    paddingHorizontal: 12,
+  },
   viewerFooter: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
     gap: Spacing.two,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderTopWidth: 1,
-    borderTopColor: '#1C2E50',
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 30,
+  },
+  viewerActionRow: {
+    flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  viewerAction: {
+    flex: 1,
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 14,
+    backgroundColor: Accent.primary,
+  },
+  viewerActionSecondary: {
+    backgroundColor: '#1B345E',
+  },
+  viewerActionLabel: {
+    color: '#FFFFFF',
+  },
+  viewerTextAction: {
+    flex: 1,
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  viewerTextActionLabel: {
+    color: '#B8CAE3',
+  },
+  viewerDeleteActionLabel: {
+    color: '#FFB1B1',
+  },
+  compareHeaderIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(31, 87, 214, 0.16)',
   },
   comparePickerPanel: {
     borderWidth: 1,
@@ -1380,7 +1365,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0D1A33',
     padding: Spacing.three,
     gap: Spacing.three,
-    maxWidth: 760,
+    maxWidth: 560,
     width: '100%',
     alignSelf: 'center',
   },
@@ -1391,7 +1376,34 @@ const styles = StyleSheet.create({
     color: '#7A9CC4',
   },
   comparePickerScroll: {
-    maxHeight: 520,
+    maxHeight: 500,
+  },
+  compareSourceSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#2B4A77',
+    borderRadius: 14,
+    backgroundColor: '#15294D',
+    padding: 8,
+  },
+  compareSourceThumbnail: {
+    width: 46,
+    height: 46,
+    borderRadius: 10,
+    backgroundColor: '#20385F',
+  },
+  compareSourceCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  compareSourceLabel: {
+    color: '#7A9CC4',
+  },
+  compareSourceDate: {
+    color: '#FFFFFF',
   },
   comparePickerGrid: {
     flexDirection: 'row',
@@ -1400,9 +1412,11 @@ const styles = StyleSheet.create({
   },
   comparePickerTile: {
     width: '48%',
-    borderRadius: Radius.medium,
+    borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: '#15294D',
+    borderWidth: 1,
+    borderColor: '#274975',
   },
   comparePickerImage: {
     width: '100%',
@@ -1410,9 +1424,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#15294D',
   },
   comparePickerTileCopy: {
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
-    gap: 2,
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+    paddingHorizontal: Spacing.one,
+    paddingVertical: 5,
+  },
+  comparePickerDiffBadge: {
+    borderRadius: Radius.pill,
+    backgroundColor: 'rgba(31, 87, 214, 0.22)',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  comparePickerDiffBadgeText: {
+    color: '#BFD3F7',
+    fontSize: 10,
+    lineHeight: 13,
   },
   comparePanel: {
     borderWidth: 1,
@@ -1425,7 +1454,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   compareCaptureArea: {
-    gap: Spacing.three,
+    gap: 14,
     overflow: 'hidden',
     borderRadius: Radius.medium,
     backgroundColor: '#0D1A33',
@@ -1451,6 +1480,42 @@ const styles = StyleSheet.create({
     margin: 0,
     backgroundColor: '#0D1A33',
   },
+  compareExportCardDivider: {
+    borderRightWidth: 2,
+    borderRightColor: '#1B345E',
+  },
+  compareExportHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 10,
+  },
+  compareExportHeaderTitle: {
+    color: '#FFFFFF',
+  },
+  compareExportHeaderMeta: {
+    color: '#7A9CC4',
+  },
+  compareExportCaption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  compareExportCaptionLabel: {
+    color: '#BFD3F7',
+    fontSize: 11,
+    letterSpacing: 0.6,
+  },
+  compareExportCaptionDate: {
+    color: '#7A9CC4',
+    fontSize: 11,
+  },
   compareExportImageViewport: {
     borderRadius: 0,
     overflow: 'hidden',
@@ -1458,12 +1523,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
-  },
-  compareExportImageCanvas: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
   },
   compareExportImage: {
     width: '100%',
@@ -1476,98 +1535,131 @@ const styles = StyleSheet.create({
     top: 0,
     opacity: 1,
   },
-  compareHelpText: {
-    color: '#7A9CC4',
-    textAlign: 'center',
-    paddingHorizontal: Spacing.two,
+  compareMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  compareMetaBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: Radius.pill,
+    backgroundColor: 'rgba(31, 87, 214, 0.16)',
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+  },
+  compareMetaBadgeText: {
+    color: '#BFD3F7',
+  },
+  compareSwapButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: Radius.pill,
+    backgroundColor: '#1B345E',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  compareSwapButtonText: {
+    color: '#FFFFFF',
   },
   compareGrid: {
     flexDirection: 'row',
     flexWrap: 'nowrap',
-    gap: Spacing.two,
+    gap: 10,
     alignItems: 'stretch',
   },
   compareCard: {
     flex: 1,
     minWidth: 0,
-    gap: Spacing.one,
+    gap: 6,
+  },
+  compareImageFrame: {
+    position: 'relative',
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#274975',
   },
   compareImageViewport: {
-    height: 360,
-    borderRadius: Radius.medium,
-    overflow: 'hidden',
+    height: 250,
     backgroundColor: '#15294D',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  compareImageCanvas: {
-    ...StyleSheet.absoluteFillObject,
+  compareChip: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  compareChipBefore: {
+    backgroundColor: 'rgba(13, 26, 51, 0.8)',
+    borderColor: '#3A557F',
+  },
+  compareChipAfter: {
+    backgroundColor: Accent.primary,
+    borderColor: Accent.primary,
+  },
+  compareChipTextBefore: {
+    color: '#E3ECFB',
+    fontSize: 10,
+    letterSpacing: 0.6,
+  },
+  compareChipTextAfter: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    letterSpacing: 0.6,
+  },
+  compareCardFooter: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
+    gap: 6,
+  },
+  compareZoomResetButton: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
+    width: 28,
+    height: 28,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13, 26, 51, 0.72)',
+    borderWidth: 1,
+    borderColor: '#3A557F',
+  },
+  compareZoomHint: {
+    color: '#7A9CC4',
+    textAlign: 'center',
+    paddingHorizontal: 8,
   },
   compareCardLabel: {
     color: '#FFFFFF',
   },
   compareCardMeta: {
-    color: '#7A9CC4',
+    color: '#D6E1F5',
   },
   compareImage: {
     width: '100%',
     height: '100%',
     backgroundColor: '#15294D',
   },
-  compareCardControls: {
+  compareLinkButton: {
     flexDirection: 'row',
+    alignSelf: 'center',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.two,
+    gap: 6,
+    minHeight: 30,
   },
-  compareZoomStepper: {
-    minWidth: 156,
-    minHeight: 34,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
-    paddingHorizontal: 3,
-    borderRadius: Radius.small,
-    borderWidth: 1,
-    borderColor: '#2B4A77',
-    backgroundColor: '#15294D',
-  },
-  compareZoomButton: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
-    backgroundColor: '#1C3760',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  compareZoomButtonPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.98 }],
-  },
-  compareZoomButtonLabel: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    lineHeight: 15,
-  },
-  compareZoomControlInput: {
-    minWidth: 32,
-    color: '#FFFFFF',
-    fontSize: 12,
-    lineHeight: 14,
-    fontWeight: '700',
-    textAlign: 'center',
-    paddingVertical: 0,
-    paddingHorizontal: 0,
-    includeFontPadding: false,
-  },
-  compareZoomControlUnit: {
-    color: '#7A9CC4',
-    fontSize: 11,
-    lineHeight: 12,
+  compareLinkButtonText: {
+    color: '#9FB4D4',
   },
   compareFooter: {
     flexDirection: 'row',
