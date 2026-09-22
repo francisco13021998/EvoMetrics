@@ -4,6 +4,7 @@ import React from 'react';
 import { Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { TrainerRoute } from '@/components/auth/auth-route';
 import { Accent, SystemChromeInset } from '@/constants/theme';
 
 const ACTIVE_COLOR = Accent.primary;
@@ -37,6 +38,7 @@ export default function TabsLayout() {
   const bottomInset = Platform.OS === 'android' ? insets.bottom : 0;
 
   return (
+    <TrainerRoute>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -109,5 +111,6 @@ export default function TabsLayout() {
         }}
       />
     </Tabs>
+    </TrainerRoute>
   );
 }

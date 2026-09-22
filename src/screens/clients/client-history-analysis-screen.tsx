@@ -11,13 +11,15 @@ import { PageHeader } from '@/components/layout/page-header';
 import { PageSection } from '@/components/layout/page-section';
 import { ScreenContainer } from '@/components/layout/screen-container';
 import { HistoryLineChart } from '@/components/surface/history-line-chart';
+import { ALL_PREPARATIONS_ID, formatPreparationLabel, PreparationSelector } from '@/components/surface/preparation-selector';
 import { ThemedText } from '@/components/themed-text';
 import { Accent, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
 import { clientsService } from '@/services/clients';
+import { preparationsService } from '@/services/preparations';
 import { revisionsService } from '@/services/revisions';
-import { Client } from '@/types/domain';
+import { Client, Preparation } from '@/types/domain';
 import {
     AnalysisMetricDefinition,
     SECONDARY_ANALYSIS_METRICS,
@@ -203,7 +205,9 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
   const { width } = useWindowDimensions();
   const [client, setClient] = useState<Client | null>(null);
   const currentClient = client as Client;
-  const [historicalRevisions, setHistoricalRevisions] = useState<HistoricalRevisionMetrics[]>([]);
+  const [preparations, setPreparations] = useState<Preparation[]>([]);
+  const [allHistoricalRevisions, setAllHistoricalRevisions] = useState<HistoricalRevisionMetrics[]>([]);
+  const [selectedPreparationId, setSelectedPreparationId] = useState<string>(ALL_PREPARATIONS_ID);
   const [isSecondaryExpanded, setIsSecondaryExpanded] = useState(false);
   const [expandedSecondaryGroups, setExpandedSecondaryGroups] = useState<Record<SecondaryGroupId, boolean>>({
     'body-fat-measurements': false,
@@ -226,7 +230,8 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
   const loadContent = useCallback(async () => {
     if (!user?.id) {
       setClient(null);
-      setHistoricalRevisions([]);
+      setPreparations([]);
+      setAllHistoricalRevisions([]);
       setIsLoading(false);
       return;
     }
@@ -241,24 +246,60 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
       setClient(nextClient);
 
       if (!nextClient) {
-        setHistoricalRevisions([]);
+        setPreparations([]);
+        setAllHistoricalRevisions([]);
         return;
       }
 
-      const revisions = await revisionsService.listByClient(nextClient.id);
-      setHistoricalRevisions(buildHistoricalRevisionMetrics(nextClient, revisions));
+      const [revisions, nextPreparations] = await Promise.all([
+        revisionsService.listByClient(nextClient.id),
+        isAthlete ? preparationsService.listByClientForViewer(nextClient.id) : preparationsService.listByClient(nextClient.id, user.id!),
+      ]);
+      setPreparations(nextPreparations);
+      setAllHistoricalRevisions(buildHistoricalRevisionMetrics(nextClient, revisions));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo cargar el análisis histórico.';
       setErrorMessage(message);
     } finally {
       setIsLoading(false);
     }
-  }, [clientId, user?.id]);
+  }, [clientId, isAthlete, user?.id]);
 
   useEffect(() => {
     void loadContent();
   }, [loadContent]);
 
+  // Selecciona la preparación actual (abierta) por defecto cada vez que se cargan las preparaciones.
+  useEffect(() => {
+    if (preparations.length === 0) {
+      return;
+    }
+
+    const current = preparations.find((preparation) => !preparation.endDate);
+    setSelectedPreparationId(current ? current.id : ALL_PREPARATIONS_ID);
+  }, [preparations]);
+
+  const selectedPreparation = preparations.find((preparation) => preparation.id === selectedPreparationId) ?? null;
+  const revisionCountByPreparationId = useMemo(() => {
+    const counts: Record<string, number> = {};
+
+    allHistoricalRevisions.forEach((revision) => {
+      const preparationId = revision.revision.preparationId;
+
+      if (preparationId) {
+        counts[preparationId] = (counts[preparationId] ?? 0) + 1;
+      }
+    });
+
+    return counts;
+  }, [allHistoricalRevisions]);
+  const historicalRevisions = useMemo(() => {
+    if (!selectedPreparation) {
+      return allHistoricalRevisions;
+    }
+
+    return allHistoricalRevisions.filter((revision) => revision.revision.preparationId === selectedPreparation.id);
+  }, [allHistoricalRevisions, selectedPreparation]);
   const currentRevision = historicalRevisions[0] ?? null;
   const latestRevision = historicalRevisions[0] ?? null;
   const chartSeries = useMemo(() => historicalRevisions.slice().reverse(), [historicalRevisions]);
@@ -319,7 +360,13 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
           return (
             <Pressable
               key={row.metric.key}
-              onPress={() => router.push(`/clients/${currentClient.id}/metrics/${row.metric.key}`)}
+              onPress={() =>
+                router.push(
+                  selectedPreparation
+                    ? `/clients/${currentClient.id}/metrics/${row.metric.key}?preparation=${selectedPreparation.id}`
+                    : `/clients/${currentClient.id}/metrics/${row.metric.key}`
+                )
+              }
               style={({ pressed }) => [
                 styles.secondaryMetricRow,
                 {
@@ -384,8 +431,8 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
         <EmptyState
           title="Cliente no encontrado"
           description="No se ha podido acceder a este cliente para construir el análisis histórico."
-          actionLabel="Volver a clientes"
-          onAction={() => router.replace('/clients')}
+          actionLabel={isAthlete ? 'Volver a mi resumen' : 'Volver a clientes'}
+          onAction={() => router.replace(isAthlete ? '/athlete' : '/clients')}
         />
       </ScreenContainer>
     );
@@ -419,9 +466,13 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
           <ThemedText type="headline" style={styles.headerTitle}>Análisis histórico</ThemedText>
           <EmptyState
             title="Todavía no hay revisiones para analizar"
-            description="Cuando registres la primera revisión aparecerán aquí el resumen, las gráficas y la comparativa histórica del cliente."
-            actionLabel="Crear primera revisión"
-            onAction={() => router.push(`/revisions/new?clientId=${client.id}`)}
+            description={
+              isAthlete
+                ? 'Cuando tu entrenador registre tu primera revisión aparecerán aquí el resumen, las gráficas y tu comparativa histórica.'
+                : 'Cuando registres la primera revisión aparecerán aquí el resumen, las gráficas y la comparativa histórica del cliente.'
+            }
+            actionLabel={isAthlete ? undefined : 'Crear primera revisión'}
+            onAction={isAthlete ? undefined : () => router.push(`/revisions/new?clientId=${client.id}`)}
           />
         </View>
       </ScreenContainer>
@@ -455,20 +506,30 @@ export function ClientHistoryAnalysisScreen({ clientId }: ClientHistoryAnalysisS
           </View>
           <View style={styles.headerCopy}>
             <ThemedText type="label" style={styles.headerEyebrow}>Análisis</ThemedText>
-            <ThemedText type="headline" style={styles.headerTitle}>Evolución histórica</ThemedText>
+            <ThemedText type="headline" style={styles.headerTitle}>{selectedPreparation ? 'Evolución de la preparación' : 'Evolución histórica'}</ThemedText>
             <ThemedText type="small" themeColor="textSecondary" style={styles.headerSubtitle}>
-              {client.name} · {historicalRevisions.length} revisiones registradas
+              {client.name} · {historicalRevisions.length} {historicalRevisions.length === 1 ? 'revisión' : 'revisiones'}
+              {selectedPreparation ? ` · ${formatPreparationLabel(selectedPreparation)}` : ''}
             </ThemedText>
           </View>
         </View>
 
       </View>
 
+      {preparations.length > 0 ? (
+        <PreparationSelector
+          preparations={preparations}
+          totalRevisions={allHistoricalRevisions.length}
+          revisionCountByPreparationId={revisionCountByPreparationId}
+          selectedId={selectedPreparationId}
+          onSelect={setSelectedPreparationId}
+        />
+      ) : null}
 
       <View style={[styles.analysisSection, { borderColor: theme.backgroundSelected }]}>
         <View style={styles.sectionHeader}>
           <View style={styles.sectionIconWrap}>
-            <Ionicons name="speedometer-outline" size={18} color={Accent.primary} />
+            <Ionicons name="speedometer-outline"size={18} color={Accent.primary} />
           </View>
           <View style={styles.sectionCopy}>
             <ThemedText type="label" style={styles.sectionEyebrow}>Resumen</ThemedText>

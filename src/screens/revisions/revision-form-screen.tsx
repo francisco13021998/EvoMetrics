@@ -1,8 +1,10 @@
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { Ionicons } from '@expo/vector-icons';
 
@@ -15,17 +17,19 @@ import { AppSelect } from '@/components/forms/app-select';
 import { PageHeader } from '@/components/layout/page-header';
 import { PageSection } from '@/components/layout/page-section';
 import { ScreenContainer } from '@/components/layout/screen-container';
+import { CameraCaptureModal, CameraCaptureShot } from '@/components/surface/camera-capture-modal';
+import { PhaseSelect } from '@/components/surface/phase-select';
 import { ThemedText } from '@/components/themed-text';
 import { FormulaInfoButton } from '@/components/ui/formula-info-button';
 import {
-    getActiveSkinfoldProtocolForAthleteLevel,
-    getAvailableSkinfoldProtocolsForAthleteLevel,
-    type SkinfoldProtocolFieldKey,
+  getActiveSkinfoldProtocolForAthleteLevel,
+  getAvailableSkinfoldProtocolsForAthleteLevel,
+  type SkinfoldProtocolFieldKey,
 } from '@/constants/athlete-level';
 import {
-    buildBodyFatFormulaInfoContent,
-    getPerimeterFormulaCodeForSex,
-    getSkinfoldFormulaCodeForAthleteLevel,
+  buildBodyFatFormulaInfoContent,
+  getPerimeterFormulaCodeForSex,
+  getSkinfoldFormulaCodeForAthleteLevel,
 } from '@/constants/body-fat-formulas';
 import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
@@ -34,24 +38,110 @@ import { bodyFatFormulasService, type BodyFatFormulaReference } from '@/services
 import { clientsService } from '@/services/clients';
 import { photosService } from '@/services/photos';
 import { revisionsService } from '@/services/revisions';
-import { Client, Revision } from '@/types/domain';
+import { Client, ClientPhoto, Revision } from '@/types/domain';
 import { isSupportedActivityFactor } from '@/utils/activity';
 import {
-    calculateBodyFatFromPerimeters,
-    calculateBodyFatFromSkinfolds,
-    calculateMaintenanceCalories,
+  calculateBodyFatFromPerimeters,
+  calculateBodyFatFromSkinfolds,
+  calculateMaintenanceCalories,
 } from '@/utils/calculations';
 import { getClientAge } from '@/utils/client-age';
 import {
-    findPreviousComparableRevisionByPerimeterFormula,
-    findPreviousComparableRevisionBySkinfoldFormula,
+  findPreviousComparableRevisionByPerimeterFormula,
+  findPreviousComparableRevisionBySkinfoldFormula,
 } from '@/utils/revision-comparisons';
 import { getPerimeterFieldKeysForSex } from '@/utils/revision-measurements';
 import {
-    REVISION_PHASE_OPTIONS,
-    isRevisionPhase,
-    normalizeRevisionPhase,
+  REVISION_PHASE_OPTIONS,
+  isRevisionPhase,
+  normalizeRevisionPhase,
 } from '@/utils/revisions';
+
+const AnimatedGuideImage = Animated.createAnimatedComponent(Image);
+const GUIDE_ZOOM_MIN_SCALE = 0.6;
+const GUIDE_ZOOM_MAX_SCALE = 4;
+
+function clampGuideZoomScale(value: number) {
+  'worklet';
+  return Math.min(Math.max(value, GUIDE_ZOOM_MIN_SCALE), GUIDE_ZOOM_MAX_SCALE);
+}
+
+function useGuideZoomTransform() {
+  const scale = useSharedValue(1);
+  const savedScale = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const savedTranslateX = useSharedValue(0);
+  const savedTranslateY = useSharedValue(0);
+
+  function resetZoom() {
+    scale.value = withTiming(1);
+    translateX.value = withTiming(0);
+    translateY.value = withTiming(0);
+    savedScale.value = 1;
+    savedTranslateX.value = 0;
+    savedTranslateY.value = 0;
+  }
+
+  const pinchGesture = Gesture.Pinch()
+    .onUpdate((event) => {
+      scale.value = clampGuideZoomScale(savedScale.value * event.scale);
+    })
+    .onEnd(() => {
+      savedScale.value = scale.value;
+    });
+
+  const panGesture = Gesture.Pan()
+    .minPointers(2)
+    .onUpdate((event) => {
+      translateX.value = savedTranslateX.value + event.translationX;
+      translateY.value = savedTranslateY.value + event.translationY;
+    })
+    .onEnd(() => {
+      savedTranslateX.value = translateX.value;
+      savedTranslateY.value = translateY.value;
+    });
+
+  const gesture = Gesture.Simultaneous(pinchGesture, panGesture);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+      { scale: scale.value },
+    ],
+  }));
+
+  return { gesture, animatedStyle, resetZoom };
+}
+
+type GuideZoomTransform = ReturnType<typeof useGuideZoomTransform>;
+
+type ZoomableGuideImageProps = {
+  source: number;
+  height: number;
+  gesture: GuideZoomTransform['gesture'];
+  animatedStyle: GuideZoomTransform['animatedStyle'];
+  onReset: GuideZoomTransform['resetZoom'];
+};
+
+function ZoomableGuideImage({ source, height, gesture, animatedStyle, onReset }: ZoomableGuideImageProps) {
+  return (
+    <View style={[styles.guideImageViewport, { height }]}>
+      <GestureDetector gesture={gesture}>
+        <AnimatedGuideImage source={source} style={[styles.guideModalImage, { height }, animatedStyle]} contentFit="contain" transition={150} />
+      </GestureDetector>
+      <Pressable
+        onPress={onReset}
+        accessibilityRole="button"
+        accessibilityLabel="Restablecer zoom de la imagen"
+        style={({ pressed }) => [styles.guideZoomResetButton, { opacity: pressed ? 0.78 : 1 }]}>
+        <Ionicons name="scan-outline" size={13} color="#FFFFFF" />
+      </Pressable>
+    </View>
+  );
+}
+
 
 type RevisionFormScreenProps = {
   mode: 'create' | 'edit';
@@ -85,7 +175,14 @@ type RevisionFormState = {
 };
 
 type FieldKey = Exclude<keyof RevisionFormState, 'phase' | 'reviewedAt' | 'notes'>;
-type SectionKey = 'context' | 'perimeters' | 'skinfolds' | 'composition' | 'notes';
+type SectionKey = 'context' | 'perimeters' | 'skinfolds' | 'composition' | 'notes' | 'images';
+
+// Forma mínima común entre lo que devuelve expo-image-picker (galería) y la cámara continua propia.
+type PickedImageAsset = {
+  uri: string;
+  fileName?: string | null;
+  mimeType?: string | null;
+};
 
 type RevisionFieldConfig = {
   key: FieldKey;
@@ -408,8 +505,26 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [uploadCapturedAt, setUploadCapturedAt] = useState<Date | null>(new Date());
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
-  const [pendingRevisionPhotoIds, setPendingRevisionPhotoIds] = useState<string[]>([]);
+  const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
+  const [pendingPhotos, setPendingPhotos] = useState<ClientPhoto[]>([]);
+  const [existingPhotos, setExistingPhotos] = useState<ClientPhoto[]>([]);
+  const [isRemovingPhotoId, setIsRemovingPhotoId] = useState<string | null>(null);
   const [isCompositionGuideOpen, setIsCompositionGuideOpen] = useState(false);
+  const primaryGuideZoom = useGuideZoomTransform();
+  const secondaryGuideZoom = useGuideZoomTransform();
+  const [guidePageIndex, setGuidePageIndex] = useState(0);
+  const guideScrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    if (isCompositionGuideOpen) {
+      primaryGuideZoom.resetZoom();
+      secondaryGuideZoom.resetZoom();
+      setGuidePageIndex(0);
+      guideScrollRef.current?.scrollTo({ x: 0, animated: false });
+    }
+    // Reinicia el zoom y la página cada vez que se abre la guía.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCompositionGuideOpen]);
 
   useEffect(() => {
     async function loadContext() {
@@ -473,6 +588,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
           setSelectedSkinfoldProtocolId(
             getInitialSkinfoldProtocolId(revision, nextClient.athleteLevel, revisionSkinfoldFormula?.code ?? nextSkinfoldFormulaInfo?.code)
           );
+          setExistingPhotos(await photosService.listByRevision(revisionId, user.id));
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'No se pudo cargar el formulario de revision.';
@@ -544,22 +660,25 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       };
 
       if (mode === 'create') {
+        // La preparación se resuelve sola en BBDD (trigger assign_revision_preparation): si la fase
+        // es "Inicio" cierra la preparación abierta del cliente y abre una nueva; si no, se cuelga
+        // de la que ya estuviera en curso.
         const createdRevision = await revisionsService.create({
           ...payload,
           ownerId: user.id,
         });
 
-        if (pendingRevisionPhotoIds.length > 0) {
+        if (pendingPhotos.length > 0) {
           await Promise.all(
-            pendingRevisionPhotoIds.map((photoId) =>
+            pendingPhotos.map((photo) =>
               photosService.updateRevision({
-                photoId,
+                photoId: photo.id,
                 ownerId: user.id,
                 revisionId: createdRevision.id,
               })
             )
           );
-          setPendingRevisionPhotoIds([]);
+          setPendingPhotos([]);
         }
 
         router.replace(`/revisions/${createdRevision.id}`);
@@ -593,11 +712,62 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     setIsUploadModalOpen(false);
   }
 
-  async function handleUploadPhotoFromForm() {
-    if (!user?.id || !client || isUploadingPhoto) {
+  async function handleRemovePendingPhoto(photo: ClientPhoto) {
+    if (!user?.id || isRemovingPhotoId) {
       return;
     }
 
+    setIsRemovingPhotoId(photo.id);
+
+    try {
+      await photosService.remove(photo.id, user.id);
+      setPendingPhotos((currentPhotos) => currentPhotos.filter((current) => current.id !== photo.id));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo quitar la imagen.';
+      setErrorMessage(message);
+    } finally {
+      setIsRemovingPhotoId(null);
+    }
+  }
+
+  async function uploadPickedAssets(assets: PickedImageAsset[]) {
+    if (!user?.id || !client || isUploadingPhoto || assets.length === 0) {
+      return;
+    }
+
+    if (!uploadCapturedAt) {
+      setErrorMessage('Selecciona una fecha para la imagen.');
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsUploadingPhoto(true);
+
+    try {
+      const uploadedPhotos = await photosService.uploadManyFromDevice({
+        ownerId: user.id,
+        clientId: client.id,
+        revisionId: mode === 'edit' ? revisionId ?? null : null,
+        assets,
+        capturedAt: toDateOnlyIso(uploadCapturedAt),
+      });
+
+      if (mode === 'create') {
+        setPendingPhotos((currentPhotos) => [...currentPhotos, ...uploadedPhotos]);
+      } else {
+        setExistingPhotos((currentPhotos) => [...uploadedPhotos, ...currentPhotos]);
+      }
+
+      closeUploadModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo subir la imagen.';
+      setErrorMessage(message);
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  }
+
+  async function handlePickFromLibrary() {
     if (!uploadCapturedAt) {
       setErrorMessage('Selecciona una fecha para la imagen.');
       return;
@@ -624,28 +794,23 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       return;
     }
 
-    setIsUploadingPhoto(true);
+    await uploadPickedAssets(result.assets);
+  }
 
-    try {
-      const uploadedPhotos = await photosService.uploadManyFromDevice({
-        ownerId: user.id,
-        clientId: client.id,
-        revisionId: mode === 'edit' ? revisionId ?? null : null,
-        assets: result.assets,
-        capturedAt: toDateOnlyIso(uploadCapturedAt),
-      });
-
-      if (mode === 'create') {
-        setPendingRevisionPhotoIds((currentPhotoIds) => [...currentPhotoIds, ...uploadedPhotos.map((photo) => photo.id)]);
-      }
-
-      closeUploadModal();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'No se pudo subir la imagen.';
-      setErrorMessage(message);
-    } finally {
-      setIsUploadingPhoto(false);
+  function handleOpenCamera() {
+    if (!uploadCapturedAt) {
+      setErrorMessage('Selecciona una fecha para la imagen.');
+      return;
     }
+
+    setErrorMessage(null);
+    setIsUploadModalOpen(false);
+    setIsCameraModalOpen(true);
+  }
+
+  async function handleFinishCameraSession(shots: CameraCaptureShot[]) {
+    setIsCameraModalOpen(false);
+    await uploadPickedAssets(shots);
   }
 
   const { setField } = sectionFields(form, setForm);
@@ -653,7 +818,8 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   const isWide = width >= 960;
   const isMedium = width >= 720;
   const compositionGuidePanelWidth = Math.min(width - 24, 920);
-  const compositionGuideImageHeight = Math.min(height * 0.72, 760);
+  const compositionGuideImageHeight = Math.min(height * 0.34, 380);
+  const compositionGuidePageWidth = compositionGuidePanelWidth - Spacing.three * 2;
   const reviewedAtDate = form.reviewedAt ? new Date(form.reviewedAt) : null;
   const referencePlaceholders = useMemo<RevisionReferencePlaceholders | null>(() => {
     if (mode !== 'create' || !referenceRevision) {
@@ -819,11 +985,10 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     }),
     [activityFactorValue, client?.birthDate, client?.heightCm, client?.sex, form.weightKg, reviewedAtDate]
   );
-  const selectedPhaseLabel = REVISION_PHASE_OPTIONS.find((option) => option.value === normalizeRevisionPhase(form.phase))?.label ?? 'Sin fase';
 
   function renderWeightField() {
     return (
-      <View style={[styles.contextCell, isMedium && styles.contextCellThird]}>
+      <View style={[styles.contextCell, isMedium && styles.contextCellHalf]}>
         <AppInput
           label="Peso (kg)"
           hint={isCreateMode ? 'Obligatorio para crear la revision' : undefined}
@@ -885,6 +1050,53 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     );
   }
 
+  function renderImagesSectionBody() {
+    const photos = mode === 'create' ? pendingPhotos : existingPhotos;
+
+    return (
+      <View style={styles.imagesSectionBody}>
+        {photos.length > 0 ? (
+          <View style={styles.imagesGrid}>
+            {photos.map((photo) => (
+              <View key={photo.id} style={styles.imageTile}>
+                <Image source={{ uri: photo.imageUrl }} style={styles.imageTilePhoto} contentFit="cover" transition={150} />
+                {mode === 'create' ? (
+                  <Pressable
+                    onPress={() => void handleRemovePendingPhoto(photo)}
+                    disabled={isRemovingPhotoId === photo.id}
+                    accessibilityRole="button"
+                    accessibilityLabel="Quitar esta imagen"
+                    style={styles.imageTileRemove}>
+                    <Ionicons name={isRemovingPhotoId === photo.id ? 'hourglass-outline' : 'close'} size={13} color="#FFFFFF" />
+                  </Pressable>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        ) : (
+          <ThemedText type="small" themeColor="textSecondary" style={styles.imagesEmpty}>
+            Aún no se han añadido fotos a esta revisión.
+          </ThemedText>
+        )}
+
+        <Pressable
+          onPress={openUploadModal}
+          accessibilityRole="button"
+          accessibilityLabel="Añadir imagen a la revisión"
+          style={({ pressed }) => [styles.imagesAddButton, pressed && { opacity: 0.85 }]}>
+          <Ionicons name="add-circle-outline" size={18} color={Accent.primary} />
+          <ThemedText type="smallBold" style={styles.imagesAddButtonText}>Añadir imagen</ThemedText>
+        </Pressable>
+
+        <ThemedText type="small" themeColor="textSecondary" style={styles.imagesEmpty}>
+          {mode === 'create'
+            ? 'Se enlazan a la revisión al guardarla.'
+            : 'Se asocian a esta revisión en cuanto se suben.'}
+        </ThemedText>
+      </View>
+    );
+  }
+
   function renderSectionCard(
     sectionKey: SectionKey,
     title: string,
@@ -900,7 +1112,9 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
             ? 'resize-outline'
             : sectionKey === 'skinfolds'
               ? 'analytics-outline'
-              : 'document-text-outline';
+              : sectionKey === 'images'
+                ? 'images-outline'
+                : 'document-text-outline';
     const sectionHint =
       sectionKey === 'context'
         ? 'Cliente, fecha, fase y peso'
@@ -910,7 +1124,10 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
             ? 'Perímetros y análisis automático'
             : sectionKey === 'skinfolds'
               ? 'Pliegues y comparación'
-              : 'Observaciones de la sesión';
+              : sectionKey === 'images'
+                ? 'Fotos de progreso de la sesión'
+                : 'Observaciones de la sesión';
+    const revisionPhotoCount = pendingPhotos.length + existingPhotos.length;
     const sectionProgress =
       sectionKey === 'context'
         ? [form.phase, form.reviewedAt, form.weightKg].filter((value) => value.trim()).length
@@ -920,7 +1137,9 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
             ? completedRequiredPerimeters
             : sectionKey === 'skinfolds'
               ? completedSkinfolds
-              : form.notes.trim() ? 1 : 0;
+              : sectionKey === 'images'
+                ? revisionPhotoCount
+                : form.notes.trim() ? 1 : 0;
     const sectionTotal =
       sectionKey === 'context'
         ? 3
@@ -930,7 +1149,9 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
             ? perimeterFieldGroups.required.length
             : sectionKey === 'skinfolds'
               ? activeSkinfoldFields.length
-              : 1;
+              : sectionKey === 'images'
+                ? null
+                : 1;
 
     function toggleSection() {
       setActiveSections((currentSections) =>
@@ -965,7 +1186,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
           <View style={styles.sectionToggleMeta}>
             <View style={styles.sectionCountPill}>
               <ThemedText type="smallBold" style={styles.sectionCountText}>
-                {sectionProgress}/{sectionTotal || '—'}
+                {sectionTotal === null ? sectionProgress : `${sectionProgress}/${sectionTotal || '—'}`}
               </ThemedText>
             </View>
             <Ionicons
@@ -982,46 +1203,28 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
 
   function renderContextSectionBody() {
     return (
+      <>
+      <View style={styles.phaseSelectWrap}>
+        <PhaseSelect
+          value={form.phase}
+          onChange={(value) => setField('phase', normalizeRevisionPhase(value))}
+          showPreparationInfo={isCreateMode}
+        />
+      </View>
       <View style={styles.contextGrid}>
-        <View style={[styles.contextCell, isMedium && styles.contextCellThird]}>
-          <View style={styles.contextClientRow}>
-            <View style={styles.contextClientIcon}>
-              <Ionicons name="person-outline" size={17} color={Accent.primary} />
-            </View>
-            <View style={styles.contextClientCopy}>
-              <ThemedText type="small" themeColor="textSecondary" style={styles.contextClientLabel}>Cliente</ThemedText>
-              <ThemedText type="smallBold" style={styles.clientPillText}>{client?.name ?? '--'}</ThemedText>
-            </View>
-          </View>
-        </View>
-        <View style={[styles.contextCell, isMedium && styles.contextCellThird]}>
-          <AppSelect
-            label="Fase"
-            value={form.phase || ''}
-            options={REVISION_PHASE_OPTIONS.map((option) => ({
-              label: option.label,
-              value: option.value,
-            }))}
-            placeholder="Selecciona la fase"
-            onChange={(value) => setField('phase', normalizeRevisionPhase(value))}
-            helper={referencePlaceholders?.phase ? `Anterior: ${referencePlaceholders.phase}` : undefined}
-            containerStyle={styles.compactSelectShell}
-            pickerTextStyle={styles.compactPickerText}
-          />
-        </View>
-        <View style={[styles.contextCell, isMedium && styles.contextCellThird]}>
+        <View style={[styles.contextCell, isMedium && styles.contextCellHalf]}>
           <AppDateTimeInput
             label="Fecha"
             value={reviewedAtDate}
             onChange={(nextDate) => setField('reviewedAt', formatDateForInput(nextDate))}
             mode="date"
-            helper={referencePlaceholders?.reviewedAt ? `Anterior: ${referencePlaceholders.reviewedAt}` : undefined}
             shellStyle={styles.compactDateTimeShell}
             valueStyle={styles.compactDateTimeValue}
           />
         </View>
         {renderWeightField()}
       </View>
+    </>
     );
   }
 
@@ -1041,6 +1244,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         </View>
         <AppSelect
           label="Selecciona protocolo"
+          hideLabel
           value={selectedSkinfoldProtocolId}
           options={availableSkinfoldProtocols.map((protocol) => ({
             label: protocol.comingSoon ? `${protocol.label} · Próximamente` : protocol.label,
@@ -1072,6 +1276,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         </View>
         <AppSelect
           label="Selecciona protocolo"
+          hideLabel
           value={selectedPerimeterProtocolId}
           options={PERIMETER_PROTOCOL_OPTIONS.map((protocol) => ({
             label: protocol.label,
@@ -1214,11 +1419,6 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
           <View style={styles.headerCopy}>
             <ThemedText type="label" style={styles.headerEyebrow}>{mode === 'create' ? 'Nueva evaluación' : 'Actualización'}</ThemedText>
             <ThemedText type="headline" style={styles.headerTitle}>{mode === 'create' ? 'Crear revisión' : 'Editar revisión'}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.headerSubtitle}>
-              {mode === 'create'
-                ? 'Completa contexto, medidas, composición y notas sin salir del flujo.'
-                : 'Actualiza los datos de la revisión manteniendo el historial del cliente.'}
-            </ThemedText>
           </View>
         </View>
 
@@ -1232,10 +1432,6 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
             <ThemedText type="smallBold" style={styles.headerMetaValue}>
               {reviewedAtDate ? formatDateForDisplay(reviewedAtDate) : 'Sin fecha'}
             </ThemedText>
-          </View>
-          <View style={styles.headerMetaItem}>
-            <ThemedText type="small" themeColor="textSecondary">Fase</ThemedText>
-            <ThemedText type="smallBold" style={styles.headerMetaValue}>{selectedPhaseLabel}</ThemedText>
           </View>
         </View>
       </View>
@@ -1272,12 +1468,9 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
               <ThemedText type="smallBold" style={styles.compositionGuideTitle}>
                 Apoyo visual para estimar la grasa
               </ThemedText>
-              <ThemedText type="small" themeColor="textSecondary" style={styles.compositionGuideText}>
-                Abre la guía rápida sin salir del formulario.
-              </ThemedText>
             </View>
             <AppButton
-              label="Guia composición"
+              label="Guia"
               variant="surface"
               size="compact"
               fullWidth={false}
@@ -1345,6 +1538,8 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         </View>
       )}
 
+      {renderSectionCard('images', 'Imágenes', renderImagesSectionBody())}
+
       {renderSectionCard(
         'notes',
         'Notas',
@@ -1362,27 +1557,23 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
 
       {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
 
-      <View style={[styles.footerCard, isCreateMode && styles.footerCardCreate, { borderColor: theme.backgroundSelected }]}>
-        {isCreateMode ? (
-          <ThemedText type="small" themeColor="textSecondary" style={styles.footerHint}>
-            Revisa los datos clave y guarda para generar la revisión completa del cliente.
-          </ThemedText>
-        ) : null}
-        <View style={[styles.actions, isMedium && styles.actionsWide]}>
-          <View style={styles.actionPrimary}>
-            <AppButton label={mode === 'create' ? 'Guardar revision' : 'Guardar cambios'} onPress={handleSubmit} loading={isSubmitting} />
+      <View style={[styles.footerCard, { borderColor: theme.backgroundSelected }]}>
+        <View style={styles.footerHeaderRow}>
+          <View style={styles.footerIconWrap}>
+            <Ionicons name="checkmark-done-outline" size={20} color={Accent.primary} />
+          </View>
+          <View style={styles.footerCopy}>
+            <ThemedText type="smallBold" style={styles.footerTitle}>
+              {isCreateMode ? 'Todo listo para guardar' : 'Guardar cambios de la revisión'}
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.footerHint}>
+              {isCreateMode
+                ? 'Revisa los datos clave y guarda para generar la revisión completa del cliente.'
+                : 'Los cambios se aplican al guardar, sin afectar al resto del historial.'}
+            </ThemedText>
           </View>
         </View>
-        <AppButton
-          label={mode === 'edit' ? 'Subir imagen asociada' : 'Subir imagen'}
-          variant="surface"
-          onPress={openUploadModal}
-        />
-        {mode === 'create' ? (
-          <ThemedText type="small" themeColor="textSecondary" style={styles.footerHint}>
-            En creación, la imagen se sube y se enlaza al guardar la revisión. En edición se asocia de inmediato.
-          </ThemedText>
-        ) : null}
+        <AppButton label={mode === 'create' ? 'Guardar revision' : 'Guardar cambios'} onPress={handleSubmit} loading={isSubmitting} />
       </View>
       </View>
 
@@ -1404,13 +1595,47 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
               onChange={(value) => setUploadCapturedAt(value)}
             />
 
+            <View style={styles.uploadSourceRow}>
+              <Pressable
+                onPress={() => void handlePickFromLibrary()}
+                disabled={isUploadingPhoto}
+                accessibilityRole="button"
+                accessibilityLabel="Añadir desde la galería o archivos"
+                style={({ pressed }) => [styles.uploadSourceOption, pressed && { opacity: 0.85 }]}>
+                <View style={styles.uploadSourceIcon}>
+                  {isUploadingPhoto ? (
+                    <ActivityIndicator color={Accent.primary} size="small" />
+                  ) : (
+                    <Ionicons name="images-outline" size={20} color={Accent.primary} />
+                  )}
+                </View>
+                <ThemedText type="smallBold" style={styles.uploadSourceLabel}>Galería o archivos</ThemedText>
+              </Pressable>
+              <Pressable
+                onPress={handleOpenCamera}
+                disabled={isUploadingPhoto}
+                accessibilityRole="button"
+                accessibilityLabel="Hacer fotos con la cámara"
+                style={({ pressed }) => [styles.uploadSourceOption, pressed && { opacity: 0.85 }]}>
+                <View style={styles.uploadSourceIcon}>
+                  <Ionicons name="camera-outline" size={20} color={Accent.primary} />
+                </View>
+                <ThemedText type="smallBold" style={styles.uploadSourceLabel}>Cámara</ThemedText>
+              </Pressable>
+            </View>
+
             <View style={styles.modalActions}>
               <AppButton label="Cancelar" variant="ghost" size="compact" fullWidth={false} onPress={closeUploadModal} disabled={isUploadingPhoto} />
-              <AppButton label="Seleccionar y subir" size="compact" fullWidth={false} onPress={() => void handleUploadPhotoFromForm()} loading={isUploadingPhoto} />
             </View>
           </Pressable>
         </Pressable>
       </Modal>
+
+      <CameraCaptureModal
+        visible={isCameraModalOpen}
+        onClose={() => setIsCameraModalOpen(false)}
+        onFinish={(shots) => void handleFinishCameraSession(shots)}
+      />
 
       <Modal transparent visible={isCompositionGuideOpen} animationType="fade" onRequestClose={() => setIsCompositionGuideOpen(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setIsCompositionGuideOpen(false)}>
@@ -1431,12 +1656,50 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
               </Pressable>
             </View>
 
-            <Image
-              source={require('../../../assets/images/guia-composicion/porcentaje-graso.jpg')}
-              style={[styles.guideModalImage, { height: compositionGuideImageHeight }]}
-              contentFit="contain"
-              transition={150}
-            />
+            <GestureHandlerRootView style={{ height: compositionGuideImageHeight }}>
+              <ScrollView
+                ref={guideScrollRef}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                decelerationRate="fast"
+                onMomentumScrollEnd={(event) => {
+                  const nextIndex = Math.round(event.nativeEvent.contentOffset.x / compositionGuidePageWidth);
+                  setGuidePageIndex(Math.min(Math.max(nextIndex, 0), 1));
+                }}>
+                <View style={{ width: compositionGuidePageWidth }}>
+                  <ZoomableGuideImage
+                    source={require('../../../assets/images/guia-composicion/porcentaje-graso.jpg')}
+                    height={compositionGuideImageHeight}
+                    gesture={primaryGuideZoom.gesture}
+                    animatedStyle={primaryGuideZoom.animatedStyle}
+                    onReset={primaryGuideZoom.resetZoom}
+                  />
+                </View>
+                <View style={{ width: compositionGuidePageWidth }}>
+                  <ZoomableGuideImage
+                    source={require('../../../assets/images/guia-composicion/comparativa-porcentaje-grasa.jpg')}
+                    height={compositionGuideImageHeight}
+                    gesture={secondaryGuideZoom.gesture}
+                    animatedStyle={secondaryGuideZoom.animatedStyle}
+                    onReset={secondaryGuideZoom.resetZoom}
+                  />
+                </View>
+              </ScrollView>
+            </GestureHandlerRootView>
+
+            <View style={styles.guidePageDots}>
+              {[0, 1].map((pageIndex) => (
+                <View
+                  key={pageIndex}
+                  style={[styles.guidePageDot, pageIndex === guidePageIndex && styles.guidePageDotActive]}
+                />
+              ))}
+            </View>
+
+            <ThemedText type="small" themeColor="textSecondary" style={styles.guideZoomHint}>
+              Desliza para ver la otra imagen y pellizca para hacer zoom.
+            </ThemedText>
 
             <AppButton
               label="Cerrar guía"
@@ -1619,54 +1882,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.one,
   },
-  contextClientRow: {
-    minHeight: 56,
-    borderRadius: Radius.medium,
-    borderWidth: 1,
-    borderColor: '#DFE7F2',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#FFFFFF',
-  },
-  contextClientIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#EEF5FF',
-  },
-  contextClientCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 1,
-  },
-  contextClientValueWrap: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: '#F7FAFF',
-  },
-  contextClientLabel: {
-    lineHeight: 14,
-  },
-  contextEyebrow: {
-    color: Accent.primary,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  clientPill: {
-    borderWidth: 1,
-    borderRadius: Radius.pill,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    backgroundColor: '#FAFCFF',
-  },
-  clientPillText: {
-    color: '#10203B',
+  phaseSelectWrap: {
+    marginBottom: 12,
   },
   contextGrid: {
     flexDirection: 'row',
@@ -2119,28 +2336,85 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   footerCard: {
+    gap: 14,
     borderWidth: 1,
     borderRadius: Radius.large,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    gap: 4,
-  },
-  footerCardCreate: {
     backgroundColor: '#F9FCFF',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  footerHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  footerIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E8F0FF',
+    flexShrink: 0,
+  },
+  footerCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  footerTitle: {
+    color: '#10203B',
   },
   footerHint: {
-    lineHeight: 18,
-    paddingBottom: 6,
+    lineHeight: 17,
   },
-  actions: {
-    gap: 0,
+  imagesSectionBody: {
+    gap: 12,
   },
-  actionsWide: {
+  imagesGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
   },
-  actionPrimary: {
-    flex: 1,
+  imageTile: {
+    width: 76,
+    height: 76,
+    borderRadius: Radius.medium,
+    overflow: 'hidden',
+    backgroundColor: '#EEF3FB',
+  },
+  imageTilePhoto: {
+    width: '100%',
+    height: '100%',
+  },
+  imageTileRemove: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 20,
+    height: 20,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(16, 32, 59, 0.68)',
+  },
+  imagesEmpty: {
+    lineHeight: 18,
+  },
+  imagesAddButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 46,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#C6D6F2',
+    borderRadius: Radius.medium,
+    backgroundColor: '#FAFCFF',
+  },
+  imagesAddButtonText: {
+    color: Accent.primary,
   },
   modalBackdrop: {
     flex: 1,
@@ -2179,9 +2453,35 @@ const styles = StyleSheet.create({
   },
   modalActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'flex-end',
     alignItems: 'center',
     gap: Spacing.two,
+  },
+  uploadSourceRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  uploadSourceOption: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#E1E9F5',
+    borderRadius: Radius.medium,
+    backgroundColor: '#FAFCFF',
+    paddingVertical: 16,
+  },
+  uploadSourceIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E8F0FF',
+  },
+  uploadSourceLabel: {
+    color: '#10203B',
   },
   guideModalPanel: {
     borderWidth: 1,
@@ -2213,6 +2513,44 @@ const styles = StyleSheet.create({
     width: '100%',
     borderRadius: Radius.medium,
     backgroundColor: '#F5F8FD',
+  },
+  guideImageViewport: {
+    position: 'relative',
+    width: '100%',
+    borderRadius: Radius.medium,
+    overflow: 'hidden',
+    backgroundColor: '#F5F8FD',
+  },
+  guidePageDots: {
+    flexDirection: 'row',
+    alignSelf: 'center',
+    gap: 6,
+  },
+  guidePageDot: {
+    width: 6,
+    height: 6,
+    borderRadius: Radius.pill,
+    backgroundColor: '#D3DEEE',
+  },
+  guidePageDotActive: {
+    width: 16,
+    backgroundColor: Accent.primary,
+  },
+  guideZoomResetButton: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
+    width: 28,
+    height: 28,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(16, 32, 59, 0.62)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  guideZoomHint: {
+    textAlign: 'center',
   },
 });
 

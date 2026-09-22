@@ -487,7 +487,21 @@ export async function resyncDeviceNotificationsIfNeeded(clientData: ClientDashbo
   return true;
 }
 
+let syncDeviceNotificationsForUserInFlight: Promise<boolean> | null = null;
+
 export async function syncDeviceNotificationsForUser(userId: string) {
+  if (syncDeviceNotificationsForUserInFlight) {
+    return syncDeviceNotificationsForUserInFlight;
+  }
+
+  syncDeviceNotificationsForUserInFlight = performSyncDeviceNotificationsForUser(userId).finally(() => {
+    syncDeviceNotificationsForUserInFlight = null;
+  });
+
+  return syncDeviceNotificationsForUserInFlight;
+}
+
+async function performSyncDeviceNotificationsForUser(userId: string) {
   if (!supportsDeviceNotifications()) {
     return false;
   }

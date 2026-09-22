@@ -53,9 +53,22 @@ export type ClientPayment = {
   createdAt: string;
 };
 
+export type Preparation = {
+  id: string;
+  clientId: string;
+  ownerId: string;
+  phase: string | null;
+  name: string | null;
+  startDate: string;
+  endDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Revision = {
   id: string;
   clientId: string;
+  preparationId: string | null;
   phase: string | null;
   bmi: number | null;
   weightKg: number | null;

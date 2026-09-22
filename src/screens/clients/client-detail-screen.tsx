@@ -5,6 +5,7 @@ import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
 
 import { Ionicons } from '@expo/vector-icons';
 
+import { AthletePinModal } from '@/components/clients/athlete-pin-modal';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
@@ -20,6 +21,7 @@ import { formatAthleteLevelLabel } from '@/constants/athlete-level';
 import { Accent, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useTheme } from '@/hooks/use-theme';
+import { athletePinsService } from '@/services/athlete-pins';
 import { clientPaymentsService } from '@/services/client-payments';
 import { clientsService } from '@/services/clients';
 import { revisionsService } from '@/services/revisions';
@@ -76,6 +78,10 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
   const [revisionFrequencyValueInput, setRevisionFrequencyValueInput] = useState('4');
   const [revisionFrequencyUnit, setRevisionFrequencyUnit] = useState<RevisionFrequencyUnit>('week');
   const [revisionPage, setRevisionPage] = useState(1);
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [pinModalPin, setPinModalPin] = useState('');
+  const [pinModalExpiresAt, setPinModalExpiresAt] = useState('');
+  const [isGeneratingPin, setIsGeneratingPin] = useState(false);
 
   const showInitialLoading = isLoading && !client;
 
@@ -208,6 +214,23 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
     } finally {
       setIsUpdatingStatus(false);
     }
+  }
+
+  async function handleGeneratePin() {
+    if (!client || isAthlete) return;
+
+    setIsGeneratingPin(true);
+    const result = await athletePinsService.generateClientPin(client.id);
+    setIsGeneratingPin(false);
+
+    if (!result.success) {
+      Alert.alert('Error', result.error);
+      return;
+    }
+
+    setPinModalPin(result.pin);
+    setPinModalExpiresAt(result.expiresAt);
+    setPinModalVisible(true);
   }
 
   async function confirmDelete() {
@@ -579,6 +602,23 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
                 router.push(`/clients/${client.id}/edit`);
               }}
             />
+            {client.athleteUserId === null ? (
+              <AppButton
+                label={isGeneratingPin ? 'Generando PIN...' : 'Generar PIN de acceso'}
+                variant="surface"
+                size="compact"
+                loading={isGeneratingPin}
+                onPress={() => {
+                  setIsClientMenuOpen(false);
+                  void handleGeneratePin();
+                }}
+              />
+            ) : (
+              <View style={[styles.athleteLinkedBadge, { borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' }]}>
+                <View style={styles.timerDot} />
+                <ThemedText type="small" style={{ color: '#15803D' }}>Atleta vinculado</ThemedText>
+              </View>
+            )}
             <AppButton
               label="Eliminar cliente"
               variant="danger"
@@ -656,6 +696,14 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <AthletePinModal
+        visible={pinModalVisible}
+        pin={pinModalPin}
+        expiresAt={pinModalExpiresAt}
+        pinType="existing_client"
+        onClose={() => setPinModalVisible(false)}
+      />
     </ScreenContainer>
   );
 }
@@ -1102,5 +1150,15 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: '#22C55E',
+  },
+  athleteLinkedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    justifyContent: 'center',
   },
 });

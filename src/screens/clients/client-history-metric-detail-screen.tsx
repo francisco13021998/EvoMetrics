@@ -23,6 +23,7 @@ import { HistoricalRevisionMetrics, buildHistoricalRevisionMetrics } from '@/uti
 type ClientHistoryMetricDetailScreenProps = {
   clientId: string;
   metricKey: string;
+  preparationId?: string | null;
 };
 
 type MetricUnit = 'kg' | 'pct' | 'cm' | 'mm' | 'bmi';
@@ -101,15 +102,23 @@ function getMetricIcon(unit: MetricUnit): keyof typeof Ionicons.glyphMap {
   return 'analytics-outline';
 }
 
-export function ClientHistoryMetricDetailScreen({ clientId, metricKey }: ClientHistoryMetricDetailScreenProps) {
+export function ClientHistoryMetricDetailScreen({ clientId, metricKey, preparationId = null }: ClientHistoryMetricDetailScreenProps) {
   const { user, userRole } = useAuth();
   const isAthlete = userRole === 'athlete';
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const [client, setClient] = useState<Client | null>(null);
-  const [historicalRevisions, setHistoricalRevisions] = useState<HistoricalRevisionMetrics[]>([]);
+  const [allHistoricalRevisions, setHistoricalRevisions] = useState<HistoricalRevisionMetrics[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const historicalRevisions = useMemo(() => {
+    if (!preparationId) {
+      return allHistoricalRevisions;
+    }
+
+    return allHistoricalRevisions.filter((revision) => revision.revision.preparationId === preparationId);
+  }, [allHistoricalRevisions, preparationId]);
 
   const metric = useMemo(() => getSecondaryAnalysisMetricByKey(metricKey), [metricKey]);
 

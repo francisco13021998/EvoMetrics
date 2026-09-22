@@ -25,6 +25,7 @@ type DbRevisionRow = {
   id: string;
   owner_id: string;
   client_id: string;
+  preparation_id: string | null;
   phase: string | null;
   bmi: number | null;
   weight_kg: number | null;
@@ -122,6 +123,7 @@ function mapDbRevision(row: DbRevisionRow): Revision {
   return {
     id: row.id,
     clientId: row.client_id,
+    preparationId: row.preparation_id,
     phase: row.phase,
     bmi: row.bmi,
     weightKg: row.weight_kg,

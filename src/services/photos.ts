@@ -98,6 +98,16 @@ function getFileExtension(asset: LocalImageSource) {
   return 'jpg';
 }
 
+// "image/jpg" no es un tipo MIME válido (el registrado es "image/jpeg"); Supabase Storage lo rechaza
+// con "mime type image/jpg is not supported". Puede llegar así desde asset.mimeType (p. ej. capturas de
+// la cámara, que no siempre lo informan y caen al deducido por extensión) o al construirlo nosotros
+// mismos a partir de una extensión ".jpg".
+function normalizeContentType(asset: LocalImageSource) {
+  const rawContentType = asset.mimeType ?? `image/${getFileExtension(asset)}`;
+
+  return rawContentType.toLowerCase() === 'image/jpg' ? 'image/jpeg' : rawContentType;
+}
+
 function buildStorageFileName(asset: LocalImageSource) {
   const baseName = asset.fileName?.replace(/\.[^.]+$/, '') ?? 'photo';
   const safeBaseName = sanitizeFileNameSegment(baseName) || 'photo';
@@ -170,7 +180,7 @@ async function uploadSinglePhoto({ ownerId, clientId, asset, revisionId, capture
   const fileName = buildStorageFileName(asset);
   const storagePath = photosService.buildPath(ownerId, clientId, fileName);
   const body = await getFileArrayBuffer(asset.uri);
-  const contentType = asset.mimeType ?? `image/${getFileExtension(asset)}`;
+  const contentType = normalizeContentType(asset);
 
   const { error: uploadError } = await supabase.storage.from(CLIENT_IMAGES_BUCKET).upload(storagePath, body, {
     contentType,
@@ -409,7 +419,7 @@ export const photosService = {
     const fileName = buildStorageFileName(asset);
     const nextStoragePath = this.buildPath(currentPhoto.ownerId, currentPhoto.clientId, fileName);
     const body = await getFileArrayBuffer(asset.uri);
-    const contentType = asset.mimeType ?? `image/${getFileExtension(asset)}`;
+    const contentType = normalizeContentType(asset);
 
     const { error: uploadError } = await supabase.storage.from(CLIENT_IMAGES_BUCKET).upload(nextStoragePath, body, {
       contentType,

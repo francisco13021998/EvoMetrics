@@ -3,7 +3,6 @@ import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { AuthShell } from '@/components/auth/auth-shell';
-import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
 
 export function JoinScreen() {
@@ -12,21 +11,16 @@ export function JoinScreen() {
       brandSubtitle="Tu plataforma de evolución física"
       eyebrow="Unirme a EvoMetrics"
       title="¿Cómo quieres unirte?"
-      description="El acceso por PIN para atletas está en mantenimiento temporal. La opción de entrenador sigue disponible."
-      highlights={['Soon', 'Mantenimiento temporal', 'Rol adecuado']}
+      description="Elige tu rol para comenzar. Si eres atleta necesitarás el PIN de tu entrenador. Si eres entrenador te contactaremos para activar tu cuenta."
+      highlights={['Acceso seguro', 'Rol adecuado', 'Proceso guiado']}
       footerPrefix="¿Ya tienes cuenta?"
       footerAction="Iniciar sesión"
       footerSuffix=""
       onFooterPress={() => router.back()}>
       <View style={styles.actionsBlock}>
-        <StatusBanner
-          tone="warning"
-          title="Soon"
-          message="La invitación a atletas mediante PIN está bloqueada por mantenimiento."
-        />
         <AppButton
-          label="Soon"
-          disabled
+          label="Unirme como atleta"
+          onPress={() => router.push('/athlete-join')}
         />
         <AppButton
           label="Unirme como entrenador"

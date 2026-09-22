@@ -46,6 +46,22 @@
             "photo"
           ]
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Permite acceder a tus imágenes para añadirlas como fotos de progreso en EvoMetrics.",
+          "cameraPermission": "Permite usar la cámara para tomar fotos de progreso en EvoMetrics.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permite usar la cámara para tomar fotos de progreso en EvoMetrics.",
+          "microphonePermission": "EvoMetrics no usa el micrófono.",
+          "recordAudioAndroid": false
+        }
       ]
     ],
     "experiments": {

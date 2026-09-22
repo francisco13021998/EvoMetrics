@@ -121,7 +121,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   cardIconPrimary: {
-    backgroundColor: '#F3F7FF',
+    backgroundColor: Accent.primaryMuted,
   },
   iconCircle: {
     width: 42,

@@ -68,6 +68,7 @@ export const demoRevisions: Revision[] = [
   {
     id: 'revision-1',
     clientId: 'client-1',
+    preparationId: null,
     phase: 'Definicion',
     bmi: 21.68,
     weightKg: 61.2,
@@ -106,6 +107,7 @@ export const demoRevisions: Revision[] = [
   {
     id: 'revision-2',
     clientId: 'client-2',
+    preparationId: null,
     phase: 'Volumen',
     bmi: 24.09,
     weightKg: 79.8,

@@ -1,13 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, usePathname } from 'expo-router';
 import React, { ReactNode } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { Accent, SystemChromeInset } from '@/constants/theme';
+import { useAuth } from '@/hooks/use-auth';
 
-type TabId = 'home' | 'clients' | 'agenda' | 'pagos' | 'mas';
+type TabId = 'home' | 'clients' | 'agenda' | 'pagos' | 'mas' | 'athlete-home' | 'athlete-photos' | 'athlete-metrics';
 
 type PersistentTabShellProps = {
   children: ReactNode;
@@ -32,9 +33,46 @@ const TAB_ITEMS: TabItem[] = [
   { id: 'mas', label: 'Más', icon: 'ellipsis-horizontal', outlineIcon: 'ellipsis-horizontal', route: '/mas' },
 ];
 
+function getAthleteTabItems(clientId: string | null): TabItem[] {
+  return [
+    { id: 'athlete-home', label: 'Resumen', icon: 'grid', outlineIcon: 'grid-outline', route: '/athlete' },
+    {
+      id: 'athlete-photos',
+      label: 'Fotos',
+      icon: 'images',
+      outlineIcon: 'images-outline',
+      route: clientId ? `/clients/${clientId}/photos` : '/athlete',
+    },
+    {
+      id: 'athlete-metrics',
+      label: 'Análisis',
+      icon: 'stats-chart',
+      outlineIcon: 'stats-chart-outline',
+      route: clientId ? `/clients/${clientId}/metrics` : '/athlete',
+    },
+  ];
+}
+
+function getAthleteActiveTab(pathname: string): TabId {
+  if (pathname.endsWith('/photos')) {
+    return 'athlete-photos';
+  }
+
+  if (pathname.includes('/metrics')) {
+    return 'athlete-metrics';
+  }
+
+  return 'athlete-home';
+}
+
 export function PersistentTabShell({ children, activeTab }: PersistentTabShellProps) {
   const insets = useSafeAreaInsets();
   const bottomInset = Platform.OS === 'android' ? insets.bottom : 0;
+  const { userRole, athleteClientId } = useAuth();
+  const pathname = usePathname();
+  const isAthlete = userRole === 'athlete';
+  const tabItems = isAthlete ? getAthleteTabItems(athleteClientId) : TAB_ITEMS;
+  const currentTab = isAthlete ? getAthleteActiveTab(pathname) : activeTab;
 
   return (
     <View style={styles.wrapper}>
@@ -46,12 +84,15 @@ export function PersistentTabShell({ children, activeTab }: PersistentTabShellPr
           {bottomInset > 0 ? <View style={[styles.tabBarInset, { height: bottomInset }]} /> : null}
         </View>
 
-        {TAB_ITEMS.map((item) => {
-          const focused = item.id === activeTab;
+        {tabItems.map((item) => {
+          const focused = item.id === currentTab;
 
           return (
             <Pressable
               key={item.id}
+              accessibilityRole="button"
+              accessibilityLabel={item.label}
+              accessibilityState={{ selected: focused }}
               onPress={() => router.replace(item.route)}
               style={({ pressed }) => [styles.tabItem, { opacity: pressed ? 0.8 : 1 }]}>
               <Ionicons name={focused ? item.icon : item.outlineIcon} size={24} color={focused ? Accent.primary : '#9DB0D1'} />

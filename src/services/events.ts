@@ -227,6 +227,34 @@ function buildUpdateOccurrencePayload(payload: Partial<CreateEventOccurrenceInpu
 }
 
 export const eventsService = {
+  async listByClient(clientId: string) {
+    const { data, error } = await supabase
+      .from(EVENTS_TABLE)
+      .select('*')
+      .eq('client_id', clientId)
+      .order('start_date', { ascending: true });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data as DbEventRow[] | null)?.map(mapDbEvent) ?? [];
+  },
+
+  async listOccurrencesByClient(clientId: string) {
+    const { data, error } = await supabase
+      .from(EVENT_OCCURRENCES_TABLE)
+      .select('*')
+      .eq('client_id', clientId)
+      .order('planned_start_at', { ascending: true });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data as DbEventOccurrenceRow[] | null)?.map(mapDbEventOccurrence) ?? [];
+  },
+
   async listByOwner(ownerId: string) {
     const { data, error } = await supabase
       .from(EVENTS_TABLE)

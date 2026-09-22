@@ -47,3 +47,9 @@ app-example
 *.dmg
 *.pkg
 *.msi
+
+# Contexto de proyecto para sesiones de IA (fichero vivo local, no se versiona)
+PROJECT_CONTEXT.md
+
+# Estado/caché local de la CLI de Supabase (sesión, project-ref, versiones)
+supabase/.temp/

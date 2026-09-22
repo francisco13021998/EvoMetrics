@@ -30,11 +30,13 @@ type AuthContextValue = {
   session: Session | null;
   user: User | null;
   userRole: UserRole | null;
+  athleteClientId: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   signIn: (input: SignInWithPasswordInput) => Promise<void>;
   signUp: (input: SignUpInput) => Promise<SignUpResult>;
   signOut: () => Promise<void>;
+  refreshRole: () => Promise<void>;
 };
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -48,14 +50,42 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRoleLoading, setIsRoleLoading] = useState(false);
+  const [athleteClientId, setAthleteClientId] = useState<string | null>(null);
 
-  async function fetchRole(userId: string) {
+  async function resolveRole(userId: string): Promise<{ role: UserRole; clientId: string | null }> {
     const { data } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', userId)
       .maybeSingle();
-    setUserRole((data?.role as UserRole) ?? 'trainer');
+    const profileRole = data?.role as UserRole | undefined;
+
+    // El perfil puede figurar como entrenador (valor por defecto) aunque la cuenta esté
+    // vinculada a un cliente como atleta: en ese caso manda el vínculo.
+    const { data: linkedClient } = await supabase
+      .from('clients')
+      .select('id')
+      .eq('athlete_user_id', userId)
+      .limit(1)
+      .maybeSingle();
+
+    const role: UserRole = profileRole && profileRole !== 'trainer' ? profileRole : linkedClient ? 'athlete' : (profileRole ?? 'trainer');
+
+    return { role, clientId: role === 'athlete' ? ((linkedClient?.id as string | undefined) ?? null) : null };
+  }
+
+  async function fetchRole(userId: string) {
+    setIsRoleLoading(true);
+    try {
+      const resolved = await resolveRole(userId);
+      setUserRole(resolved.role);
+      setAthleteClientId(resolved.clientId);
+    } catch {
+      setUserRole((current) => current ?? 'trainer');
+    } finally {
+      setIsRoleLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -76,6 +106,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setSession(data.session);
           setUser(data.session?.user ?? null);
           if (data.session?.user) {
+            setIsRoleLoading(true);
             void fetchRole(data.session.user.id);
           }
         }
@@ -97,6 +128,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUser(nextSession?.user ?? null);
       setIsLoading(false);
       if (nextSession?.user) {
+        setIsRoleLoading(true);
         void fetchRole(nextSession.user.id);
       } else {
         setUserRole(null);
@@ -266,8 +298,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       session,
       user,
       userRole,
+      athleteClientId,
       isAuthenticated: Boolean(session?.user),
-      isLoading,
+      isLoading: isLoading || isRoleLoading,
       async signIn(input) {
         const { error } = await authService.signInWithPassword(input);
 
@@ -293,8 +326,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
           throw new Error(error.message);
         }
       },
+      async refreshRole() {
+        if (user?.id) {
+          await fetchRole(user.id);
+        }
+      },
     }),
-    [isLoading, session, user, userRole]
+    [athleteClientId, isLoading, isRoleLoading, session, user, userRole]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

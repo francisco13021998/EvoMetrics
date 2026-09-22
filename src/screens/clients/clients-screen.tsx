@@ -466,6 +466,22 @@ export function ClientsScreen() {
 
       {clientsError ? <StatusBanner tone="danger" message={clientsError} /> : null}
 
+      <View style={styles.sectionBlock}>
+        <View style={styles.metricsGrid}>
+          <DashboardMetricCard
+            icon={<Ionicons name="people" size={16} color="#FFFFFF" />}
+            label="Clientes activos"
+            value={String(activeClients.length)}
+          />
+          <DashboardMetricCard
+            icon={<Ionicons name="logo-euro" size={16} color="#FFFFFF" />}
+            label="Ganancias mensuales"
+            value={`${monthlyRevenue.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} €`}
+            tone="primary"
+          />
+        </View>
+      </View>
+
       <View style={styles.quickActionsCard}>
         <View style={styles.sectionHeadingRow}>
           <View>
@@ -491,28 +507,6 @@ export function ClientsScreen() {
               <ThemedText type="smallBold" style={styles.quickActionLabel}>{action.label}</ThemedText>
             </Pressable>
           ))}
-        </View>
-      </View>
-
-      <View style={styles.sectionBlock}>
-        <View style={styles.sectionHeadingRow}>
-          <View>
-            <ThemedText style={styles.sectionTitle}>Resumen</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">Estado actual del negocio</ThemedText>
-          </View>
-        </View>
-        <View style={styles.metricsGrid}>
-          <DashboardMetricCard
-            icon={<Ionicons name="people" size={16} color="#FFFFFF" />}
-            label="Clientes activos"
-            value={String(activeClients.length)}
-          />
-          <DashboardMetricCard
-            icon={<Ionicons name="logo-euro" size={16} color="#FFFFFF" />}
-            label="Ganancias mensuales"
-            value={`${monthlyRevenue.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} €`}
-            tone="primary"
-          />
         </View>
       </View>
 

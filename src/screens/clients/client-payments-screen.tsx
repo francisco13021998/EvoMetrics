@@ -1,7 +1,7 @@
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 
 import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
@@ -357,7 +357,15 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
           </View>
           <View style={styles.billingHeroCopy}>
             <ThemedText type="label" style={styles.billingEyebrow}>Facturación</ThemedText>
-            <ThemedText type="headline" style={styles.clientName}>{client.name}</ThemedText>
+            <ThemedText
+              type="headline"
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+              style={styles.clientName}>
+              {client.name}
+            </ThemedText>
           </View>
           <View style={[styles.statusPill, { backgroundColor: paymentStatus.isPending ? '#FFF1D9' : '#E4F8EC' }]}>
             <View style={[styles.statusDot, { backgroundColor: paymentStatus.isPending ? Accent.warning : Accent.success }]} />
