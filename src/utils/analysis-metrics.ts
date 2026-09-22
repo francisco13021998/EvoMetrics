@@ -73,9 +73,11 @@ export const SECONDARY_ANALYSIS_METRICS: AnalysisMetricDefinition[] = [
     direction: 'decrease-better',
     accessor: (revision) => revision.bellyCm,
   },
-  { key: 'pelvisCm', label: 'Perímetro pelvis', unit: 'cm', direction: 'neutral', accessor: (revision) => revision.revision.pelvisCm },
+  { key: 'pelvisCm', label: 'Perímetro cadera', unit: 'cm', direction: 'neutral', accessor: (revision) => revision.revision.pelvisCm },
   { key: 'gluteCm', label: 'Perímetro glúteo', unit: 'cm', direction: 'neutral', accessor: (revision) => revision.gluteCm },
   { key: 'thighCm', label: 'Perímetro muslo', unit: 'cm', direction: 'neutral', accessor: (revision) => revision.thighCm },
+  { key: 'calfCm', label: 'Perímetro gemelo', unit: 'cm', direction: 'neutral', accessor: (revision) => revision.revision.calfCm },
+  { key: 'torsoCm', label: 'Perímetro torso', unit: 'cm', direction: 'neutral', accessor: (revision) => revision.revision.torsoCm },
   { key: 'bicepFoldMm', label: 'Pliegue bíceps', unit: 'mm', direction: 'decrease-better', accessor: (revision) => revision.revision.bicepFoldMm },
   {
     key: 'tricepFoldMm',
@@ -152,7 +154,7 @@ export const SECONDARY_METRIC_GROUPS: SecondaryMetricGroupDefinition[] = [
   {
     id: 'perimeters',
     title: 'Perímetros',
-    metricKeys: ['neckCm', 'armCm', 'waistCm', 'bellyCm', 'pelvisCm', 'gluteCm', 'thighCm'],
+    metricKeys: ['neckCm', 'armCm', 'waistCm', 'bellyCm', 'pelvisCm', 'gluteCm', 'thighCm', 'calfCm', 'torsoCm'],
   },
 ];
 

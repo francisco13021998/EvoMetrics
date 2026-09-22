@@ -37,6 +37,8 @@ type DbRevisionRow = {
   pelvis_cm: number | null;
   glute_cm: number | null;
   thigh_cm: number | null;
+  calf_cm: number | null;
+  torso_cm: number | null;
   bicep_fold_mm: number | null;
   tricep_fold_mm: number | null;
   subscapular_fold_mm: number | null;
@@ -82,6 +84,8 @@ export type CreateRevisionInput = {
   pelvisCm?: number | null;
   gluteCm?: number | null;
   thighCm?: number | null;
+  calfCm?: number | null;
+  torsoCm?: number | null;
   bicepFoldMm?: number | null;
   tricepFoldMm?: number | null;
   subscapularFoldMm?: number | null;
@@ -135,6 +139,8 @@ function mapDbRevision(row: DbRevisionRow): Revision {
     pelvisCm: row.pelvis_cm,
     gluteCm: row.glute_cm,
     thighCm: row.thigh_cm,
+    calfCm: row.calf_cm,
+    torsoCm: row.torso_cm,
     bicepFoldMm: row.bicep_fold_mm,
     tricepFoldMm: row.tricep_fold_mm,
     subscapularFoldMm: row.subscapular_fold_mm,
@@ -322,6 +328,8 @@ function mapCreatePayload(payload: CreateRevisionInput, metrics: RevisionCompute
     pelvis_cm: payload.pelvisCm ?? null,
     glute_cm: payload.gluteCm ?? null,
     thigh_cm: payload.thighCm ?? null,
+    calf_cm: payload.calfCm ?? null,
+    torso_cm: payload.torsoCm ?? null,
     bicep_fold_mm: payload.bicepFoldMm ?? null,
     tricep_fold_mm: payload.tricepFoldMm ?? null,
     subscapular_fold_mm: payload.subscapularFoldMm ?? null,
@@ -364,6 +372,8 @@ function mapUpdatePayload(payload: CreateRevisionInput, metrics: RevisionCompute
     ...(payload.pelvisCm !== undefined ? { pelvis_cm: payload.pelvisCm } : {}),
     ...(payload.gluteCm !== undefined ? { glute_cm: payload.gluteCm } : {}),
     ...(payload.thighCm !== undefined ? { thigh_cm: payload.thighCm } : {}),
+    ...(payload.calfCm !== undefined ? { calf_cm: payload.calfCm } : {}),
+    ...(payload.torsoCm !== undefined ? { torso_cm: payload.torsoCm } : {}),
     ...(payload.bicepFoldMm !== undefined ? { bicep_fold_mm: payload.bicepFoldMm } : {}),
     ...(payload.tricepFoldMm !== undefined ? { tricep_fold_mm: payload.tricepFoldMm } : {}),
     ...(payload.subscapularFoldMm !== undefined ? { subscapular_fold_mm: payload.subscapularFoldMm } : {}),
@@ -477,6 +487,8 @@ export const revisionsService = {
       pelvisCm: payload.pelvisCm ?? currentRevision.pelvisCm,
       gluteCm: payload.gluteCm ?? currentRevision.gluteCm,
       thighCm: payload.thighCm ?? currentRevision.thighCm,
+      calfCm: payload.calfCm ?? currentRevision.calfCm,
+      torsoCm: payload.torsoCm ?? currentRevision.torsoCm,
       bicepFoldMm: payload.bicepFoldMm ?? currentRevision.bicepFoldMm,
       tricepFoldMm: payload.tricepFoldMm ?? currentRevision.tricepFoldMm,
       subscapularFoldMm: payload.subscapularFoldMm ?? currentRevision.subscapularFoldMm,

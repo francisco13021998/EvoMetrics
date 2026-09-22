@@ -80,6 +80,8 @@ export type Revision = {
   pelvisCm: number | null;
   gluteCm: number | null;
   thighCm: number | null;
+  calfCm: number | null;
+  torsoCm: number | null;
   bicepFoldMm: number | null;
   tricepFoldMm: number | null;
   subscapularFoldMm: number | null;

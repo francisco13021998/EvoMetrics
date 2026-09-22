@@ -142,6 +142,45 @@ function ZoomableGuideImage({ source, height, gesture, animatedStyle, onReset }:
   );
 }
 
+// Guía visual de cómo tomar cada perímetro, una imagen por perímetro y sexo.
+const PERIMETER_GUIDE_IMAGES: Partial<Record<string, { male: number; female: number }>> = {
+  neckCm: {
+    male: require('../../../assets/images/guia-perimetros-hombre/perimetro-cuello.png'),
+    female: require('../../../assets/images/guia-perimetros-mujer/perimetro-cuello.png'),
+  },
+  armCm: {
+    male: require('../../../assets/images/guia-perimetros-hombre/perimetro-brazo.png'),
+    female: require('../../../assets/images/guia-perimetros-mujer/perimetro-brazo.png'),
+  },
+  waistCm: {
+    male: require('../../../assets/images/guia-perimetros-hombre/perimetro-cintura.png'),
+    female: require('../../../assets/images/guia-perimetros-mujer/perimetro-cintura.png'),
+  },
+  bellyCm: {
+    male: require('../../../assets/images/guia-perimetros-hombre/perimetro-abdomen.png'),
+    female: require('../../../assets/images/guia-perimetros-mujer/perimetro-abdomen.png'),
+  },
+  pelvisCm: {
+    male: require('../../../assets/images/guia-perimetros-hombre/perimetro-cadera.png'),
+    female: require('../../../assets/images/guia-perimetros-mujer/perimetro-cadera.png'),
+  },
+  gluteCm: {
+    male: require('../../../assets/images/guia-perimetros-hombre/perimetro-gluteo.png'),
+    female: require('../../../assets/images/guia-perimetros-mujer/perimetro-gluteo.png'),
+  },
+  thighCm: {
+    male: require('../../../assets/images/guia-perimetros-hombre/perimetro-pierna.png'),
+    female: require('../../../assets/images/guia-perimetros-mujer/perimetro-pierna.png'),
+  },
+  calfCm: {
+    male: require('../../../assets/images/guia-perimetros-hombre/perimetro-gemelo.png'),
+    female: require('../../../assets/images/guia-perimetros-mujer/perimetro-gemelo.png'),
+  },
+  torsoCm: {
+    male: require('../../../assets/images/guia-perimetros-hombre/perimetro-torso.png'),
+    female: require('../../../assets/images/guia-perimetros-mujer/perimetro-torso.png'),
+  },
+};
 
 type RevisionFormScreenProps = {
   mode: 'create' | 'edit';
@@ -160,6 +199,8 @@ type RevisionFormState = {
   pelvisCm: string;
   gluteCm: string;
   thighCm: string;
+  calfCm: string;
+  torsoCm: string;
   bicepFoldMm: string;
   tricepFoldMm: string;
   subscapularFoldMm: string;
@@ -196,23 +237,16 @@ type RevisionReferencePlaceholders = Partial<Record<FieldKey, string>> & {
   notes?: string;
 };
 
-const PERIMETER_PROTOCOL_ID = 'perimeters';
-
-const PERIMETER_PROTOCOL_OPTIONS = [
-  {
-    label: 'Perímetros',
-    value: PERIMETER_PROTOCOL_ID,
-  },
-] as const;
-
 const PERIMETER_FIELDS: RevisionFieldConfig[] = [
   { key: 'neckCm', label: 'Cuello (cm)', placeholder: '31' },
   { key: 'armCm', label: 'Brazo (cm)', placeholder: '28' },
   { key: 'waistCm', label: 'Cintura (cm)', placeholder: '73' },
   { key: 'bellyCm', label: 'Abdomen (cm)', placeholder: '76' },
-  { key: 'pelvisCm', label: 'Pelvis (cm)', placeholder: '92' },
+  { key: 'pelvisCm', label: 'Cadera (cm)', placeholder: '92' },
   { key: 'gluteCm', label: 'Gluteo (cm)', placeholder: '96' },
   { key: 'thighCm', label: 'Muslo (cm)', placeholder: '55' },
+  { key: 'calfCm', label: 'Gemelo (cm)', placeholder: '36' },
+  { key: 'torsoCm', label: 'Torso (cm)', placeholder: '90' },
 ];
 
 const PERIMETER_FIELD_BY_KEY = Object.fromEntries(
@@ -248,6 +282,8 @@ const initialForm: RevisionFormState = {
   pelvisCm: '',
   gluteCm: '',
   thighCm: '',
+  calfCm: '',
+  torsoCm: '',
   bicepFoldMm: '',
   tricepFoldMm: '',
   subscapularFoldMm: '',
@@ -375,6 +411,8 @@ function mapRevisionToForm(revision: Revision): RevisionFormState {
     pelvisCm: toInputValue(revision.pelvisCm),
     gluteCm: toInputValue(revision.gluteCm),
     thighCm: toInputValue(revision.thighCm),
+    calfCm: toInputValue(revision.calfCm),
+    torsoCm: toInputValue(revision.torsoCm),
     bicepFoldMm: toInputValue(revision.bicepFoldMm),
     tricepFoldMm: toInputValue(revision.tricepFoldMm),
     subscapularFoldMm: toInputValue(revision.subscapularFoldMm),
@@ -394,18 +432,6 @@ function hasRevisionValue(value: number | null | undefined) {
   return value !== null && value !== undefined;
 }
 
-function hasSavedPerimeterMeasurements(revision: Revision) {
-  return [
-    revision.neckCm,
-    revision.armCm,
-    revision.waistCm,
-    revision.bellyCm,
-    revision.pelvisCm,
-    revision.gluteCm,
-    revision.thighCm,
-  ].some(hasRevisionValue);
-}
-
 function getSavedSkinfoldValueByField(revision: Revision): Record<SkinfoldProtocolFieldKey, number | null> {
   return {
     bicepFoldMm: revision.bicepFoldMm,
@@ -416,10 +442,6 @@ function getSavedSkinfoldValueByField(revision: Revision): Record<SkinfoldProtoc
     frontThighFoldMm: revision.frontThighFoldMm,
     calfFoldMm: revision.calfFoldMm,
   };
-}
-
-function getInitialPerimeterProtocolId(revision: Revision) {
-  return revision.perimeterFormulaId || hasSavedPerimeterMeasurements(revision) ? PERIMETER_PROTOCOL_ID : '';
 }
 
 function getInitialSkinfoldProtocolId(
@@ -500,7 +522,6 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   const [showPerimeterOptionals, setShowPerimeterOptionals] = useState(false);
   const [perimeterFormulaInfo, setPerimeterFormulaInfo] = useState<BodyFatFormulaReference | null>(null);
   const [skinfoldFormulaInfo, setSkinfoldFormulaInfo] = useState<BodyFatFormulaReference | null>(null);
-  const [selectedPerimeterProtocolId, setSelectedPerimeterProtocolId] = useState<string>('');
   const [selectedSkinfoldProtocolId, setSelectedSkinfoldProtocolId] = useState<string>('');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [uploadCapturedAt, setUploadCapturedAt] = useState<Date | null>(new Date());
@@ -514,6 +535,8 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   const secondaryGuideZoom = useGuideZoomTransform();
   const [guidePageIndex, setGuidePageIndex] = useState(0);
   const guideScrollRef = useRef<ScrollView>(null);
+  const [openPerimeterGuideKey, setOpenPerimeterGuideKey] = useState<string | null>(null);
+  const perimeterGuideZoom = useGuideZoomTransform();
 
   useEffect(() => {
     if (isCompositionGuideOpen) {
@@ -525,6 +548,14 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     // Reinicia el zoom y la página cada vez que se abre la guía.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCompositionGuideOpen]);
+
+  useEffect(() => {
+    if (openPerimeterGuideKey) {
+      perimeterGuideZoom.resetZoom();
+    }
+    // Reinicia el zoom cada vez que se abre la guía de un perímetro.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPerimeterGuideKey]);
 
   useEffect(() => {
     async function loadContext() {
@@ -560,7 +591,6 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         const latestClientRevision = nextRevisions[0] ?? null;
 
         if (mode === 'create') {
-          setSelectedPerimeterProtocolId('');
           setSelectedSkinfoldProtocolId('');
           setForm((currentForm) => ({
             ...currentForm,
@@ -584,7 +614,6 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
             : null;
 
           setForm(mapRevisionToForm(revision));
-          setSelectedPerimeterProtocolId(getInitialPerimeterProtocolId(revision));
           setSelectedSkinfoldProtocolId(
             getInitialSkinfoldProtocolId(revision, nextClient.athleteLevel, revisionSkinfoldFormula?.code ?? nextSkinfoldFormulaInfo?.code)
           );
@@ -626,6 +655,18 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       return;
     }
 
+    // Los perímetros son opcionales como bloque: si no se indica ninguno, la revisión se guarda sin
+    // ellos. Pero en cuanto se rellena uno de los que usa la fórmula de % graso, hacen falta todos
+    // para poder calcularlo; si no, avisamos en vez de guardar un cálculo a medias.
+    const missingRequiredPerimeterFields = perimeterFieldGroups.required.filter((field) => !form[field.key].trim());
+
+    if (missingRequiredPerimeterFields.length > 0 && missingRequiredPerimeterFields.length < perimeterFieldGroups.required.length) {
+      setErrorMessage(
+        `Faltan perímetros para calcular el % graso: ${missingRequiredPerimeterFields.map((field) => stripFieldLabel(field.label)).join(', ')}.`
+      );
+      return;
+    }
+
     setErrorMessage(null);
     setIsSubmitting(true);
 
@@ -635,13 +676,15 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         phase: normalizedPhase,
         reviewedAt: parseDateInputToIso(form.reviewedAt),
         weightKg,
-        neckCm: selectedPerimeterProtocolId ? parseNullableNumber(form.neckCm) : null,
-        armCm: selectedPerimeterProtocolId ? parseNullableNumber(form.armCm) : null,
-        waistCm: selectedPerimeterProtocolId ? parseNullableNumber(form.waistCm) : null,
-        bellyCm: selectedPerimeterProtocolId ? parseNullableNumber(form.bellyCm) : null,
-        pelvisCm: selectedPerimeterProtocolId ? parseNullableNumber(form.pelvisCm) : null,
-        gluteCm: selectedPerimeterProtocolId ? parseNullableNumber(form.gluteCm) : null,
-        thighCm: selectedPerimeterProtocolId ? parseNullableNumber(form.thighCm) : null,
+        neckCm: parseNullableNumber(form.neckCm),
+        armCm: parseNullableNumber(form.armCm),
+        waistCm: parseNullableNumber(form.waistCm),
+        bellyCm: parseNullableNumber(form.bellyCm),
+        pelvisCm: parseNullableNumber(form.pelvisCm),
+        gluteCm: parseNullableNumber(form.gluteCm),
+        thighCm: parseNullableNumber(form.thighCm),
+        calfCm: parseNullableNumber(form.calfCm),
+        torsoCm: parseNullableNumber(form.torsoCm),
         bicepFoldMm: selectedSkinfoldProtocolId ? parseNullableNumber(form.bicepFoldMm) : null,
         tricepFoldMm: selectedSkinfoldProtocolId ? parseNullableNumber(form.tricepFoldMm) : null,
         subscapularFoldMm: selectedSkinfoldProtocolId ? parseNullableNumber(form.subscapularFoldMm) : null,
@@ -654,7 +697,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         maintenanceKcal: parseNullableNumber(form.maintenanceKcal),
         maintenanceKcalEstimated: maintenanceEstimate,
         targetKcal: parseNullableNumber(form.targetKcal),
-        perimeterFormulaId: selectedPerimeterProtocolId ? perimeterFormulaInfo?.id ?? null : null,
+        perimeterFormulaId: perimeterFormulaInfo?.id ?? null,
         skinfoldFormulaId: selectedSkinfoldProtocolId ? skinfoldFormulaInfo?.id ?? null : null,
         notes: form.notes.trim() || null,
       };
@@ -820,6 +863,11 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   const compositionGuidePanelWidth = Math.min(width - 24, 920);
   const compositionGuideImageHeight = Math.min(height * 0.34, 380);
   const compositionGuidePageWidth = compositionGuidePanelWidth - Spacing.three * 2;
+  const perimeterGuidePanelWidth = Math.min(width - 24, 520);
+  const perimeterGuideImageHeight = Math.min(height * 0.5, 480);
+  const perimeterGuideSex = client?.sex === 'female' ? 'female' : 'male';
+  const openPerimeterGuideField = openPerimeterGuideKey ? PERIMETER_FIELD_BY_KEY[openPerimeterGuideKey as FieldKey] : null;
+  const openPerimeterGuideSource = openPerimeterGuideKey ? PERIMETER_GUIDE_IMAGES[openPerimeterGuideKey]?.[perimeterGuideSex] ?? null : null;
   const reviewedAtDate = form.reviewedAt ? new Date(form.reviewedAt) : null;
   const referencePlaceholders = useMemo<RevisionReferencePlaceholders | null>(() => {
     if (mode !== 'create' || !referenceRevision) {
@@ -835,6 +883,8 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       pelvisCm: toInputValue(referenceRevision.pelvisCm),
       gluteCm: toInputValue(referenceRevision.gluteCm),
       thighCm: toInputValue(referenceRevision.thighCm),
+      calfCm: toInputValue(referenceRevision.calfCm),
+      torsoCm: toInputValue(referenceRevision.torsoCm),
       bicepFoldMm: toInputValue(referenceRevision.bicepFoldMm),
       tricepFoldMm: toInputValue(referenceRevision.tricepFoldMm),
       subscapularFoldMm: toInputValue(referenceRevision.subscapularFoldMm),
@@ -864,7 +914,6 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     () => getAvailableSkinfoldProtocolsForAthleteLevel(client?.athleteLevel),
     [client?.athleteLevel]
   );
-  const isPerimeterProtocolSelected = selectedPerimeterProtocolId === PERIMETER_PROTOCOL_ID;
   const selectedSkinfoldProtocol = useMemo(
     () => availableSkinfoldProtocols.find((protocol) => protocol.id === selectedSkinfoldProtocolId) ?? null,
     [availableSkinfoldProtocols, selectedSkinfoldProtocolId]
@@ -878,22 +927,20 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     [selectedSkinfoldProtocol]
   );
   const completedSkinfolds = countCompletedFields(form, activeSkinfoldFields);
-  const currentPerimeterFormulaId = isPerimeterProtocolSelected ? perimeterFormulaInfo?.id ?? null : null;
+  const currentPerimeterFormulaId = perimeterFormulaInfo?.id ?? null;
   const currentSkinfoldFormulaId = selectedSkinfoldProtocol?.formulaCode ? skinfoldFormulaInfo?.id ?? null : null;
   const activityFactorValue = parseFieldValue(form.activityFactor);
   const perimeterFormulaContent = useMemo(
     () =>
-      isPerimeterProtocolSelected
-        ? buildBodyFatFormulaInfoContent(perimeterFormulaInfo?.code ?? getPerimeterFormulaCodeForSex(client?.sex), { sex: client?.sex, age: getClientAge(client, reviewedAtDate ?? new Date()) })
-        : null,
-    [client, isPerimeterProtocolSelected, perimeterFormulaInfo?.code, reviewedAtDate]
+      buildBodyFatFormulaInfoContent(perimeterFormulaInfo?.code ?? getPerimeterFormulaCodeForSex(client?.sex), { sex: client?.sex, age: getClientAge(client, reviewedAtDate ?? new Date()) }),
+    [client, perimeterFormulaInfo?.code, reviewedAtDate]
   );
   const skinfoldFormulaContent = useMemo(
     () => buildBodyFatFormulaInfoContent(selectedSkinfoldProtocol?.formulaCode ?? skinfoldFormulaInfo?.code, { sex: client?.sex, age: getClientAge(client, reviewedAtDate ?? new Date()) }),
     [client, selectedSkinfoldProtocol?.formulaCode, skinfoldFormulaInfo?.code, reviewedAtDate]
   );
   const perimeterCalculation = useMemo(() => {
-    if (!isPerimeterProtocolSelected || (client?.sex !== 'female' && client?.sex !== 'male')) {
+    if (client?.sex !== 'female' && client?.sex !== 'male') {
       return null;
     }
 
@@ -903,7 +950,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       gluteCm: parseFieldValue(form.gluteCm),
       heightCm: client.heightCm,
     });
-  }, [client?.heightCm, client?.sex, form.bellyCm, form.gluteCm, form.neckCm, isPerimeterProtocolSelected]);
+  }, [client?.heightCm, client?.sex, form.bellyCm, form.gluteCm, form.neckCm]);
   const previousComparablePerimeterRevision = useMemo(
     () => findPreviousComparableRevisionByPerimeterFormula(clientRevisions, revisionId, currentPerimeterFormulaId),
     [clientRevisions, currentPerimeterFormulaId, revisionId]
@@ -1014,6 +1061,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       <View style={styles.fieldGrid}>
         {fields.map((field) => {
           const isSecondary = tone === 'secondary';
+          const hasGuideImage = Boolean(PERIMETER_GUIDE_IMAGES[field.key]);
 
           return (
             <View
@@ -1043,6 +1091,15 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
                 style={field.key === 'bodyFatVisualPct' ? styles.compactPrimaryInputText : styles.compactInputText}
                 affixTextStyle={styles.compactAffixText}
               />
+              {hasGuideImage ? (
+                <Pressable
+                  onPress={() => setOpenPerimeterGuideKey(field.key)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Ver guía de cómo medir ${stripFieldLabel(field.label)}`}
+                  style={({ pressed }) => [styles.perimeterGuideButton, pressed && { opacity: 0.78 }]}>
+                  <ThemedText type="smallBold" style={styles.perimeterGuideButtonText}>i</ThemedText>
+                </Pressable>
+              ) : null}
             </View>
           );
         })}
@@ -1260,33 +1317,18 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     );
   }
 
-  function renderPerimeterProtocolSelector() {
+  function renderPerimeterInfoHeader() {
     return (
-      <View style={styles.skinfoldSelectorBlock}>
-        <View style={styles.skinfoldSelectorHeader}>
-          <ThemedText type="smallBold" style={styles.skinfoldSelectorTitle}>Protocolo de perímetros</ThemedText>
-          {isPerimeterProtocolSelected && perimeterFormulaInfo ? (
-            <FormulaInfoButton
-              title={perimeterFormulaInfo.title}
-              descriptionLines={perimeterFormulaInfo.descriptionLines}
-              content={perimeterFormulaContent}
-              accessibilityLabel="Información sobre la fórmula de perímetros"
-            />
-          ) : null}
-        </View>
-        <AppSelect
-          label="Selecciona protocolo"
-          hideLabel
-          value={selectedPerimeterProtocolId}
-          options={PERIMETER_PROTOCOL_OPTIONS.map((protocol) => ({
-            label: protocol.label,
-            value: protocol.value,
-          }))}
-          placeholder="Seleccionar protocolo"
-          onChange={setSelectedPerimeterProtocolId}
-          containerStyle={styles.skinfoldSelectShell}
-          pickerTextStyle={styles.skinfoldSelectText}
-        />
+      <View style={styles.skinfoldSelectorHeader}>
+        <ThemedText type="smallBold" style={styles.skinfoldSelectorTitle}>Perímetros</ThemedText>
+        {perimeterFormulaInfo ? (
+          <FormulaInfoButton
+            title={perimeterFormulaInfo.title}
+            descriptionLines={perimeterFormulaInfo.descriptionLines}
+            content={perimeterFormulaContent}
+            accessibilityLabel="Información sobre la fórmula de perímetros"
+          />
+        ) : null}
       </View>
     );
   }
@@ -1485,45 +1527,41 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         'perimeters',
         'Perímetros',
         <View style={styles.perimetersSectionBody}>
-          {renderPerimeterProtocolSelector()}
-          {isPerimeterProtocolSelected ? (
-            <>
-              <View style={[styles.measureGroup, styles.measureGroupPrimary, { borderColor: theme.backgroundSelected }]}>
-                <View style={styles.measureGroupHeader}>
-                  <View style={styles.measureGroupHeaderCopy}>
-                    <View style={styles.measureGroupTitleRow}>
-                      <ThemedText type="smallBold" style={styles.measureGroupTitle}>Usadas en cálculo</ThemedText>
-                    </View>
-                  </View>
-                  <View style={styles.measureGroupCountPill}>
-                    <ThemedText type="smallBold" style={styles.measureGroupCountText}>
-                      {completedRequiredPerimeters}/{perimeterFieldGroups.required.length}
-                    </ThemedText>
-                  </View>
+          {renderPerimeterInfoHeader()}
+          <View style={[styles.measureGroup, styles.measureGroupPrimary, { borderColor: theme.backgroundSelected }]}>
+            <View style={styles.measureGroupHeader}>
+              <View style={styles.measureGroupHeaderCopy}>
+                <View style={styles.measureGroupTitleRow}>
+                  <ThemedText type="smallBold" style={styles.measureGroupTitle}>Usadas en cálculo</ThemedText>
                 </View>
-                {renderFieldGrid(perimeterFieldGroups.required, 2)}
               </View>
-              {renderPerimeterSummary()}
-              <Pressable
-                onPress={() => setShowPerimeterOptionals((currentValue) => !currentValue)}
-                style={({ pressed }) => [styles.optionalsToggle, { opacity: pressed ? 0.78 : 1 }]}>
-                <ThemedText type="smallBold" style={styles.optionalsToggleText}>
-                  {showPerimeterOptionals ? 'Ocultar perímetros opcionales' : 'Añadir perímetros opcionales'}
+              <View style={styles.measureGroupCountPill}>
+                <ThemedText type="smallBold" style={styles.measureGroupCountText}>
+                  {completedRequiredPerimeters}/{perimeterFieldGroups.required.length}
                 </ThemedText>
-                <ThemedText type="smallBold" style={styles.optionalsToggleIcon}>
-                  {showPerimeterOptionals ? '−' : '+'}
-                </ThemedText>
-              </Pressable>
-              {showPerimeterOptionals ? (
-                <View style={[styles.measureGroup, styles.measureGroupSecondary, { borderColor: theme.backgroundSelected }]}>
-                  <View style={styles.measureGroupHeader}>
-                    <ThemedText type="smallBold" style={[styles.measureGroupTitle, styles.measureGroupTitleSecondary]}>Opcionales</ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">Secundarios</ThemedText>
-                  </View>
-                  {renderFieldGrid(perimeterFieldGroups.optional, 2, 'secondary')}
-                </View>
-              ) : null}
-            </>
+              </View>
+            </View>
+            {renderFieldGrid(perimeterFieldGroups.required, 2)}
+          </View>
+          {renderPerimeterSummary()}
+          <Pressable
+            onPress={() => setShowPerimeterOptionals((currentValue) => !currentValue)}
+            style={({ pressed }) => [styles.optionalsToggle, { opacity: pressed ? 0.78 : 1 }]}>
+            <ThemedText type="smallBold" style={styles.optionalsToggleText}>
+              {showPerimeterOptionals ? 'Ocultar perímetros opcionales' : 'Añadir perímetros opcionales'}
+            </ThemedText>
+            <ThemedText type="smallBold" style={styles.optionalsToggleIcon}>
+              {showPerimeterOptionals ? '−' : '+'}
+            </ThemedText>
+          </Pressable>
+          {showPerimeterOptionals ? (
+            <View style={[styles.measureGroup, styles.measureGroupSecondary, { borderColor: theme.backgroundSelected }]}>
+              <View style={styles.measureGroupHeader}>
+                <ThemedText type="smallBold" style={[styles.measureGroupTitle, styles.measureGroupTitleSecondary]}>Opcionales</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">Secundarios</ThemedText>
+              </View>
+              {renderFieldGrid(perimeterFieldGroups.optional, 2, 'secondary')}
+            </View>
           ) : null}
         </View>
       )}
@@ -1707,6 +1745,52 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
               size="compact"
               fullWidth={false}
               onPress={() => setIsCompositionGuideOpen(false)}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal transparent visible={Boolean(openPerimeterGuideKey)} animationType="fade" onRequestClose={() => setOpenPerimeterGuideKey(null)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setOpenPerimeterGuideKey(null)}>
+          <Pressable
+            style={[styles.guideModalPanel, { borderColor: theme.backgroundSelected, maxWidth: perimeterGuidePanelWidth }]}
+            onPress={() => null}>
+            <View style={styles.guideModalHeader}>
+              <View style={styles.guideModalTitleBlock}>
+                <ThemedText type="smallBold" style={styles.guideModalTitle}>
+                  {openPerimeterGuideField ? `Cómo medir: ${stripFieldLabel(openPerimeterGuideField.label)}` : 'Cómo medir'}
+                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary" style={styles.guideModalSubtitle}>
+                  Referencia visual para tomar este perímetro.
+                </ThemedText>
+              </View>
+              <Pressable onPress={() => setOpenPerimeterGuideKey(null)} style={styles.modalCloseButton}>
+                <ThemedText type="smallBold" style={styles.modalCloseText}>×</ThemedText>
+              </Pressable>
+            </View>
+
+            {openPerimeterGuideSource ? (
+              <GestureHandlerRootView style={{ height: perimeterGuideImageHeight }}>
+                <ZoomableGuideImage
+                  source={openPerimeterGuideSource}
+                  height={perimeterGuideImageHeight}
+                  gesture={perimeterGuideZoom.gesture}
+                  animatedStyle={perimeterGuideZoom.animatedStyle}
+                  onReset={perimeterGuideZoom.resetZoom}
+                />
+              </GestureHandlerRootView>
+            ) : null}
+
+            <ThemedText type="small" themeColor="textSecondary" style={styles.guideZoomHint}>
+              Pellizca para hacer zoom.
+            </ThemedText>
+
+            <AppButton
+              label="Cerrar"
+              variant="ghost"
+              size="compact"
+              fullWidth={false}
+              onPress={() => setOpenPerimeterGuideKey(null)}
             />
           </Pressable>
         </Pressable>
@@ -2262,6 +2346,24 @@ const styles = StyleSheet.create({
   },
   fieldCard: {
     gap: 4,
+  },
+  perimeterGuideButton: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: Accent.primary,
+    backgroundColor: '#F3F7FD',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  perimeterGuideButtonText: {
+    color: Accent.primary,
+    fontSize: 11,
+    lineHeight: 13,
   },
   fieldCardFull: {
     width: '100%',

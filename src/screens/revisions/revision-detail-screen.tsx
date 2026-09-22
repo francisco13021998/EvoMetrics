@@ -58,9 +58,11 @@ const PERIMETER_LABEL_BY_KEY = {
   armCm: 'Brazo',
   waistCm: 'Cintura',
   bellyCm: 'Abdomen',
-  pelvisCm: 'Pelvis',
+  pelvisCm: 'Cadera',
   gluteCm: 'Glúteo',
   thighCm: 'Muslo',
+  calfCm: 'Gemelo',
+  torsoCm: 'Torso',
 } as const;
  
 const SKINFOLD_LABEL_BY_KEY = {
@@ -459,6 +461,8 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
       pelvisCm: selectedComparisonRevision.pelvisCm,
       gluteCm: selectedComparisonRevision.gluteCm,
       thighCm: selectedComparisonRevision.thighCm,
+      calfCm: selectedComparisonRevision.calfCm,
+      torsoCm: selectedComparisonRevision.torsoCm,
     };
   }, [selectedComparisonRevision]);
 
@@ -665,6 +669,8 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
       pelvisCm: revision.pelvisCm,
       gluteCm: revision.gluteCm,
       thighCm: revision.thighCm,
+      calfCm: revision.calfCm,
+      torsoCm: revision.torsoCm,
     };
   }, [revision]);
   const perimeterRequiredItems = useMemo<DetailItem[]>(() => {
