@@ -14,6 +14,8 @@ type AppInputProps = TextInputProps & {
   containerStyle?: StyleProp<ViewStyle>;
   affixTextStyle?: StyleProp<TextStyle>;
   variant?: 'default' | 'auth';
+  labelGap?: number;
+  hideLabel?: boolean;
 };
 
 export function AppInput({
@@ -25,6 +27,8 @@ export function AppInput({
   affixTextStyle,
   style,
   variant = 'default',
+  labelGap,
+  hideLabel = false,
   ...props
 }: AppInputProps) {
   const theme = useTheme();
@@ -35,17 +39,19 @@ export function AppInput({
   const resolvedBackgroundColor = isAuth ? '#F9FBFF' : '#FFFFFF';
 
   return (
-    <View style={styles.wrapper}>
-      <View style={styles.header}>
-        <ThemedText type="small" themeColor="textSecondary" style={isAuth && styles.authLabel}>
-          {label}
-        </ThemedText>
-        {hint ? (
-          <ThemedText type="small" themeColor="textSecondary" style={styles.hint}>
-            {hint}
+    <View style={[styles.wrapper, labelGap !== undefined && { gap: labelGap }]}>
+      {hideLabel ? null : (
+        <View style={styles.header}>
+          <ThemedText type="small" themeColor="textSecondary" style={isAuth && styles.authLabel}>
+            {label}
           </ThemedText>
-        ) : null}
-      </View>
+          {hint ? (
+            <ThemedText type="small" themeColor="textSecondary" style={styles.hint}>
+              {hint}
+            </ThemedText>
+          ) : null}
+        </View>
+      )}
 
       <View
         style={[

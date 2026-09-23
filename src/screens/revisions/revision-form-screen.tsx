@@ -13,7 +13,6 @@ import { StatusBanner } from '@/components/feedback/status-banner';
 import { AppButton } from '@/components/forms/app-button';
 import { AppDateTimeInput } from '@/components/forms/app-date-time';
 import { AppInput } from '@/components/forms/app-input';
-import { AppSelect } from '@/components/forms/app-select';
 import { PageHeader } from '@/components/layout/page-header';
 import { PageSection } from '@/components/layout/page-section';
 import { ScreenContainer } from '@/components/layout/screen-container';
@@ -216,7 +215,8 @@ type RevisionFormState = {
 };
 
 type FieldKey = Exclude<keyof RevisionFormState, 'phase' | 'reviewedAt' | 'notes'>;
-type SectionKey = 'context' | 'perimeters' | 'skinfolds' | 'composition' | 'notes' | 'images';
+type SectionKey = 'context' | 'measurements' | 'images';
+type MeasurementSubKey = 'composition' | 'perimeters' | 'skinfolds';
 
 // Forma mínima común entre lo que devuelve expo-image-picker (galería) y la cámara continua propia.
 type PickedImageAsset = {
@@ -315,6 +315,17 @@ function getFieldUnit(fieldKey: FieldKey) {
   if (fieldKey.endsWith('Pct')) return '%';
   if (fieldKey.endsWith('Kcal')) return 'kcal';
   return '';
+}
+
+function sanitizeNumericInput(value: string) {
+  const cleaned = value.replace(/[^0-9.,]/g, '').replace(/,/g, '.');
+  const [wholePart, ...rest] = cleaned.split('.');
+
+  if (rest.length === 0) {
+    return wholePart;
+  }
+
+  return `${wholePart}.${rest.join('')}`;
 }
 
 function parseFieldValue(value: string) {
@@ -537,6 +548,8 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   const guideScrollRef = useRef<ScrollView>(null);
   const [openPerimeterGuideKey, setOpenPerimeterGuideKey] = useState<string | null>(null);
   const perimeterGuideZoom = useGuideZoomTransform();
+  const [openMeasurementKeys, setOpenMeasurementKeys] = useState<MeasurementSubKey[]>([]);
+  const hasInitializedOpenMeasurementKeysRef = useRef(false);
 
   useEffect(() => {
     if (isCompositionGuideOpen) {
@@ -655,6 +668,11 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       return;
     }
 
+    if (weightKg !== null && weightKg <= 10) {
+      setErrorMessage('El peso debe ser mayor a 10 kg.');
+      return;
+    }
+
     // Los perímetros son opcionales como bloque: si no se indica ninguno, la revisión se guarda sin
     // ellos. Pero en cuanto se rellena uno de los que usa la fórmula de % graso, hacen falta todos
     // para poder calcularlo; si no, avisamos en vez de guardar un cálculo a medias.
@@ -755,7 +773,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     setIsUploadModalOpen(false);
   }
 
-  async function handleRemovePendingPhoto(photo: ClientPhoto) {
+  async function handleRemovePhoto(photo: ClientPhoto) {
     if (!user?.id || isRemovingPhotoId) {
       return;
     }
@@ -764,7 +782,12 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
 
     try {
       await photosService.remove(photo.id, user.id);
-      setPendingPhotos((currentPhotos) => currentPhotos.filter((current) => current.id !== photo.id));
+
+      if (mode === 'create') {
+        setPendingPhotos((currentPhotos) => currentPhotos.filter((current) => current.id !== photo.id));
+      } else {
+        setExistingPhotos((currentPhotos) => currentPhotos.filter((current) => current.id !== photo.id));
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo quitar la imagen.';
       setErrorMessage(message);
@@ -858,6 +881,12 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
 
   const { setField } = sectionFields(form, setForm);
   const isCreateMode = mode === 'create';
+  const parsedWeightKg = parseFieldValue(form.weightKg);
+  const isWeightValid = parsedWeightKg !== null && parsedWeightKg > 10;
+  const canSubmitRevision =
+    isRevisionPhase(normalizeRevisionPhase(form.phase)) &&
+    form.reviewedAt.trim().length > 0 &&
+    (mode === 'edit' ? form.weightKg.trim().length === 0 || isWeightValid : isWeightValid);
   const isWide = width >= 960;
   const isMedium = width >= 720;
   const compositionGuidePanelWidth = Math.min(width - 24, 920);
@@ -927,6 +956,37 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     [selectedSkinfoldProtocol]
   );
   const completedSkinfolds = countCompletedFields(form, activeSkinfoldFields);
+
+  useEffect(() => {
+    if (isLoading || hasInitializedOpenMeasurementKeysRef.current) {
+      return;
+    }
+
+    hasInitializedOpenMeasurementKeysRef.current = true;
+
+    const nextOpenKeys: MeasurementSubKey[] = [];
+
+    if (form.bodyFatVisualPct.trim()) {
+      nextOpenKeys.push('composition');
+    }
+
+    if (completedRequiredPerimeters > 0) {
+      nextOpenKeys.push('perimeters');
+    }
+
+    if (completedSkinfolds > 0) {
+      nextOpenKeys.push('skinfolds');
+    }
+
+    setOpenMeasurementKeys(nextOpenKeys);
+  }, [isLoading, form.bodyFatVisualPct, completedRequiredPerimeters, completedSkinfolds]);
+
+  function toggleMeasurementSubSection(key: MeasurementSubKey) {
+    setOpenMeasurementKeys((current) =>
+      current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
+    );
+  }
+
   const currentPerimeterFormulaId = perimeterFormulaInfo?.id ?? null;
   const currentSkinfoldFormulaId = selectedSkinfoldProtocol?.formulaCode ? skinfoldFormulaInfo?.id ?? null : null;
   const activityFactorValue = parseFieldValue(form.activityFactor);
@@ -1043,7 +1103,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
           keyboardType="decimal-pad"
           unit="kg"
           value={form.weightKg}
-          onChangeText={(value) => setField('weightKg', value)}
+          onChangeText={(value) => setField('weightKg', sanitizeNumericInput(value))}
           containerStyle={styles.contextFieldShell}
           style={styles.compactInputText}
           affixTextStyle={styles.compactAffixText}
@@ -1080,7 +1140,7 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
                 keyboardType="decimal-pad"
                 unit={getFieldUnit(field.key) || undefined}
                 value={form[field.key]}
-                onChangeText={(value) => setField(field.key, value)}
+                onChangeText={(value) => setField(field.key, sanitizeNumericInput(value))}
                 containerStyle={
                   field.key === 'bodyFatVisualPct'
                     ? styles.compactPrimaryFieldShell
@@ -1117,16 +1177,14 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
             {photos.map((photo) => (
               <View key={photo.id} style={styles.imageTile}>
                 <Image source={{ uri: photo.imageUrl }} style={styles.imageTilePhoto} contentFit="cover" transition={150} />
-                {mode === 'create' ? (
-                  <Pressable
-                    onPress={() => void handleRemovePendingPhoto(photo)}
-                    disabled={isRemovingPhotoId === photo.id}
-                    accessibilityRole="button"
-                    accessibilityLabel="Quitar esta imagen"
-                    style={styles.imageTileRemove}>
-                    <Ionicons name={isRemovingPhotoId === photo.id ? 'hourglass-outline' : 'close'} size={13} color="#FFFFFF" />
-                  </Pressable>
-                ) : null}
+                <Pressable
+                  onPress={() => void handleRemovePhoto(photo)}
+                  disabled={isRemovingPhotoId === photo.id}
+                  accessibilityRole="button"
+                  accessibilityLabel="Quitar esta imagen"
+                  style={styles.imageTileRemove}>
+                  <Ionicons name={isRemovingPhotoId === photo.id ? 'hourglass-outline' : 'close'} size={13} color="#FFFFFF" />
+                </Pressable>
               </View>
             ))}
           </View>
@@ -1157,58 +1215,31 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
   function renderSectionCard(
     sectionKey: SectionKey,
     title: string,
-    children: React.ReactNode
+    children: React.ReactNode,
+    forcedComplete?: boolean
   ) {
     const isOpen = activeSections.includes(sectionKey);
+    const isOptionalSection = sectionKey === 'images' || sectionKey === 'measurements';
     const sectionIcon =
       sectionKey === 'context'
         ? 'clipboard-outline'
-        : sectionKey === 'composition'
+        : sectionKey === 'measurements'
           ? 'body-outline'
-          : sectionKey === 'perimeters'
-            ? 'resize-outline'
-            : sectionKey === 'skinfolds'
-              ? 'analytics-outline'
-              : sectionKey === 'images'
-                ? 'images-outline'
-                : 'document-text-outline';
-    const sectionHint =
-      sectionKey === 'context'
-        ? 'Cliente, fecha, fase y peso'
-        : sectionKey === 'composition'
-          ? 'Composición visual y energía'
-          : sectionKey === 'perimeters'
-            ? 'Perímetros y análisis automático'
-            : sectionKey === 'skinfolds'
-              ? 'Pliegues y comparación'
-              : sectionKey === 'images'
-                ? 'Fotos de progreso de la sesión'
-                : 'Observaciones de la sesión';
+          : 'images-outline';
     const revisionPhotoCount = pendingPhotos.length + existingPhotos.length;
     const sectionProgress =
       sectionKey === 'context'
-        ? [form.phase, form.reviewedAt, form.weightKg].filter((value) => value.trim()).length
-        : sectionKey === 'composition'
-          ? countCompletedFields(form, COMPOSITION_FIELDS)
-          : sectionKey === 'perimeters'
-            ? completedRequiredPerimeters
-            : sectionKey === 'skinfolds'
-              ? completedSkinfolds
-              : sectionKey === 'images'
-                ? revisionPhotoCount
-                : form.notes.trim() ? 1 : 0;
+        ? [form.phase.trim().length > 0, form.reviewedAt.trim().length > 0, isWeightValid].filter(Boolean).length
+        : sectionKey === 'measurements'
+          ? countCompletedFields(form, COMPOSITION_FIELDS) + completedRequiredPerimeters + completedSkinfolds
+          : revisionPhotoCount;
     const sectionTotal =
       sectionKey === 'context'
         ? 3
-        : sectionKey === 'composition'
-          ? COMPOSITION_FIELDS.length
-          : sectionKey === 'perimeters'
-            ? perimeterFieldGroups.required.length
-            : sectionKey === 'skinfolds'
-              ? activeSkinfoldFields.length
-              : sectionKey === 'images'
-                ? null
-                : 1;
+        : sectionKey === 'measurements'
+          ? COMPOSITION_FIELDS.length + perimeterFieldGroups.required.length + activeSkinfoldFields.length
+          : null;
+    const isComplete = forcedComplete ?? (sectionTotal !== null && sectionProgress >= sectionTotal);
 
     function toggleSection() {
       setActiveSections((currentSections) =>
@@ -1230,22 +1261,31 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
             { opacity: pressed ? 0.92 : 1 },
           ]}>
           <View style={styles.sectionTitleArea}>
-            <View style={[styles.sectionIconWrap, isOpen && styles.sectionIconWrapActive]}>
-              <Ionicons name={sectionIcon} size={18} color={isOpen ? '#FFFFFF' : Accent.primary} />
+            <View style={[styles.sectionIconWrap, (isOpen || isComplete) && styles.sectionIconWrapActive, isComplete && styles.sectionIconWrapComplete]}>
+              <Ionicons name={isComplete ? 'checkmark' : sectionIcon} size={18} color={isOpen || isComplete ? '#FFFFFF' : Accent.primary} />
             </View>
             <View style={styles.sectionTitleBlock}>
-              <ThemedText type="smallBold" style={styles.sectionTitle}>{title}</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary" style={styles.sectionHint}>
-                {sectionHint}
-              </ThemedText>
+              <ThemedText type="smallBold" style={[styles.sectionTitle, isComplete && styles.sectionTitleComplete]}>{title}</ThemedText>
             </View>
           </View>
           <View style={styles.sectionToggleMeta}>
-            <View style={styles.sectionCountPill}>
-              <ThemedText type="smallBold" style={styles.sectionCountText}>
-                {sectionTotal === null ? sectionProgress : `${sectionProgress}/${sectionTotal || '—'}`}
-              </ThemedText>
-            </View>
+            {sectionKey === 'measurements' ? (
+              sectionProgress === 0 ? (
+                <View style={styles.sectionCountPill}>
+                  <ThemedText type="small" themeColor="textSecondary" style={styles.sectionCountOptionalText}>Opcional</ThemedText>
+                </View>
+              ) : null
+            ) : (
+              <View style={styles.sectionCountPill}>
+                {isOptionalSection && sectionProgress === 0 ? (
+                  <ThemedText type="small" themeColor="textSecondary" style={styles.sectionCountOptionalText}>Opcional</ThemedText>
+                ) : (
+                  <ThemedText type="smallBold" style={styles.sectionCountText}>
+                    {sectionTotal === null ? sectionProgress : `${sectionProgress}/${sectionTotal || '—'}`}
+                  </ThemedText>
+                )}
+              </View>
+            )}
             <Ionicons
               name={isOpen ? 'chevron-up' : 'chevron-down'}
               size={18}
@@ -1281,6 +1321,19 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         </View>
         {renderWeightField()}
       </View>
+      <View style={styles.notesFieldWrap}>
+        <AppInput
+          label="Notas"
+          placeholder={referencePlaceholders?.notes || 'Apuntes de esta revisión: cómo han ido las últimas semanas, sensaciones del cliente o cosas a tener en cuenta'}
+          multiline
+          numberOfLines={4}
+          style={styles.textArea}
+          value={form.notes}
+          onChangeText={(value) => setField('notes', value)}
+          containerStyle={styles.notesShell}
+          labelGap={Spacing.one}
+        />
+      </View>
     </>
     );
   }
@@ -1289,46 +1342,112 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
     return (
       <View style={styles.skinfoldSelectorBlock}>
         <View style={styles.skinfoldSelectorHeader}>
-          <ThemedText type="smallBold" style={styles.skinfoldSelectorTitle}>Protocolo de pliegues</ThemedText>
+          <ThemedText type="smallBold" style={[styles.skinfoldSelectorTitle, styles.skinfoldSelectorTitleFlex]}>Protocolo de pliegues</ThemedText>
           {selectedSkinfoldProtocol && skinfoldFormulaInfo ? (
-            <FormulaInfoButton
-              title={skinfoldFormulaInfo.title}
-              descriptionLines={skinfoldFormulaInfo.descriptionLines}
-              content={skinfoldFormulaContent}
-              accessibilityLabel="Información sobre la fórmula de pliegues"
-            />
+            <View style={styles.formulaNameRow}>
+              <ThemedText type="small" style={styles.formulaNameText}>{skinfoldFormulaInfo.shortLabel}</ThemedText>
+              <FormulaInfoButton
+                title={skinfoldFormulaInfo.title}
+                descriptionLines={skinfoldFormulaInfo.descriptionLines}
+                content={skinfoldFormulaContent}
+                accessibilityLabel="Información sobre la fórmula de pliegues"
+              />
+            </View>
           ) : null}
         </View>
-        <AppSelect
-          label="Selecciona protocolo"
-          hideLabel
-          value={selectedSkinfoldProtocolId}
-          options={availableSkinfoldProtocols.map((protocol) => ({
-            label: protocol.comingSoon ? `${protocol.label} · Próximamente` : protocol.label,
-            value: protocol.id,
-            disabled: !protocol.enabled,
-          }))}
-          placeholder="Seleccionar protocolo"
-          onChange={setSelectedSkinfoldProtocolId}
-          containerStyle={styles.skinfoldSelectShell}
-          pickerTextStyle={styles.skinfoldSelectText}
-        />
+        <View style={styles.protocolChipsGrid}>
+          {availableSkinfoldProtocols.map((protocol) => {
+            const selected = selectedSkinfoldProtocolId === protocol.id;
+            const disabled = !protocol.enabled;
+
+            return (
+              <Pressable
+                key={protocol.id}
+                onPress={() => {
+                  if (!disabled) {
+                    setSelectedSkinfoldProtocolId((currentId) => (currentId === protocol.id ? '' : protocol.id));
+                  }
+                }}
+                disabled={disabled}
+                accessibilityRole="button"
+                accessibilityState={{ selected, disabled }}
+                accessibilityLabel={
+                  protocol.comingSoon
+                    ? `${protocol.label}, próximamente`
+                    : selected
+                      ? `${protocol.label}, seleccionado. Toca para deseleccionar.`
+                      : protocol.label
+                }
+                style={({ pressed }) => [
+                  styles.protocolChip,
+                  {
+                    borderColor: selected ? Accent.primary : '#E1E9F5',
+                    backgroundColor: selected ? Accent.primaryMuted : '#FAFCFF',
+                    opacity: disabled ? 0.5 : 1,
+                  },
+                  pressed && !disabled && styles.protocolChipPressed,
+                ]}>
+                <View style={[styles.protocolChipRadio, selected && styles.protocolChipRadioSelected]}>
+                  {selected ? <View style={styles.protocolChipRadioDot} /> : null}
+                </View>
+                <View style={styles.protocolChipCopy}>
+                  <ThemedText type="small" style={[styles.protocolChipLabel, selected && styles.protocolChipLabelSelected]}>
+                    {protocol.label}
+                  </ThemedText>
+                  {protocol.comingSoon ? (
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.protocolChipHint}>Próximamente</ThemedText>
+                  ) : null}
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
     );
   }
 
-  function renderPerimeterInfoHeader() {
+  function renderMeasurementSubSection(
+    key: MeasurementSubKey,
+    icon: React.ComponentProps<typeof Ionicons>['name'],
+    title: string,
+    hint: string,
+    progress: number,
+    total: number,
+    children: React.ReactNode,
+    headerAction?: React.ReactNode,
+    isFirst = false
+  ) {
+    const isComplete = total > 0 && progress >= total;
+    const isOpen = openMeasurementKeys.includes(key);
+
     return (
-      <View style={styles.skinfoldSelectorHeader}>
-        <ThemedText type="smallBold" style={styles.skinfoldSelectorTitle}>Perímetros</ThemedText>
-        {perimeterFormulaInfo ? (
-          <FormulaInfoButton
-            title={perimeterFormulaInfo.title}
-            descriptionLines={perimeterFormulaInfo.descriptionLines}
-            content={perimeterFormulaContent}
-            accessibilityLabel="Información sobre la fórmula de perímetros"
-          />
-        ) : null}
+      <View style={[styles.subSection, !isFirst && styles.subSectionDivider]}>
+        <Pressable
+          onPress={() => toggleMeasurementSubSection(key)}
+          accessibilityRole="button"
+          accessibilityLabel={`${isOpen ? 'Cerrar' : 'Abrir'} sección ${title}`}
+          style={({ pressed }) => [styles.subSectionHeader, { opacity: pressed ? 0.85 : 1 }]}>
+          <View style={styles.subSectionTitleArea}>
+            <View style={[styles.subSectionIconWrap, isComplete && styles.subSectionIconWrapComplete]}>
+              <Ionicons name={isComplete ? 'checkmark' : icon} size={15} color={isComplete ? '#FFFFFF' : Accent.primary} />
+            </View>
+            <View style={styles.subSectionTitleBlock}>
+              <ThemedText type="smallBold" style={[styles.subSectionTitle, isComplete && styles.subSectionTitleComplete]}>{title}</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.subSectionHint}>{hint}</ThemedText>
+            </View>
+          </View>
+          <View style={styles.subSectionHeaderMeta}>
+            <View style={styles.subSectionCountPill}>
+              {isComplete ? <Ionicons name="checkmark-circle" size={12} color={Accent.success} /> : null}
+              <ThemedText type="smallBold" style={styles.subSectionCountText}>
+                {progress}/{total || '—'}
+              </ThemedText>
+            </View>
+            {headerAction}
+            <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={16} color={isOpen ? Accent.primary : '#7B8AA0'} />
+          </View>
+        </Pressable>
+        {isOpen ? <View style={styles.subSectionBody}>{children}</View> : null}
       </View>
     );
   }
@@ -1450,7 +1569,6 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
           <Ionicons name="chevron-back" size={18} color={Accent.primary} />
           <ThemedText type="smallBold" style={styles.backButtonText}>Volver</ThemedText>
         </Pressable>
-        <AppButton label="Cancelar" variant="ghost" size="compact" fullWidth={false} onPress={() => router.back()} disabled={isSubmitting} />
       </View>
 
       <View style={[styles.headerCard, styles.headerCardCreate, { borderColor: theme.backgroundSelected }]}>
@@ -1478,23 +1596,6 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
         </View>
       </View>
 
-      {isCreateMode ? (
-        <View style={[styles.createGuide, { borderColor: theme.backgroundSelected }]}>
-          <View style={styles.guideStep}>
-            <Ionicons name="checkmark-circle-outline" size={16} color={Accent.primary} />
-            <ThemedText type="smallBold" style={styles.guideText}>Contexto</ThemedText>
-          </View>
-          <View style={styles.guideStep}>
-            <Ionicons name="resize-outline" size={16} color={Accent.primary} />
-            <ThemedText type="smallBold" style={styles.guideText}>Medidas</ThemedText>
-          </View>
-          <View style={styles.guideStep}>
-            <Ionicons name="save-outline" size={16} color={Accent.primary} />
-            <ThemedText type="smallBold" style={styles.guideText}>Guardar</ThemedText>
-          </View>
-        </View>
-      ) : null}
-
       {isSubmitting ? <StatusBanner tone="info" loading message="Guardando revision..." /> : null}
 
       <View style={styles.formCanvas}>
@@ -1502,116 +1603,140 @@ export function RevisionFormScreen({ mode, clientId, revisionId }: RevisionFormS
       {renderSectionCard('context', 'Contexto', renderContextSectionBody())}
 
       {renderSectionCard(
-        'composition',
-        'Composición',
-        <View style={styles.compositionSectionBody}>
-          <View style={styles.compositionGuideRow}>
-            <View style={styles.compositionGuideCopy}>
-              <ThemedText type="smallBold" style={styles.compositionGuideTitle}>
-                Apoyo visual para estimar la grasa
-              </ThemedText>
-            </View>
-            <AppButton
-              label="Guia"
-              variant="surface"
-              size="compact"
-              fullWidth={false}
-              onPress={() => setIsCompositionGuideOpen(true)}
-            />
-          </View>
-          {renderFieldGrid(COMPOSITION_FIELDS, 1)}
-        </View>
-      )}
+        'measurements',
+        'Mediciones',
+        <View style={styles.measurementsSectionBody}>
+          {renderMeasurementSubSection(
+            'composition',
+            'body-outline',
+            'Composición',
+            'Composición visual estimada',
+            countCompletedFields(form, COMPOSITION_FIELDS),
+            COMPOSITION_FIELDS.length,
+            <View style={styles.compositionSectionBody}>
+              <View style={styles.compositionFieldLabelRow}>
+                <ThemedText type="small" themeColor="textSecondary">Grasa visual (%)</ThemedText>
+                <Pressable
+                  onPress={() => setIsCompositionGuideOpen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Ver guía visual de composición"
+                  style={({ pressed }) => [
+                    styles.compositionGuideButton,
+                    {
+                      borderColor: theme.backgroundSelected,
+                      opacity: pressed ? 0.92 : 1,
+                      transform: [{ scale: pressed ? 0.995 : 1 }],
+                    },
+                  ]}>
+                  <Ionicons name="image-outline" size={12} color="#000000" />
+                  <ThemedText style={styles.compositionGuideButtonText}>Guía</ThemedText>
+                </Pressable>
+              </View>
+              <AppInput
+                label="Grasa visual (%)"
+                hideLabel
+                accessibilityLabel="Grasa visual, porcentaje"
+                placeholder={referencePlaceholders?.bodyFatVisualPct ?? '21.4'}
+                keyboardType="decimal-pad"
+                unit="%"
+                value={form.bodyFatVisualPct}
+                onChangeText={(value) => setField('bodyFatVisualPct', sanitizeNumericInput(value))}
+                containerStyle={styles.compactPrimaryFieldShell}
+                style={styles.compactPrimaryInputText}
+                affixTextStyle={styles.compactAffixText}
+              />
+            </View>,
+            undefined,
+            true
+          )}
 
-      {renderSectionCard(
-        'perimeters',
-        'Perímetros',
-        <View style={styles.perimetersSectionBody}>
-          {renderPerimeterInfoHeader()}
-          <View style={[styles.measureGroup, styles.measureGroupPrimary, { borderColor: theme.backgroundSelected }]}>
-            <View style={styles.measureGroupHeader}>
-              <View style={styles.measureGroupHeaderCopy}>
-                <View style={styles.measureGroupTitleRow}>
-                  <ThemedText type="smallBold" style={styles.measureGroupTitle}>Usadas en cálculo</ThemedText>
+          {renderMeasurementSubSection(
+            'perimeters',
+            'resize-outline',
+            'Perímetros',
+            'Perímetros y análisis automático',
+            completedRequiredPerimeters,
+            perimeterFieldGroups.required.length,
+            <View style={styles.perimetersSectionBody}>
+              <View style={[styles.measureGroup, styles.measureGroupPrimary, { borderColor: theme.backgroundSelected }]}>
+                <View style={styles.measureGroupHeader}>
+                  <View style={styles.measureGroupHeaderCopy}>
+                    <View style={styles.measureGroupTitleRow}>
+                      <ThemedText type="smallBold" style={styles.measureGroupTitle}>
+                        Fórmula: {perimeterFormulaInfo?.shortLabel ?? '—'}
+                      </ThemedText>
+                      {perimeterFormulaInfo ? (
+                        <FormulaInfoButton
+                          title={perimeterFormulaInfo.title}
+                          descriptionLines={perimeterFormulaInfo.descriptionLines}
+                          content={perimeterFormulaContent}
+                          accessibilityLabel="Información sobre la fórmula de perímetros"
+                        />
+                      ) : null}
+                    </View>
+                  </View>
+                  <View style={styles.measureGroupCountPill}>
+                    <ThemedText type="smallBold" style={styles.measureGroupCountText}>
+                      {completedRequiredPerimeters}/{perimeterFieldGroups.required.length}
+                    </ThemedText>
+                  </View>
                 </View>
+                {renderFieldGrid(perimeterFieldGroups.required, 2)}
               </View>
-              <View style={styles.measureGroupCountPill}>
-                <ThemedText type="smallBold" style={styles.measureGroupCountText}>
-                  {completedRequiredPerimeters}/{perimeterFieldGroups.required.length}
+              {renderPerimeterSummary()}
+              <Pressable
+                onPress={() => setShowPerimeterOptionals((currentValue) => !currentValue)}
+                style={({ pressed }) => [styles.optionalsToggle, { opacity: pressed ? 0.78 : 1 }]}>
+                <ThemedText type="smallBold" style={styles.optionalsToggleText}>
+                  {showPerimeterOptionals ? 'Ocultar perímetros opcionales' : 'Añadir perímetros opcionales'}
                 </ThemedText>
-              </View>
+                <ThemedText type="smallBold" style={styles.optionalsToggleIcon}>
+                  {showPerimeterOptionals ? '−' : '+'}
+                </ThemedText>
+              </Pressable>
+              {showPerimeterOptionals ? (
+                <View style={[styles.measureGroup, styles.measureGroupSecondary, { borderColor: theme.backgroundSelected }]}>
+                  <View style={styles.measureGroupHeader}>
+                    <ThemedText type="smallBold" style={[styles.measureGroupTitle, styles.measureGroupTitleSecondary]}>Opcionales</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">Secundarios</ThemedText>
+                  </View>
+                  {renderFieldGrid(perimeterFieldGroups.optional, 2, 'secondary')}
+                </View>
+              ) : null}
             </View>
-            {renderFieldGrid(perimeterFieldGroups.required, 2)}
-          </View>
-          {renderPerimeterSummary()}
-          <Pressable
-            onPress={() => setShowPerimeterOptionals((currentValue) => !currentValue)}
-            style={({ pressed }) => [styles.optionalsToggle, { opacity: pressed ? 0.78 : 1 }]}>
-            <ThemedText type="smallBold" style={styles.optionalsToggleText}>
-              {showPerimeterOptionals ? 'Ocultar perímetros opcionales' : 'Añadir perímetros opcionales'}
-            </ThemedText>
-            <ThemedText type="smallBold" style={styles.optionalsToggleIcon}>
-              {showPerimeterOptionals ? '−' : '+'}
-            </ThemedText>
-          </Pressable>
-          {showPerimeterOptionals ? (
-            <View style={[styles.measureGroup, styles.measureGroupSecondary, { borderColor: theme.backgroundSelected }]}>
-              <View style={styles.measureGroupHeader}>
-                <ThemedText type="smallBold" style={[styles.measureGroupTitle, styles.measureGroupTitleSecondary]}>Opcionales</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">Secundarios</ThemedText>
-              </View>
-              {renderFieldGrid(perimeterFieldGroups.optional, 2, 'secondary')}
+          )}
+
+          {renderMeasurementSubSection(
+            'skinfolds',
+            'analytics-outline',
+            'Pliegues cutáneos',
+            'Pliegues y comparación',
+            completedSkinfolds,
+            activeSkinfoldFields.length,
+            <View style={styles.skinfoldSectionBody}>
+              {renderSkinfoldProtocolSelector()}
+              {activeSkinfoldFields.length > 0 ? renderFieldGrid(activeSkinfoldFields, 2) : null}
+              {renderSkinfoldSummary()}
             </View>
-          ) : null}
-        </View>
+          )}
+        </View>,
+        countCompletedFields(form, COMPOSITION_FIELDS) >= COMPOSITION_FIELDS.length &&
+          completedRequiredPerimeters >= perimeterFieldGroups.required.length &&
+          activeSkinfoldFields.length > 0 &&
+          completedSkinfolds >= activeSkinfoldFields.length
       )}
 
-      {renderSectionCard(
-        'skinfolds',
-        'Pliegues cutáneos',
-        <View style={styles.skinfoldSectionBody}>
-          {renderSkinfoldProtocolSelector()}
-          {activeSkinfoldFields.length > 0 ? renderFieldGrid(activeSkinfoldFields, 2) : null}
-          {renderSkinfoldSummary()}
-        </View>
-      )}
-
-      {renderSectionCard('images', 'Imágenes', renderImagesSectionBody())}
-
-      {renderSectionCard(
-        'notes',
-        'Notas',
-        <AppInput
-          label="Observaciones"
-          placeholder={referencePlaceholders?.notes || 'Añade contexto clinico o decisiones de ajuste'}
-          multiline
-          numberOfLines={4}
-          style={styles.textArea}
-          value={form.notes}
-          onChangeText={(value) => setField('notes', value)}
-          containerStyle={styles.notesShell}
-        />
-      )}
+      {renderSectionCard('images', 'Imágenes', renderImagesSectionBody(), pendingPhotos.length + existingPhotos.length > 0)}
 
       {errorMessage ? <StatusBanner tone="danger" message={errorMessage} /> : null}
 
-      <View style={[styles.footerCard, { borderColor: theme.backgroundSelected }]}>
-        <View style={styles.footerHeaderRow}>
-          <View style={styles.footerIconWrap}>
-            <Ionicons name="checkmark-done-outline" size={20} color={Accent.primary} />
-          </View>
-          <View style={styles.footerCopy}>
-            <ThemedText type="smallBold" style={styles.footerTitle}>
-              {isCreateMode ? 'Todo listo para guardar' : 'Guardar cambios de la revisión'}
-            </ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.footerHint}>
-              {isCreateMode
-                ? 'Revisa los datos clave y guarda para generar la revisión completa del cliente.'
-                : 'Los cambios se aplican al guardar, sin afectar al resto del historial.'}
-            </ThemedText>
-          </View>
-        </View>
-        <AppButton label={mode === 'create' ? 'Guardar revision' : 'Guardar cambios'} onPress={handleSubmit} loading={isSubmitting} />
+      <View style={styles.footerActions}>
+        <AppButton
+          label={mode === 'create' ? 'Guardar revision' : 'Guardar cambios'}
+          onPress={handleSubmit}
+          loading={isSubmitting}
+          disabled={!canSubmitRevision}
+        />
       </View>
       </View>
 
@@ -1851,31 +1976,6 @@ const styles = StyleSheet.create({
     height: 4,
     backgroundColor: '#2D66E0',
   },
-  createGuide: {
-    borderWidth: 1,
-    borderColor: '#DFE7F2',
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  guideStep: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: Radius.pill,
-    backgroundColor: '#F6F9FE',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  guideText: {
-    color: '#10203B',
-    lineHeight: 16,
-    fontSize: 12,
-  },
   clientTag: {
     alignSelf: 'flex-start',
     marginTop: 2,
@@ -2016,7 +2116,7 @@ const styles = StyleSheet.create({
   sectionTitleArea: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 8,
     minWidth: 0,
   },
@@ -2031,6 +2131,9 @@ const styles = StyleSheet.create({
   sectionIconWrapActive: {
     backgroundColor: Accent.primary,
   },
+  sectionIconWrapComplete: {
+    backgroundColor: Accent.success,
+  },
   sectionTitleBlock: {
     flex: 1,
     gap: 2,
@@ -2041,8 +2144,8 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     flexShrink: 1,
   },
-  sectionHint: {
-    lineHeight: 17,
+  sectionTitleComplete: {
+    color: Accent.success,
   },
   sectionHeaderRight: {
     flexShrink: 0,
@@ -2060,6 +2163,10 @@ const styles = StyleSheet.create({
   },
   sectionCountText: {
     color: Accent.primary,
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  sectionCountOptionalText: {
     fontSize: 11,
     lineHeight: 14,
   },
@@ -2082,31 +2189,31 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   compositionSectionBody: {
-    gap: Spacing.two,
+    gap: Spacing.one,
   },
-  compositionGuideRow: {
+  compositionFieldLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.two,
-    borderWidth: 1,
-    borderRadius: Radius.medium,
-    borderColor: '#DCE8FB',
-    backgroundColor: '#F8FBFF',
-    paddingHorizontal: 10,
-    paddingVertical: 10,
   },
-  compositionGuideCopy: {
-    flex: 1,
-    gap: 2,
-    minWidth: 0,
+  compositionGuideButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    minHeight: 28,
+    borderWidth: 1.5,
+    borderRadius: Radius.small,
+    paddingHorizontal: 8,
+    backgroundColor: '#FFFFFF',
+    flexShrink: 0,
   },
-  compositionGuideTitle: {
-    color: '#10203B',
-    lineHeight: 18,
-  },
-  compositionGuideText: {
-    lineHeight: 16,
+  compositionGuideButtonText: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: '700',
+    color: '#000000',
   },
   formulaHeaderRow: {
     flexDirection: 'row',
@@ -2194,6 +2301,92 @@ const styles = StyleSheet.create({
   skinfoldSectionBody: {
     gap: 8,
   },
+  measurementsSectionBody: {
+    gap: Spacing.two,
+  },
+  formulaNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  formulaNameText: {
+    color: Accent.primary,
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  subSection: {
+    gap: Spacing.two,
+  },
+  subSectionDivider: {
+    marginTop: Spacing.two,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#EDF2FB',
+  },
+  subSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  subSectionHeaderMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
+  },
+  subSectionTitleArea: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 0,
+  },
+  subSectionIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF5FF',
+    flexShrink: 0,
+  },
+  subSectionIconWrapComplete: {
+    backgroundColor: Accent.success,
+  },
+  subSectionTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  subSectionTitle: {
+    color: '#10203B',
+  },
+  subSectionTitleComplete: {
+    color: Accent.success,
+  },
+  subSectionHint: {
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  subSectionCountPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    backgroundColor: '#EEF4FF',
+    flexShrink: 0,
+  },
+  subSectionCountText: {
+    color: Accent.primary,
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  subSectionBody: {
+    gap: Spacing.two,
+  },
   skinfoldSelectorBlock: {
     gap: 8,
   },
@@ -2205,14 +2398,62 @@ const styles = StyleSheet.create({
   skinfoldSelectorTitle: {
     color: Accent.ink,
   },
-  skinfoldSelectShell: {
-    minHeight: 54,
+  skinfoldSelectorTitleFlex: {
+    flex: 1,
   },
-  skinfoldSelectText: {
-    fontSize: 14,
+  protocolChipsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
-  skinfoldSelectorHint: {
-    lineHeight: 17,
+  protocolChip: {
+    flexBasis: '48%',
+    flexGrow: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: Radius.medium,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  protocolChipPressed: {
+    opacity: 0.85,
+  },
+  protocolChipRadio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: '#C7D4E8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  protocolChipRadioSelected: {
+    borderColor: Accent.primary,
+  },
+  protocolChipRadioDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: Accent.primary,
+  },
+  protocolChipCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  protocolChipLabel: {
+    color: '#4C5A73',
+  },
+  protocolChipLabelSelected: {
+    color: Accent.primary,
+    fontWeight: '700',
+  },
+  protocolChipHint: {
+    fontSize: 11,
+    lineHeight: 14,
   },
   compactSummaryBlock: {
     borderWidth: 1,
@@ -2429,6 +2670,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
+  notesFieldWrap: {
+    marginTop: Spacing.four,
+  },
   notesShell: {
     minHeight: 98,
     paddingTop: 8,
@@ -2437,38 +2681,12 @@ const styles = StyleSheet.create({
     minHeight: 82,
     textAlignVertical: 'top',
   },
-  footerCard: {
-    gap: 14,
-    borderWidth: 1,
-    borderRadius: Radius.large,
-    backgroundColor: '#F9FCFF',
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-  },
-  footerHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  footerActions: {
     gap: 12,
-  },
-  footerIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#E8F0FF',
-    flexShrink: 0,
-  },
-  footerCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 1,
-  },
-  footerTitle: {
-    color: '#10203B',
-  },
-  footerHint: {
-    lineHeight: 17,
+    paddingTop: 18,
+    marginTop: 2,
+    borderTopWidth: 1,
+    borderTopColor: '#E6EDF7',
   },
   imagesSectionBody: {
     gap: 12,

@@ -30,6 +30,30 @@ import { buildEventNotifications, EventNotificationItem, formatEventNotification
 
 type DashboardNotification = DashboardNotificationItem | EventNotificationItem;
 
+type GroupedDashboardNotification = {
+  kind: 'payment' | 'revision' | 'event';
+  grouped: true;
+  count: number;
+};
+
+type NotificationListItem = DashboardNotification | GroupedDashboardNotification;
+
+function isGroupedNotification(item: NotificationListItem): item is GroupedDashboardNotification {
+  return 'grouped' in item && item.grouped;
+}
+
+function getGroupedNotificationCopy(kind: GroupedDashboardNotification['kind'], count: number) {
+  if (kind === 'payment') {
+    return { title: `${count} pagos pendientes`, subtitle: 'Toca para ver todos los pagos' };
+  }
+
+  if (kind === 'revision') {
+    return { title: `${count} revisiones pendientes`, subtitle: 'Toca para ver tus clientes' };
+  }
+
+  return { title: `${count} eventos próximos`, subtitle: 'Toca para ver tu agenda' };
+}
+
 function getNotificationPresentation(kind: 'payment' | 'revision' | 'event') {
   if (kind === 'payment') {
     return {
@@ -128,6 +152,27 @@ export function ClientsScreen() {
   const activeClients = clients.filter((client) => client.estado === 'activo');
   const monthlyRevenue = calculateMonthlyRevenueFromClients(activeClients);
   const pendingNotificationCount = notifications.length;
+  const groupedNotifications = useMemo<NotificationListItem[]>(() => {
+    const byKind = new Map<GroupedDashboardNotification['kind'], DashboardNotification[]>();
+
+    notifications.forEach((notification) => {
+      const bucket = byKind.get(notification.kind) ?? [];
+      bucket.push(notification);
+      byKind.set(notification.kind, bucket);
+    });
+
+    const result: NotificationListItem[] = [];
+
+    byKind.forEach((items, kind) => {
+      if (items.length > 1) {
+        result.push({ kind, grouped: true, count: items.length });
+      } else {
+        result.push(items[0]);
+      }
+    });
+
+    return result;
+  }, [notifications]);
   const greeting = new Date().getHours() < 12 ? 'Buenos días' : new Date().getHours() < 20 ? 'Buenas tardes' : 'Buenas noches';
   const todayLabel = useMemo(
     () =>
@@ -717,12 +762,64 @@ export function ClientsScreen() {
               </Pressable>
             </View>
             <View style={styles.notificationsList}>
-              {notifications.length === 0 ? (
+              {groupedNotifications.length === 0 ? (
                 <StatusBanner tone="info" message="Todo está al corriente por ahora." />
               ) : (
-                notifications.map((notification) => (
+                groupedNotifications.map((notification) => (
                   (() => {
                     const presentation = getNotificationPresentation(notification.kind);
+
+                    if (isGroupedNotification(notification)) {
+                      const groupedCopy = getGroupedNotificationCopy(notification.kind, notification.count);
+
+                      return (
+                        <Pressable
+                          key={`group-${notification.kind}`}
+                          onPress={() => {
+                            if (notification.kind === 'payment') {
+                              goToPayments();
+                              setIsNotificationsModalOpen(false);
+                              return;
+                            }
+
+                            if (notification.kind === 'revision') {
+                              goToClientsList();
+                              setIsNotificationsModalOpen(false);
+                              return;
+                            }
+
+                            goToAgenda();
+                            setIsNotificationsModalOpen(false);
+                          }}
+                          style={({ pressed }) => [
+                            styles.notificationItem,
+                            {
+                              borderColor: presentation.border,
+                              backgroundColor: pressed ? presentation.accentSoft : presentation.background,
+                            },
+                          ]}>
+                          <View style={styles.notificationItemTop}>
+                            <View style={[styles.notificationIconBadge, { backgroundColor: presentation.accentSoft, borderColor: presentation.border }]}>
+                              <ThemedText type="smallBold" style={[styles.notificationIconEmoji, { color: presentation.accent }]}>
+                                {presentation.icon}
+                              </ThemedText>
+                            </View>
+                            <View style={styles.notificationItemCopy}>
+                              <ThemedText type="smallBold">{groupedCopy.title}</ThemedText>
+                              <ThemedText type="small" style={[styles.notificationKindText, { color: presentation.text }]}>
+                                {groupedCopy.subtitle}
+                              </ThemedText>
+                            </View>
+                            <View style={[styles.notificationCountPill, { borderColor: presentation.border, backgroundColor: presentation.accentSoft }]}>
+                              <ThemedText type="smallBold" style={[styles.notificationCountPillText, { color: presentation.accent }]}>
+                                {notification.count}
+                              </ThemedText>
+                            </View>
+                          </View>
+                        </Pressable>
+                      );
+                    }
+
                     const isEventNotification = notification.kind === 'event';
 
                     return (
@@ -781,34 +878,11 @@ export function ClientsScreen() {
                         </ThemedText>
                       </View>
                     </View>
-                    {notification.kind === 'payment' ? (
-                      <>
-                        <ThemedText type="small" themeColor="textSecondary" style={styles.notificationDetailText}>
-                          Último pago: {formatDashboardNotificationDate(notification.lastDate)}
-                        </ThemedText>
-                        <ThemedText type="small" themeColor="textSecondary" style={styles.notificationDetailText}>
-                          Siguiente vencimiento: {formatDashboardNotificationDate(notification.nextDate)}
-                        </ThemedText>
-                      </>
-                    ) : notification.kind === 'revision' ? (
-                      <>
-                        <ThemedText type="small" themeColor="textSecondary" style={styles.notificationDetailText}>
-                          Última revisión: {formatDashboardNotificationDate(notification.lastDate)}
-                        </ThemedText>
-                        <ThemedText type="small" themeColor="textSecondary" style={styles.notificationDetailText}>
-                          Siguiente revisión: {formatDashboardNotificationDate(notification.nextDate)}
-                        </ThemedText>
-                      </>
-                    ) : (
-                      <>
-                        <ThemedText type="small" themeColor="textSecondary" style={styles.notificationDetailText}>
-                          Inicio: {formatEventNotificationDate(notification.nextDate)}
-                        </ThemedText>
-                        <ThemedText type="small" themeColor="textSecondary" style={styles.notificationDetailText}>
-                          {isEventNotification ? notification.eventSubtitle : null}
-                        </ThemedText>
-                      </>
-                    )}
+                    {isEventNotification ? (
+                      <ThemedText type="small" themeColor="textSecondary" style={styles.notificationDetailText}>
+                        Inicio: {formatEventNotificationDate(notification.nextDate)}
+                      </ThemedText>
+                    ) : null}
                   </Pressable>
                     );
                   })()
@@ -1403,5 +1477,18 @@ const styles = StyleSheet.create({
   },
   notificationDetailText: {
     lineHeight: 18,
+  },
+  notificationCountPill: {
+    minWidth: 30,
+    height: 30,
+    borderWidth: 1,
+    borderRadius: Radius.pill,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notificationCountPillText: {
+    fontSize: 14,
+    lineHeight: 16,
   },
 });
