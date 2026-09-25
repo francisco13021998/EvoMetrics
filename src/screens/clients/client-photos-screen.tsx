@@ -947,28 +947,16 @@ export function ClientPhotosScreen({ clientId, initialRevisionId = null, autoOpe
 
                 <View ref={comparisonExportRef} collapsable={false} pointerEvents="none" style={[styles.comparisonExportHost, { width: compareExportWidth }]}>
                   <View style={styles.compareExportCaptureArea}>
-                    <View style={styles.compareExportHeader}>
-                      <ThemedText type="smallBold" style={styles.compareExportHeaderTitle}>{client.name}</ThemedText>
-                      <ThemedText type="small" style={styles.compareExportHeaderMeta}>{compareElapsedLabel} · EvoMetrics</ThemedText>
-                    </View>
                     <View style={styles.compareExportGrid}>
-                      <View style={[styles.compareExportCard, styles.compareExportCardDivider, { width: compareExportLeftWidth }]}>
+                      <View style={[styles.compareExportCard, { width: compareExportLeftWidth }]}>
                         <View style={[styles.compareExportImageViewport, { height: compareImageHeight }]}>
                           <AnimatedZoomImage source={{ uri: compareSourcePhoto.imageUrl }} style={[styles.compareExportImage, sourceZoom.animatedStyle]} contentFit="contain" transition={150} />
-                        </View>
-                        <View style={styles.compareExportCaption}>
-                          <ThemedText type="small" style={styles.compareExportCaptionLabel}>ANTES</ThemedText>
-                          <ThemedText type="small" style={styles.compareExportCaptionDate}>{getPhotoDateLabel(compareSourcePhoto)}</ThemedText>
                         </View>
                       </View>
 
                       <View style={[styles.compareExportCard, { width: compareExportRightWidth }]}>
                         <View style={[styles.compareExportImageViewport, { height: compareImageHeight }]}>
                           <AnimatedZoomImage source={{ uri: compareTargetPhoto.imageUrl }} style={[styles.compareExportImage, targetZoom.animatedStyle]} contentFit="contain" transition={150} />
-                        </View>
-                        <View style={styles.compareExportCaption}>
-                          <ThemedText type="small" style={styles.compareExportCaptionLabel}>DESPUÉS</ThemedText>
-                          <ThemedText type="small" style={styles.compareExportCaptionDate}>{getPhotoDateLabel(compareTargetPhoto)}</ThemedText>
                         </View>
                       </View>
                     </View>
@@ -1143,10 +1131,11 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    justifyContent: 'space-between',
+    rowGap: 12,
   },
   tile: {
-    width: '48.3%',
+    width: '48%',
     borderRadius: 18,
     overflow: 'hidden',
     backgroundColor: '#FFFFFF',
@@ -1463,7 +1452,7 @@ const styles = StyleSheet.create({
     gap: 0,
     overflow: 'hidden',
     borderRadius: 0,
-    backgroundColor: '#0D1A33',
+    backgroundColor: '#FFFFFF',
     padding: 0,
   },
   compareExportGrid: {
@@ -1478,48 +1467,12 @@ const styles = StyleSheet.create({
     gap: 0,
     padding: 0,
     margin: 0,
-    backgroundColor: '#0D1A33',
-  },
-  compareExportCardDivider: {
-    borderRightWidth: 2,
-    borderRightColor: '#1B345E',
-  },
-  compareExportHeader: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
-    paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 10,
-  },
-  compareExportHeaderTitle: {
-    color: '#FFFFFF',
-  },
-  compareExportHeaderMeta: {
-    color: '#7A9CC4',
-  },
-  compareExportCaption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  compareExportCaptionLabel: {
-    color: '#BFD3F7',
-    fontSize: 11,
-    letterSpacing: 0.6,
-  },
-  compareExportCaptionDate: {
-    color: '#7A9CC4',
-    fontSize: 11,
+    backgroundColor: '#FFFFFF',
   },
   compareExportImageViewport: {
     borderRadius: 0,
     overflow: 'hidden',
-    backgroundColor: '#0D1A33',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
@@ -1527,7 +1480,7 @@ const styles = StyleSheet.create({
   compareExportImage: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#0D1A33',
+    backgroundColor: '#FFFFFF',
   },
   comparisonExportHost: {
     position: 'absolute',

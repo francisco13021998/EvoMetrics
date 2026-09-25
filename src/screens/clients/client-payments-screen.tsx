@@ -8,6 +8,7 @@ import { AppButton } from '@/components/forms/app-button';
 import { AppDateTimeInput } from '@/components/forms/app-date-time';
 import { AppInput } from '@/components/forms/app-input';
 import { AppSelect } from '@/components/forms/app-select';
+import { ModalBackdrop } from '@/components/layout/modal-backdrop';
 import { PageHeader } from '@/components/layout/page-header';
 import { PageSection } from '@/components/layout/page-section';
 import { ScreenContainer } from '@/components/layout/screen-container';
@@ -495,7 +496,7 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
       </Modal>
 
       <Modal transparent visible={isRegisterPaymentModalOpen} animationType="fade" onRequestClose={closeRegisterPaymentModal}>
-        <Pressable style={styles.modalBackdrop} onPress={closeRegisterPaymentModal}>
+        <ModalBackdrop style={styles.modalBackdrop} onPress={closeRegisterPaymentModal}>
           <Pressable style={[styles.configModalPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
             <View style={styles.configModalHeader}>
               <View>
@@ -547,11 +548,11 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
               />
             </View>
           </Pressable>
-        </Pressable>
+        </ModalBackdrop>
       </Modal>
 
       <Modal transparent visible={isPaymentEditModalOpen} animationType="fade" onRequestClose={closePaymentEditModal}>
-        <Pressable style={styles.modalBackdrop} onPress={closePaymentEditModal}>
+        <ModalBackdrop style={styles.modalBackdrop} onPress={closePaymentEditModal}>
           <Pressable style={[styles.configModalPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
             <View style={styles.configModalHeader}>
               <View>
@@ -603,11 +604,11 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
               />
             </View>
           </Pressable>
-        </Pressable>
+        </ModalBackdrop>
       </Modal>
 
       <Modal transparent visible={isConfigModalOpen} animationType="fade" onRequestClose={() => setIsConfigModalOpen(false)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setIsConfigModalOpen(false)}>
+        <ModalBackdrop style={styles.modalBackdrop} onPress={() => setIsConfigModalOpen(false)}>
           <Pressable style={[styles.configModalPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
             <View style={styles.configModalHeader}>
               <View>
@@ -654,7 +655,7 @@ export function ClientPaymentsScreen({ clientId }: ClientPaymentsScreenProps) {
               />
             </View>
           </Pressable>
-        </Pressable>
+        </ModalBackdrop>
       </Modal>
     </ScreenContainer>
   );

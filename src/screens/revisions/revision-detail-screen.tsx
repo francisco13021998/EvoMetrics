@@ -28,6 +28,7 @@ import { revisionsService } from '@/services/revisions';
 import { Client, ClientPhoto, Revision } from '@/types/domain';
 import { findActivityFactorOption } from '@/utils/activity';
 import {
+    ACTIVE_BODY_FAT_SKINFOLD_KEYS,
     calculateBodyFatAverage,
     calculateBodyFatFromPerimeters,
     calculateBodyFatFromSkinfolds,
@@ -51,7 +52,7 @@ type DetailItem = {
 
 type MeasurementValueMap = Record<string, number | null | undefined>;
 
-type SectionKey = 'summary' | 'perimeters' | 'skinfolds' | 'photos' | 'notes';
+type SectionKey = 'summary' | 'perimeters' | 'skinfolds' | 'photos';
 
 const PERIMETER_LABEL_BY_KEY = {
   neckCm: 'Cuello',
@@ -74,6 +75,8 @@ const SKINFOLD_LABEL_BY_KEY = {
   frontThighFoldMm: 'Muslo frontal',
   calfFoldMm: 'Pantorrilla',
 } as const;
+
+const SKINFOLD_OPTIONAL_KEYS = ['abdominalFoldMm', 'frontThighFoldMm', 'calfFoldMm'] as const;
 
 function fmt(value: number | null | undefined, unit: string) {
   return value !== null && value !== undefined ? `${value} ${unit}` : '-';
@@ -673,6 +676,24 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
       torsoCm: revision.torsoCm,
     };
   }, [revision]);
+  const perimeterBodyFatDelta = useMemo(
+    () =>
+      perimeterCalculation
+        ? fmtDiff(calculateDiff(perimeterCalculation.roundedBodyFatPct, comparisonPerimeterCalculation?.roundedBodyFatPct), '%')
+        : null,
+    [comparisonPerimeterCalculation, perimeterCalculation]
+  );
+  const missingPerimeterInputs = useMemo(() => {
+    const missing: string[] = perimeterFieldGroups.required
+      .filter((key) => !hasMeasuredValue(perimeterMeasurementValues?.[key]))
+      .map((key) => PERIMETER_LABEL_BY_KEY[key]);
+
+    if (!hasMeasuredValue(client?.heightCm ?? null)) {
+      missing.push('Altura');
+    }
+
+    return missing;
+  }, [client?.heightCm, perimeterFieldGroups.required, perimeterMeasurementValues]);
   const perimeterRequiredItems = useMemo<DetailItem[]>(() => {
     if (!perimeterMeasurementValues) {
       return [];
@@ -706,10 +727,12 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
     });
   }, [comparisonPerimeterMeasurementValues, perimeterFieldGroups.optional, perimeterMeasurementValues]);
 
-  const skinfoldItems = useMemo<DetailItem[]>(() => {
-    if (!revision) return [];
+  const skinfoldMeasurementValues = useMemo(() => {
+    if (!revision) {
+      return null;
+    }
 
-    const skinfoldValueByKey = {
+    return {
       bicepFoldMm: revision.bicepFoldMm,
       tricepFoldMm: revision.tricepFoldMm,
       subscapularFoldMm: revision.subscapularFoldMm,
@@ -718,21 +741,64 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
       frontThighFoldMm: revision.frontThighFoldMm,
       calfFoldMm: revision.calfFoldMm,
     };
+  }, [revision]);
+  const skinfoldBodyFatDelta = useMemo(
+    () =>
+      skinfoldCalculation
+        ? fmtDiff(calculateDiff(skinfoldCalculation.roundedBodyFatPct, comparisonSkinfoldCalculation?.roundedBodyFatPct), '%')
+        : null,
+    [comparisonSkinfoldCalculation, skinfoldCalculation]
+  );
+  const missingSkinfoldInputs = useMemo(() => {
+    if (hasMeasuredValue(revision?.bodyFatSkinfoldsPct ?? null)) {
+      return [];
+    }
 
-    return (Object.keys(skinfoldValueByKey) as (keyof typeof skinfoldValueByKey)[]).flatMap((key) => {
+    const missing: string[] = ACTIVE_BODY_FAT_SKINFOLD_KEYS
+      .filter((key) => !hasMeasuredValue(skinfoldMeasurementValues?.[key]))
+      .map((key) => SKINFOLD_LABEL_BY_KEY[key]);
+
+    if (getClientAge(client, revision ? new Date(revision.reviewedAt) : undefined) === null) {
+      missing.push('Edad');
+    }
+
+    return missing;
+  }, [client, revision, skinfoldMeasurementValues]);
+  const skinfoldRequiredItems = useMemo<DetailItem[]>(() => {
+    if (!skinfoldMeasurementValues) {
+      return [];
+    }
+
+    return ACTIVE_BODY_FAT_SKINFOLD_KEYS.flatMap((key) => {
       const item = buildMeasurementItem(
         SKINFOLD_LABEL_BY_KEY[key],
-        skinfoldValueByKey[key],
+        skinfoldMeasurementValues[key],
         comparisonSkinfoldMeasurementValues?.[key],
         'mm'
       );
 
       return item ? [item] : [];
     });
-  }, [comparisonSkinfoldMeasurementValues, revision]);
+  }, [comparisonSkinfoldMeasurementValues, skinfoldMeasurementValues]);
+  const skinfoldOptionalItems = useMemo<DetailItem[]>(() => {
+    if (!skinfoldMeasurementValues) {
+      return [];
+    }
+
+    return SKINFOLD_OPTIONAL_KEYS.flatMap((key) => {
+      const item = buildMeasurementItem(
+        SKINFOLD_LABEL_BY_KEY[key],
+        skinfoldMeasurementValues[key],
+        comparisonSkinfoldMeasurementValues?.[key],
+        'mm'
+      );
+
+      return item ? [item] : [];
+    });
+  }, [comparisonSkinfoldMeasurementValues, skinfoldMeasurementValues]);
 
   const hasPerimeterSection = perimeterRequiredItems.length > 0 || perimeterOptionalItems.length > 0;
-  const hasSkinfoldSection = skinfoldItems.length > 0;
+  const hasSkinfoldSection = skinfoldRequiredItems.length > 0 || skinfoldOptionalItems.length > 0;
   const revisionBodyFatAverageLabel = bodyFatAverage ? `${bodyFatAverage.roundedBodyFatPct}% grasa` : 'Grasa no disponible';
 
   const notesValue = revision?.notes?.trim() ? revision.notes : 'Sin notas registradas.';
@@ -815,7 +881,6 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
 
   function renderSectionCard(
     sectionKey: SectionKey,
-    eyebrow: string,
     title: string,
     count: string,
     children: React.ReactNode
@@ -844,7 +909,6 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
               <Ionicons name={sectionIcon} size={18} color={isOpen ? '#FFFFFF' : Accent.primary} />
             </View>
             <View style={styles.sectionHeaderCopy}>
-              <ThemedText type="label" style={styles.sectionEyebrow}>{eyebrow}</ThemedText>
               <ThemedText type="smallBold" style={styles.sectionTitle}>{title}</ThemedText>
             </View>
           </View>
@@ -860,50 +924,75 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
     );
   }
 
-  function renderPerimeterFormulaHeader() {
-    if (!perimeterFormulaInfo) {
-      return null;
-    }
+  function renderBodyFatResultRow(options: {
+    formulaInfo: BodyFatFormulaReference | null;
+    formulaContent: ReturnType<typeof buildBodyFatFormulaInfoContent>;
+    hasResult: boolean;
+    valueText: string;
+    deltaLabel: string | null;
+    accessibilityLabel: string;
+  }) {
+    const { formulaInfo, formulaContent, hasResult, valueText, deltaLabel, accessibilityLabel } = options;
 
     return (
-      <View style={[styles.formulaHeaderRow, { borderColor: theme.backgroundSelected }]}>
-        <View style={styles.formulaHeaderCopy}>
-          <ThemedText type="smallBold" style={styles.formulaTitle}>Cálculo por perímetros</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.formulaHint}>
-            La fórmula utilizada queda disponible desde el icono de información.
+      <View style={styles.resultRow}>
+        <View style={styles.resultLabelCell}>
+          <ThemedText type="smallBold" style={styles.resultLabelText}>
+            Grasa estimada
           </ThemedText>
+          {formulaInfo ? (
+            <FormulaInfoButton
+              title={formulaInfo.title}
+              descriptionLines={formulaInfo.descriptionLines}
+              content={formulaContent}
+              accessibilityLabel={accessibilityLabel}
+            />
+          ) : null}
         </View>
-        <FormulaInfoButton
-          title={perimeterFormulaInfo.title}
-          descriptionLines={perimeterFormulaInfo.descriptionLines}
-          content={perimeterFormulaContent}
-          accessibilityLabel="Información sobre la fórmula de perímetros"
-        />
+        <View style={styles.technicalValueCell}>
+          <ThemedText type="headline" style={styles.resultValueText}>{valueText}</ThemedText>
+          {hasResult && deltaLabel ? (
+            <ThemedText type="smallBold" style={styles.resultValueDelta}>{deltaLabel}</ThemedText>
+          ) : null}
+        </View>
       </View>
     );
   }
 
-  function renderSkinfoldFormulaHeader() {
-    if (!skinfoldFormulaInfo) {
-      return null;
-    }
+  function renderPerimeterResultHeader() {
+    const hasResult = perimeterCalculation !== null;
+    const valueText = hasResult
+      ? `${perimeterCalculation!.roundedBodyFatPct}%`
+      : missingPerimeterInputs.length > 0
+        ? `Falta ${missingPerimeterInputs.join(', ')}`
+        : 'Sin datos';
 
-    return (
-      <View style={[styles.formulaHeaderRow, { borderColor: theme.backgroundSelected }]}>
-        <View style={styles.formulaHeaderCopy}>
-          <ThemedText type="smallBold" style={styles.formulaTitle}>Cálculo por pliegues</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.formulaHint}>
-            El detalle completo de la fórmula se consulta desde el icono de información.
-          </ThemedText>
-        </View>
-        <FormulaInfoButton
-          title={skinfoldFormulaInfo.title}
-          descriptionLines={skinfoldFormulaInfo.descriptionLines}
-          content={skinfoldFormulaContent}
-          accessibilityLabel="Información sobre la fórmula de pliegues"
-        />
-      </View>
-    );
+    return renderBodyFatResultRow({
+      formulaInfo: perimeterFormulaInfo,
+      formulaContent: perimeterFormulaContent,
+      hasResult,
+      valueText,
+      deltaLabel: perimeterBodyFatDelta,
+      accessibilityLabel: 'Información sobre la fórmula de perímetros',
+    });
+  }
+
+  function renderSkinfoldResultHeader() {
+    const hasResult = skinfoldCalculation !== null;
+    const valueText = hasResult
+      ? `${skinfoldCalculation!.roundedBodyFatPct}%`
+      : missingSkinfoldInputs.length > 0
+        ? `Falta ${missingSkinfoldInputs.join(', ')}`
+        : 'Sin datos';
+
+    return renderBodyFatResultRow({
+      formulaInfo: skinfoldFormulaInfo,
+      formulaContent: skinfoldFormulaContent,
+      hasResult,
+      valueText,
+      deltaLabel: skinfoldBodyFatDelta,
+      accessibilityLabel: 'Información sobre la fórmula de pliegues',
+    });
   }
 
   return (
@@ -949,25 +1038,11 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
             <Ionicons name="clipboard-outline" size={26} color={Accent.primary} />
           </View>
           <View style={styles.heroCopy}>
-            <ThemedText type="label" style={styles.heroEyebrow}>Detalle de revisión</ThemedText>
             <ThemedText type="headline" style={styles.clientTitle}>
               {client?.name ?? 'Cliente'}
             </ThemedText>
             <ThemedText type="small" themeColor="textSecondary" style={styles.heroDate}>
               {formatLongDate(revision.reviewedAt)}
-            </ThemedText>
-          </View>
-        </View>
-
-        <View style={styles.heroMetaRow}>
-          <View style={styles.phasePill}>
-            <Ionicons name="flag-outline" size={16} color={Accent.primary} />
-            <ThemedText type="smallBold" style={styles.phasePillText}>{formatRevisionPhase(revision.phase)}</ThemedText>
-          </View>
-          <View style={styles.phasePillSoft}>
-            <Ionicons name="git-compare-outline" size={16} color="#5C6B86" />
-            <ThemedText type="small" themeColor="textSecondary">
-              {selectedComparisonRevision ? `vs ${formatShortDate(selectedComparisonRevision.reviewedAt)}` : 'Sin comparativa'}
             </ThemedText>
           </View>
         </View>
@@ -1034,71 +1109,57 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
         {renderSectionCard(
           'summary',
           'Resumen',
-          'Metricas secundarias',
           `${summaryStats.length}`,
-          <View style={styles.summaryList}>
-            {summaryStats.map((item, index) => (
-              <View
-                key={item.label}
-                style={[
-                  styles.summaryRow,
-                  index !== summaryStats.length - 1 && styles.summaryRowDivider,
-                ]}>
-                <View style={styles.summaryRowCopy}>
-                  <ThemedText type="small" themeColor="textSecondary" style={styles.summaryLabel}>
-                    {item.label}
-                  </ThemedText>
-                  {item.delta ? (
-                    <ThemedText type="small" style={styles.summaryDelta}>
-                      {item.delta}
+          <View style={styles.perimeterSectionBody}>
+            <View style={styles.summaryList}>
+              {summaryStats.map((item, index) => (
+                <View
+                  key={item.label}
+                  style={[
+                    styles.summaryRow,
+                    index !== summaryStats.length - 1 && styles.summaryRowDivider,
+                  ]}>
+                  <View style={styles.summaryRowCopy}>
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.summaryLabel}>
+                      {item.label}
                     </ThemedText>
-                  ) : null}
+                    {item.delta ? (
+                      <ThemedText type="small" style={styles.summaryDelta}>
+                        {item.delta}
+                      </ThemedText>
+                    ) : null}
+                  </View>
+                  <ThemedText type="smallBold" style={styles.summaryValue}>
+                    {item.value}
+                  </ThemedText>
                 </View>
-                <ThemedText type="smallBold" style={styles.summaryValue}>
-                  {item.value}
-                </ThemedText>
-              </View>
-            ))}
+              ))}
+            </View>
+            <View style={styles.noteInline}>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.summaryNotesLabel}>Notas</ThemedText>
+              <ThemedText type="default" themeColor="textSecondary" style={styles.noteText}>
+                {notesValue}
+              </ThemedText>
+            </View>
           </View>
         )}
 
         {hasPerimeterSection
           ? renderSectionCard(
               'perimeters',
-              'Perimetros',
-              'Medidas corporales',
+              'Perímetros',
               `${perimeterRequiredItems.length + perimeterOptionalItems.length}`,
               <View style={styles.perimeterSectionBody}>
-                {renderPerimeterFormulaHeader()}
+                {renderPerimeterResultHeader()}
                 {perimeterRequiredItems.length > 0 ? (
-                  <View style={[styles.measureGroup, styles.measureGroupPrimary, { borderColor: theme.backgroundSelected }]}>
-                    <View style={styles.measureGroupHeader}>
-                      <View style={styles.measureGroupHeaderCopy}>
-                        <ThemedText type="smallBold" style={styles.measureGroupTitle}>Medidas registradas</ThemedText>
-                        <ThemedText type="small" themeColor="textSecondary" style={styles.measureGroupHint}>
-                          Valores disponibles para el análisis principal por perímetros.
-                        </ThemedText>
-                      </View>
-                      <View style={styles.measureGroupCountPill}>
-                        <ThemedText type="smallBold" style={styles.measureGroupCountText}>{perimeterRequiredItems.length}</ThemedText>
-                      </View>
-                    </View>
+                  <View style={styles.measureBlock}>
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.measureBlockLabel}>Usadas en el cálculo</ThemedText>
                     {renderTechnicalGrid(perimeterRequiredItems)}
                   </View>
                 ) : null}
                 {perimeterOptionalItems.length > 0 ? (
-                  <View style={[styles.measureGroup, styles.measureGroupSecondary, { borderColor: theme.backgroundSelected }]}>
-                    <View style={styles.measureGroupHeader}>
-                      <View style={styles.measureGroupHeaderCopy}>
-                        <ThemedText type="smallBold" style={[styles.measureGroupTitle, styles.measureGroupTitleSecondary]}>Contexto adicional</ThemedText>
-                        <ThemedText type="small" themeColor="textSecondary" style={styles.measureGroupHint}>
-                          Medidas extra guardadas para seguimiento complementario.
-                        </ThemedText>
-                      </View>
-                      <View style={styles.measureGroupSecondaryPill}>
-                        <ThemedText type="smallBold" style={styles.measureGroupSecondaryPillText}>{perimeterOptionalItems.length}</ThemedText>
-                      </View>
-                    </View>
+                  <View style={styles.measureBlock}>
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.measureBlockLabel}>Otras medidas</ThemedText>
                     {renderTechnicalGrid(perimeterOptionalItems, 'secondary')}
                   </View>
                 ) : null}
@@ -1110,19 +1171,28 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
           ? renderSectionCard(
               'skinfolds',
               'Pliegues',
-              'Control adiposo',
-              `${skinfoldItems.length}`,
+              `${skinfoldRequiredItems.length + skinfoldOptionalItems.length}`,
               <View style={styles.perimeterSectionBody}>
-                {renderSkinfoldFormulaHeader()}
-                {renderTechnicalGrid(skinfoldItems)}
+                {renderSkinfoldResultHeader()}
+                {skinfoldRequiredItems.length > 0 ? (
+                  <View style={styles.measureBlock}>
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.measureBlockLabel}>Usadas en el cálculo</ThemedText>
+                    {renderTechnicalGrid(skinfoldRequiredItems)}
+                  </View>
+                ) : null}
+                {skinfoldOptionalItems.length > 0 ? (
+                  <View style={styles.measureBlock}>
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.measureBlockLabel}>Otras medidas</ThemedText>
+                    {renderTechnicalGrid(skinfoldOptionalItems, 'secondary')}
+                  </View>
+                ) : null}
               </View>
             )
           : null}
 
         {renderSectionCard(
           'photos',
-          'Imágenes',
-          'Fotos asociadas',
+          'Fotos',
           `${revisionPhotos.length}`,
           <View style={styles.revisionPhotosWrap}>
             {!isAthlete && (
@@ -1150,18 +1220,6 @@ export function RevisionDetailScreen({ revisionId }: RevisionDetailScreenProps) 
                 ))}
               </View>
             )}
-          </View>
-        )}
-
-        {renderSectionCard(
-          'notes',
-          'Notas',
-          'Observaciones',
-          revision.notes?.trim() ? '1' : '0',
-          <View style={styles.noteInline}>
-            <ThemedText type="default" themeColor="textSecondary" style={styles.noteText}>
-              {notesValue}
-            </ThemedText>
           </View>
         )}
       </View>
@@ -1294,11 +1352,6 @@ const styles = StyleSheet.create({
     minWidth: 0,
     gap: 3,
   },
-  heroEyebrow: {
-    color: Accent.primary,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
   clientTitle: {
     fontSize: 31,
     lineHeight: 36,
@@ -1306,38 +1359,6 @@ const styles = StyleSheet.create({
   },
   heroDate: {
     lineHeight: 18,
-  },
-  heroMetaRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#E6EDF7',
-  },
-  phasePill: {
-    minHeight: 36,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    borderRadius: Radius.pill,
-    backgroundColor: '#EEF5FF',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  phasePillText: {
-    color: Accent.primary,
-    lineHeight: 16,
-  },
-  phasePillSoft: {
-    minHeight: 36,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    borderRadius: Radius.pill,
-    backgroundColor: '#F6F9FE',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
   },
   heroMetricsRow: {
     flexDirection: 'row',
@@ -1486,11 +1507,6 @@ const styles = StyleSheet.create({
     minWidth: 0,
     gap: 1,
   },
-  sectionEyebrow: {
-    color: Accent.primary,
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-  },
   sectionTitle: {
     color: Accent.ink,
     fontSize: 18,
@@ -1530,79 +1546,15 @@ const styles = StyleSheet.create({
   perimeterSectionBody: {
     gap: Spacing.two,
   },
-  formulaHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
-    borderWidth: 1,
-    borderColor: '#DFE7F2',
-    borderRadius: Radius.medium,
-    backgroundColor: '#F8FBFF',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+  measureBlock: {
+    gap: 6,
+    paddingTop: Spacing.two,
+    borderTopWidth: 1,
+    borderTopColor: '#EDF2FB',
   },
-  formulaHeaderCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  formulaTitle: {
-    color: Accent.ink,
-  },
-  formulaHint: {
-    lineHeight: 18,
-  },
-  measureGroup: {
-    gap: Spacing.two,
-    borderWidth: 1,
-    borderColor: '#DFE7F2',
-    borderRadius: 18,
-    padding: 12,
-  },
-  measureGroupPrimary: {
-    backgroundColor: '#FCFDFF',
-  },
-  measureGroupSecondary: {
-    backgroundColor: '#F7F9FC',
-  },
-  measureGroupHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
-  },
-  measureGroupHeaderCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  measureGroupTitle: {
-    color: Accent.ink,
-  },
-  measureGroupTitleSecondary: {
-    color: '#50627E',
-  },
-  measureGroupHint: {
-    lineHeight: 18,
-  },
-  measureGroupCountPill: {
-    borderRadius: Radius.pill,
-    backgroundColor: '#EEF4FF',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  measureGroupCountText: {
-    color: Accent.primary,
-    fontSize: 11,
-    lineHeight: 14,
-  },
-  measureGroupSecondaryPill: {
-    borderRadius: Radius.pill,
-    backgroundColor: '#EEF2F8',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  measureGroupSecondaryPillText: {
-    color: '#5C6B86',
+  measureBlockLabel: {
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
     fontSize: 11,
     lineHeight: 14,
   },
@@ -1662,6 +1614,33 @@ const styles = StyleSheet.create({
   technicalLabelCell: {
     flex: 1,
   },
+  resultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    borderRadius: Radius.medium,
+    backgroundColor: '#F0F6FF',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  resultLabelCell: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  resultLabelText: {
+    color: Accent.ink,
+  },
+  resultValueText: {
+    color: Accent.primary,
+    fontSize: 22,
+    lineHeight: 26,
+  },
+  resultValueDelta: {
+    color: Accent.primary,
+    lineHeight: 16,
+  },
   technicalValueCell: {
     alignItems: 'flex-end',
     gap: 2,
@@ -1691,6 +1670,11 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: '#F8FBFF',
     padding: 12,
+    gap: 4,
+  },
+  summaryNotesLabel: {
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   noteText: {
     lineHeight: 22,

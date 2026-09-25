@@ -42,7 +42,7 @@ export function TrainerRequestScreen() {
         throw new Error(error.message);
       }
 
-      setSuccessMessage('Solicitud enviada. Nos pondremos en contacto contigo lo antes posible.');
+      setSuccessMessage('Nos pondremos en contacto contigo lo antes posible.');
       setEmail('');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'No se pudo enviar la solicitud.';
@@ -55,10 +55,8 @@ export function TrainerRequestScreen() {
   return (
     <AuthShell
       brandSubtitle="Acceso para entrenadores"
-      eyebrow="Solicitar cuenta de entrenador"
       title="Pide tu acceso como entrenador"
-      description="Introduce tu correo y te contactaremos para validar tu perfil profesional y activar tu cuenta en EvoMetrics."
-      highlights={['Revisión manual', 'Acceso profesional', 'Sin esperas largas']}
+      description="Introduce tu correo y te contactaremos para validar tu perfil y activar tu cuenta."
       footerPrefix="¿Ya tienes cuenta?"
       footerAction="Iniciar sesión"
       footerSuffix=""

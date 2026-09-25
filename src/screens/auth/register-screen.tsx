@@ -60,7 +60,7 @@ export function RegisterScreen() {
 
   return (
     <AuthShell
-      brandSubtitle="Onboarding guiado para profesionales de salud y fitness"
+      brandSubtitle="Onboarding guiado para el seguimiento de la evolución física"
       eyebrow="Registro profesional"
       title="Crea tu cuenta de trabajo"
       description="Configura tu perfil una sola vez y empieza a registrar revisiones de forma ordenada y segura."

@@ -226,7 +226,6 @@ export function ClientListScreen() {
             <Ionicons name="people" size={25} color={Accent.primary} />
           </View>
           <View style={styles.headerCopy}>
-            <ThemedText type="label" style={styles.heroEyebrow}>Gestión de clientes</ThemedText>
             <ThemedText style={styles.title}>Clientes</ThemedText>
           </View>
           <Pressable
@@ -269,7 +268,6 @@ export function ClientListScreen() {
 
       <View style={styles.toolsCard}>
         <View style={styles.sectionHeading}>
-          <ThemedText style={styles.sectionTitle}>Directorio</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
             {sortedItems.length} {sortedItems.length === 1 ? 'resultado' : 'resultados'}
           </ThemedText>
@@ -458,10 +456,6 @@ const styles = StyleSheet.create({
   headerCopy: {
     flex: 1,
   },
-  heroEyebrow: {
-    color: Accent.primary,
-    lineHeight: 18,
-  },
   title: {
     color: '#10203B',
     fontSize: 32,
@@ -542,15 +536,8 @@ const styles = StyleSheet.create({
   sectionHeading: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     gap: 12,
-  },
-  sectionTitle: {
-    color: '#10203B',
-    fontSize: 19,
-    lineHeight: 24,
-    fontWeight: '700',
-    letterSpacing: -0.2,
   },
   toolsRow: {
     flexDirection: 'row',

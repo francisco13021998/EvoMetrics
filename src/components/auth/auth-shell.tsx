@@ -1,5 +1,5 @@
-import React, { ReactNode } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import React, { ReactNode, useEffect, useState } from 'react';
+import { Image, Keyboard, Pressable, StyleSheet, View } from 'react-native';
 
 import { ScreenContainer } from '@/components/layout/screen-container';
 import { ThemedText } from '@/components/themed-text';
@@ -7,15 +7,15 @@ import { Accent, Radius, Spacing } from '@/constants/theme';
 
 type AuthShellProps = {
   brandSubtitle: string;
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
-  description: string;
+  description?: string;
   highlights?: string[];
   children: ReactNode;
-  footerPrefix: string;
-  footerAction: string;
-  footerSuffix: string;
-  onFooterPress: () => void;
+  footerPrefix?: string;
+  footerAction?: string;
+  footerSuffix?: string;
+  onFooterPress?: () => void;
   footerDisabled?: boolean;
 };
 
@@ -26,16 +26,28 @@ export function AuthShell({
   description,
   highlights,
   children,
-  footerPrefix,
-  footerAction,
-  footerSuffix,
+  footerPrefix = '',
+  footerAction = '',
+  footerSuffix = '',
   onFooterPress,
   footerDisabled = false,
 }: AuthShellProps) {
-  const resolvedHighlights = (highlights?.length ? highlights : ['Proceso guiado', 'Datos fiables', 'Uso inmediato']).slice(0, 3);
+  const resolvedHighlights = (highlights ?? []).slice(0, 3);
+  const showFooter = Boolean(footerAction);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showEvent = Keyboard.addListener('keyboardDidShow', () => setIsKeyboardVisible(true));
+    const hideEvent = Keyboard.addListener('keyboardDidHide', () => setIsKeyboardVisible(false));
+
+    return () => {
+      showEvent.remove();
+      hideEvent.remove();
+    };
+  }, []);
 
   return (
-    <ScreenContainer scrollable contentStyle={styles.content}>
+    <ScreenContainer scrollable contentStyle={[styles.content, isKeyboardVisible && styles.contentKeyboardVisible]}>
       <View style={styles.hero}>
         <View style={styles.heroGlowPrimary} />
         <View style={styles.heroGlowSecondary} />
@@ -61,25 +73,31 @@ export function AuthShell({
         </View>
 
         <View style={styles.copyBlock}>
-          <ThemedText type="label" style={styles.eyebrow}>
-            {eyebrow}
-          </ThemedText>
+          {eyebrow ? (
+            <ThemedText type="label" style={styles.eyebrow}>
+              {eyebrow}
+            </ThemedText>
+          ) : null}
           <ThemedText style={styles.title}>{title}</ThemedText>
-          <ThemedText type="default" themeColor="textSecondary" style={styles.description}>
-            {description}
-          </ThemedText>
+          {description ? (
+            <ThemedText type="default" themeColor="textSecondary" style={styles.description}>
+              {description}
+            </ThemedText>
+          ) : null}
         </View>
 
-        <View style={styles.highlightsRow}>
-          {resolvedHighlights.map((item) => (
-            <View key={item} style={styles.highlightChip}>
-              <View style={styles.highlightDot} />
-              <ThemedText type="small" style={styles.highlightText}>
-                {item}
-              </ThemedText>
-            </View>
-          ))}
-        </View>
+        {resolvedHighlights.length > 0 ? (
+          <View style={styles.highlightsRow}>
+            {resolvedHighlights.map((item) => (
+              <View key={item} style={styles.highlightChip}>
+                <View style={styles.highlightDot} />
+                <ThemedText type="small" style={styles.highlightText}>
+                  {item}
+                </ThemedText>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.formBlock}>
@@ -88,14 +106,16 @@ export function AuthShell({
           <View style={styles.formInner}>{children}</View>
         </View>
 
-        <Pressable
-          onPress={onFooterPress}
-          disabled={footerDisabled}
-          style={({ pressed }) => [styles.footerLink, { opacity: footerDisabled ? 0.45 : pressed ? 0.76 : 1 }]}>
-          <ThemedText type="default" style={styles.footerText}>
-            {footerPrefix} <ThemedText type="linkPrimary">{footerAction}</ThemedText> {footerSuffix}
-          </ThemedText>
-        </Pressable>
+        {showFooter ? (
+          <Pressable
+            onPress={onFooterPress}
+            disabled={footerDisabled}
+            style={({ pressed }) => [styles.footerLink, { opacity: footerDisabled ? 0.45 : pressed ? 0.76 : 1 }]}>
+            <ThemedText type="default" style={styles.footerText}>
+              {footerPrefix} <ThemedText type="linkPrimary">{footerAction}</ThemedText> {footerSuffix}
+            </ThemedText>
+          </Pressable>
+        ) : null}
       </View>
     </ScreenContainer>
   );
@@ -109,6 +129,9 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.two,
     paddingBottom: Spacing.three,
     gap: Spacing.two,
+  },
+  contentKeyboardVisible: {
+    justifyContent: 'flex-start',
   },
   hero: {
     gap: Spacing.three,

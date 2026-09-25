@@ -453,9 +453,6 @@ export function ClientsScreen() {
             <ThemedText type="smallBold" style={styles.brandName}>
               EvoMetrics
             </ThemedText>
-            <ThemedText type="small" style={styles.brandText}>
-              Panel profesional
-            </ThemedText>
           </View>
           <View style={styles.brandActions}>
             <Pressable
@@ -529,10 +526,7 @@ export function ClientsScreen() {
 
       <View style={styles.quickActionsCard}>
         <View style={styles.sectionHeadingRow}>
-          <View>
-            <ThemedText style={styles.sectionTitle}>Acciones rápidas</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">Tareas frecuentes</ThemedText>
-          </View>
+          <ThemedText style={styles.sectionTitle}>Acciones rápidas</ThemedText>
         </View>
         <View style={styles.quickActionsRow}>
           {[
@@ -946,10 +940,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     lineHeight: 20,
-  },
-  brandText: {
-    color: '#C7D7FF',
-    lineHeight: 18,
   },
   heroIdentity: {
     gap: 2,

@@ -53,14 +53,12 @@ export function AthleteJoinScreen() {
   return (
     <AuthShell
       brandSubtitle="Acceso para atletas"
-      eyebrow="Unirme como atleta"
       title="Introduce tu PIN de acceso"
-      description="Tu entrenador te habrá proporcionado un PIN de 6 caracteres con validez de 1 hora para completar tu registro."
-      highlights={['PIN temporal', 'Acceso seguro', 'Solo un uso']}
+      description="Es el PIN de 6 caracteres que te ha dado tu entrenador, válido durante 1 hora."
       footerPrefix="¿Eres entrenador?"
       footerAction="Iniciar sesión"
       footerSuffix=""
-      onFooterPress={() => router.back()}
+      onFooterPress={() => router.push('/login')}
       footerDisabled={isSubmitting}>
       <View style={styles.fieldsBlock}>
         <AppInput

@@ -420,7 +420,6 @@ export function PaymentsScreen() {
       : activeSection === 'upcoming'
         ? 'Próximos pagos'
         : 'Pagos';
-  const sectionSubtitle = isSectionView ? 'Listado completo' : 'Cobros y seguimiento';
   const headerAction = isSectionView ? 'Resumen' : 'Clientes';
   const onHeaderActionPress = isSectionView ? goToOverview : goToClients;
 
@@ -606,11 +605,7 @@ export function PaymentsScreen() {
             <Ionicons name="card-outline" size={25} color={Accent.primary} />
           </View>
           <View style={styles.headerCopy}>
-            <ThemedText type="label" style={styles.headerEyebrow}>Finanzas</ThemedText>
             <ThemedText style={styles.title}>{sectionTitle}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
-              {sectionSubtitle}
-            </ThemedText>
           </View>
 
           <Pressable
@@ -809,20 +804,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
     gap: 2,
   },
-  headerEyebrow: {
-    color: Accent.primary,
-    lineHeight: 18,
-    textTransform: 'uppercase',
-  },
   title: {
     color: '#10203B',
     fontSize: 32,
     lineHeight: 38,
     fontWeight: '800',
     letterSpacing: -0.6,
-  },
-  subtitle: {
-    lineHeight: 19,
   },
   headerActionButton: {
     minHeight: 44,

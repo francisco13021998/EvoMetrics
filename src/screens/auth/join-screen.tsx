@@ -9,10 +9,7 @@ export function JoinScreen() {
   return (
     <AuthShell
       brandSubtitle="Tu plataforma de evolución física"
-      eyebrow="Unirme a EvoMetrics"
       title="¿Cómo quieres unirte?"
-      description="Elige tu rol para comenzar. Si eres atleta necesitarás el PIN de tu entrenador. Si eres entrenador te contactaremos para activar tu cuenta."
-      highlights={['Acceso seguro', 'Rol adecuado', 'Proceso guiado']}
       footerPrefix="¿Ya tienes cuenta?"
       footerAction="Iniciar sesión"
       footerSuffix=""

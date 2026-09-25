@@ -360,7 +360,6 @@ export function EventFormScreen({ mode, eventId, clientId: clientIdFromRoute }: 
   return (
     <ScreenContainer contentStyle={styles.screenContent}>
       <PageHeader
-        eyebrow={mode === 'create' ? 'Alta' : 'Edicion'}
         title={mode === 'create' ? 'Nuevo evento' : 'Editar evento'}
         subtitle={mode === 'create' ? 'Programa una llamada, reunión o visita.' : 'Ajusta la serie o una ocurrencia futura.'}
         rightSlot={
@@ -456,7 +455,7 @@ export function EventFormScreen({ mode, eventId, clientId: clientIdFromRoute }: 
                 label="Evento de día completo"
                 checked={form.allDay}
                 onChange={(checked) => setForm((current) => ({ ...current, allDay: checked }))}
-                helper="Mantiene la fecha pero oculta la hora en la UI futura."
+                helper="La hora no se tiene en cuenta para este evento."
               />
             </View>
           </View>
@@ -601,9 +600,11 @@ export function EventFormScreen({ mode, eventId, clientId: clientIdFromRoute }: 
         </View>
 
         <View style={[styles.actions, { borderColor: theme.backgroundSelected }]}>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.actionsCopy}>
-            Puedes ajustar la serie y sus instancias después.
-          </ThemedText>
+          {form.recurrenceEnabled ? (
+            <ThemedText type="small" themeColor="textSecondary" style={styles.actionsCopy}>
+              Puedes ajustar la serie y sus instancias después.
+            </ThemedText>
+          ) : null}
           <AppButton label={mode === 'create' ? 'Crear evento' : 'Guardar cambios'} onPress={handleSubmit} loading={isSubmitting} />
           {mode === 'edit' ? (
             <AppButton label="Cancelar" variant="surface" onPress={() => router.back()} disabled={isSubmitting} />

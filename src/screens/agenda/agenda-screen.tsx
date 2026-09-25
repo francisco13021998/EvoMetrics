@@ -497,11 +497,7 @@ export function AgendaScreen() {
             <Ionicons name="calendar-outline" size={25} color={Accent.primary} />
           </View>
           <View style={styles.headerCopy}>
-            <ThemedText type="label" style={styles.eyebrow}>Agenda</ThemedText>
             <ThemedText style={styles.title}>Agenda</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
-              {formatSpanishLongDate(selectedDate)}
-            </ThemedText>
           </View>
           <Pressable
             onPress={openEventForm}
@@ -837,15 +833,6 @@ export function AgendaScreen() {
 
       {selectedMode === 'day' ? (
         <View style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <View>
-              <ThemedText style={styles.sectionTitle}>Agenda del día</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary" style={styles.sectionSubtitle}>
-                {formatSpanishLongDate(selectedDate)}
-              </ThemedText>
-            </View>
-          </View>
-
           {isLoading ? (
             <StatusBanner tone="info" loading message="Sincronizando agenda." />
           ) : selectedDayEvents.length === 0 ? (
@@ -933,11 +920,6 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  eyebrow: {
-    color: Accent.primary,
-    lineHeight: 18,
-    textTransform: 'uppercase',
-  },
   createEventButton: {
     width: 48,
     height: 48,
@@ -956,9 +938,6 @@ const styles = StyleSheet.create({
     lineHeight: 38,
     fontWeight: '800',
     letterSpacing: -0.6,
-  },
-  subtitle: {
-    lineHeight: 19,
   },
   modeShell: {
     flexDirection: 'row',
@@ -1418,22 +1397,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     padding: 14,
     gap: 10,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
-  },
-  sectionTitle: {
-    color: '#10203B',
-    fontSize: 19,
-    lineHeight: 24,
-    fontWeight: '800',
-  },
-  sectionSubtitle: {
-    marginTop: 1,
-    lineHeight: 17,
   },
   dayRow: {
     flexDirection: 'row',

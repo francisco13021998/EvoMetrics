@@ -230,7 +230,6 @@ export function EventOccurrenceDetailScreen({ occurrenceId }: EventOccurrenceDet
   return (
     <ScreenContainer contentStyle={styles.screenContent}>
       <PageHeader
-        eyebrow="Instancia"
         title={event?.title ?? 'Detalle de evento'}
         subtitle={client ? `Para ${client.name}` : 'Sin cliente asociado'}
         rightSlot={

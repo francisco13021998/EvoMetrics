@@ -55,17 +55,7 @@ export function LoginScreen() {
   }
 
   return (
-    <AuthShell
-      brandSubtitle="Gestión profesional para nutrición y entrenamiento"
-      eyebrow="Acceso seguro"
-      title="Inicia sesión en tu panel"
-      description="Accede a tus clientes y revisiones con una interfaz clara, rápida y preparada para consulta profesional diaria."
-      highlights={['Flujo guiado', 'Datos organizados', 'Resultados fiables']}
-      footerPrefix=""
-      footerAction=""
-      footerSuffix=""
-      onFooterPress={() => {}}
-      footerDisabled>
+    <AuthShell brandSubtitle="Gestión profesional de la evolución física de tus clientes" title="Inicia sesión">
       <View style={styles.fieldsBlock}>
         <AppInput
           label="Correo"

@@ -12,6 +12,7 @@ import { AppButton } from '@/components/forms/app-button';
 import { AppCheckbox } from '@/components/forms/app-checkbox';
 import { AppInput } from '@/components/forms/app-input';
 import { AppSelect } from '@/components/forms/app-select';
+import { ModalBackdrop } from '@/components/layout/modal-backdrop';
 import { PageHeader } from '@/components/layout/page-header';
 import { PageSection } from '@/components/layout/page-section';
 import { ScreenContainer } from '@/components/layout/screen-container';
@@ -363,7 +364,6 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
           </View>
           <View style={styles.heroCopy}>
             <ThemedText type="headline" style={styles.heroTitle}>{client.name}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.heroSubtitle}>Perfil de cliente</ThemedText>
           </View>
           <Pressable
             onPress={() => { void handleToggleClientStatus(); }}
@@ -467,7 +467,6 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
       <View style={[styles.section, { borderColor: theme.backgroundSelected }]}>
         <View style={styles.sectionHeader}>
           <View style={styles.sectionHeaderCopy}>
-            <ThemedText type="label" style={styles.sectionEyebrow}>Seguimiento</ThemedText>
             <ThemedText type="headline" style={styles.sectionTitle}>Revisiones</ThemedText>
             <ThemedText type="small" themeColor="textSecondary" style={styles.revisionFrequencyText}>
               {revisionFrequencySummary}
@@ -562,7 +561,6 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
           <Pressable style={[styles.dataPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
             <View style={styles.dataPanelHeader}>
               <View>
-                <ThemedText type="label" style={styles.sectionEyebrow}>Perfil</ThemedText>
                 <ThemedText type="headline" style={styles.dataPanelTitle}>Datos del cliente</ThemedText>
               </View>
               <Pressable
@@ -631,7 +629,7 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
       </Modal>
 
       <Modal transparent visible={isRevisionSettingsOpen} animationType="fade" onRequestClose={closeRevisionSettings}>
-        <Pressable style={styles.menuBackdrop} onPress={closeRevisionSettings}>
+        <ModalBackdrop style={styles.menuBackdrop} onPress={closeRevisionSettings}>
           <Pressable style={[styles.menuPanel, styles.revisionSettingsPanel, { borderColor: theme.backgroundSelected }]} onPress={() => null}>
             <View style={styles.revisionSettingsHeader}>
               <View style={styles.revisionSettingsCopy}>
@@ -694,7 +692,7 @@ export function ClientDetailScreen({ clientId }: ClientDetailScreenProps) {
               />
             </View>
           </Pressable>
-        </Pressable>
+        </ModalBackdrop>
       </Modal>
 
       <AthletePinModal
@@ -785,9 +783,6 @@ const styles = StyleSheet.create({
     fontSize: 28,
     lineHeight: 34,
   },
-  heroSubtitle: {
-    lineHeight: 18,
-  },
   statusToggleButton: {
     minHeight: 36,
     flexDirection: 'row',
@@ -852,11 +847,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     gap: 2,
-  },
-  sectionEyebrow: {
-    color: Accent.primary,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
   },
   sectionTitle: {
     color: '#10203B',
